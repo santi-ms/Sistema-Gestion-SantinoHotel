@@ -5,9 +5,11 @@ from sqlmodel import SQLModel, Field, Session, select, create_engine
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 from enum import Enum
 from pydantic import BaseModel
+import json
+from collections import defaultdict
 
 app = FastAPI()
 
@@ -68,7 +70,7 @@ class Reserva(SQLModel, table=True):
 
 class Pedido(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    detalle: str
+    detalle: str  # Almacena JSON con los items
     monto: float
     habitacion_id: Optional[int] = None
     externo: bool = False
@@ -81,6 +83,27 @@ class GastoAdicional(SQLModel, table=True):
     descripcion: str
     monto: float
     fecha: datetime = Field(default_factory=datetime.utcnow)
+
+# ─────────── NUEVOS MODELOS PARA ITEMS MÚLTIPLES ───────────
+class ItemPedido(BaseModel):
+    descripcion: str
+    cantidad: int
+    precio: float
+
+class PedidoConItems(BaseModel):
+    items: List[ItemPedido]
+    habitacion_id: Optional[int] = None
+    externo: bool = False
+    forma_pago: str
+
+class PedidoRespuesta(BaseModel):
+    id: int
+    items: List[ItemPedido]
+    monto: float
+    habitacion_id: Optional[int]
+    externo: bool
+    forma_pago: str
+    fecha: datetime
 
 @app.on_event("startup")
 def crear_tablas():
@@ -247,20 +270,89 @@ def eliminar_cliente(
     db.commit()
     return {"mensaje": "Cliente eliminado"}
 
-# ─────────── ENDPOINTS DE PEDIDOS ───────────
-@app.post("/pedidos")
-def registrar_pedido(pedido: Pedido, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
-    db.add(pedido)
+# ─────────── ENDPOINTS DE PEDIDOS ACTUALIZADOS ───────────
+@app.post("/pedidos", response_model=dict)
+def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+    # Calcular el monto total
+    monto_total = sum(item.cantidad * item.precio for item in pedido.items)
+    
+    # Convertir items a JSON para almacenar en el campo detalle
+    items_json = json.dumps([item.dict() for item in pedido.items])
+    
+    # Crear el pedido
+    nuevo_pedido = Pedido(
+        detalle=items_json,
+        monto=monto_total,
+        habitacion_id=pedido.habitacion_id,
+        externo=pedido.externo,
+        forma_pago=pedido.forma_pago,
+        fecha=datetime.utcnow()
+    )
+    
+    db.add(nuevo_pedido)
     db.commit()
-    return {"mensaje": "Pedido registrado"}
+    db.refresh(nuevo_pedido)
+    
+    return {"mensaje": "Pedido registrado correctamente", "id": nuevo_pedido.id}
 
-@app.get("/pedidos")
-def obtener_todos_los_pedidos(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+@app.get("/pedidos", response_model=List[PedidoRespuesta])
+def obtener_todos_los_pedidos_con_items(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     pedidos = db.exec(select(Pedido)).all()
-    return pedidos
+    
+    resultado = []
+    for pedido in pedidos:
+        try:
+            # Parsear los items desde JSON
+            items_data = json.loads(pedido.detalle)
+            items = [ItemPedido(**item) for item in items_data]
+        except:
+            # Si hay error al parsear, crear un item con el detalle original
+            items = [ItemPedido(descripcion=pedido.detalle, cantidad=1, precio=pedido.monto)]
+        
+        resultado.append(PedidoRespuesta(
+            id=pedido.id,
+            items=items,
+            monto=pedido.monto,
+            habitacion_id=pedido.habitacion_id,
+            externo=pedido.externo,
+            forma_pago=pedido.forma_pago,
+            fecha=pedido.fecha
+        ))
+    
+    return resultado
 
-@app.get("/pedidos-dia")
-def obtener_pedidos_por_dia(
+@app.get("/pedidos/hoy", response_model=List[PedidoRespuesta])
+def obtener_pedidos_hoy(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+    hoy = datetime.utcnow().date()
+    inicio_dia = datetime.combine(hoy, datetime.min.time())
+    fin_dia = datetime.combine(hoy, datetime.max.time())
+    
+    pedidos = db.exec(
+        select(Pedido).where(Pedido.fecha >= inicio_dia, Pedido.fecha <= fin_dia)
+    ).all()
+    
+    resultado = []
+    for pedido in pedidos:
+        try:
+            items_data = json.loads(pedido.detalle)
+            items = [ItemPedido(**item) for item in items_data]
+        except:
+            items = [ItemPedido(descripcion=pedido.detalle, cantidad=1, precio=pedido.monto)]
+        
+        resultado.append(PedidoRespuesta(
+            id=pedido.id,
+            items=items,
+            monto=pedido.monto,
+            habitacion_id=pedido.habitacion_id,
+            externo=pedido.externo,
+            forma_pago=pedido.forma_pago,
+            fecha=pedido.fecha
+        ))
+    
+    return resultado
+
+@app.get("/pedidos-dia", response_model=List[PedidoRespuesta])
+def obtener_pedidos_por_dia_con_items(
     fecha: str = Query(...),
     db: Session = Depends(obtener_db),
     token: dict = Depends(verificar_token)
@@ -273,12 +365,31 @@ def obtener_pedidos_por_dia(
     pedidos = db.exec(
         select(Pedido).where(Pedido.fecha >= fecha_obj, Pedido.fecha < fecha_obj + timedelta(days=1))
     ).all()
-    return pedidos
+    
+    resultado = []
+    for pedido in pedidos:
+        try:
+            items_data = json.loads(pedido.detalle)
+            items = [ItemPedido(**item) for item in items_data]
+        except:
+            items = [ItemPedido(descripcion=pedido.detalle, cantidad=1, precio=pedido.monto)]
+        
+        resultado.append(PedidoRespuesta(
+            id=pedido.id,
+            items=items,
+            monto=pedido.monto,
+            habitacion_id=pedido.habitacion_id,
+            externo=pedido.externo,
+            forma_pago=pedido.forma_pago,
+            fecha=pedido.fecha
+        ))
+    
+    return resultado
 
 @app.put("/pedidos/{pedido_id}")
-def actualizar_pedido(
+def actualizar_pedido_con_items(
     pedido_id: int,
-    datos: Pedido,
+    datos: PedidoConItems,
     db: Session = Depends(obtener_db),
     token: dict = Depends(verificar_token)
 ):
@@ -286,20 +397,26 @@ def actualizar_pedido(
     if not pedido:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
 
-    pedido.detalle = datos.detalle
-    pedido.monto = datos.monto
+    # Calcular nuevo monto total
+    monto_total = sum(item.cantidad * item.precio for item in datos.items)
+    
+    # Convertir items a JSON
+    items_json = json.dumps([item.dict() for item in datos.items])
+
+    # Actualizar el pedido
+    pedido.detalle = items_json
+    pedido.monto = monto_total
     pedido.habitacion_id = datos.habitacion_id
     pedido.externo = datos.externo
     pedido.forma_pago = datos.forma_pago
-    # Mantener la fecha original, no actualizarla
-    # pedido.fecha = datetime.utcnow()
+    # Mantener la fecha original
 
     db.add(pedido)
     db.commit()
     return {"mensaje": "Pedido actualizado correctamente"}
 
 @app.delete("/pedidos/{pedido_id}")
-def eliminar_pedido(
+def eliminar_pedido_actualizado(
     pedido_id: int,
     db: Session = Depends(obtener_db),
     token: dict = Depends(verificar_token)
@@ -310,7 +427,7 @@ def eliminar_pedido(
     
     db.delete(pedido)
     db.commit()
-    return {"mensaje": "Pedido eliminado"}
+    return {"mensaje": "Pedido eliminado correctamente"}
 
 # ─────────── ENDPOINTS DE GASTOS ───────────
 @app.post("/gastos")
@@ -355,7 +472,6 @@ def actualizar_gasto(
     gasto.descripcion = datos.descripcion
     gasto.monto = datos.monto
     # Mantener la fecha original
-    # gasto.fecha = datetime.utcnow()
 
     db.add(gasto)
     db.commit()
@@ -492,13 +608,7 @@ def resumen_del_dia(fecha: str, db: Session = Depends(obtener_db), token: dict =
         "balance": total_reservas + total_pedidos - total_gastos
     }
 
-# Agregar estos endpoints a tu hotel.py existente
-
-import json
-from collections import defaultdict
-
 # ─────────── ENDPOINTS DE ANALYTICS ───────────
-
 @app.get("/analytics/dashboard")
 def dashboard_analytics(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     """Dashboard principal con métricas generales"""
@@ -813,3 +923,22 @@ def reporte_mensual(
             ]
         }
     }
+
+# ─────────── ENDPOINT ROOT PARA VERIFICAR QUE LA API FUNCIONA ───────────
+@app.get("/")
+def root():
+    return {
+        "mensaje": "API del Hotel Santino funcionando correctamente",
+        "version": "2.0",
+        "fecha": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+        "endpoints_principales": [
+            "/login",
+            "/pedidos",
+            "/pedidos/hoy",
+            "/habitaciones",
+            "/clientes",
+            "/reservas",
+            "/gastos",
+            "/analytics/dashboard"
+        ]
+    }%
