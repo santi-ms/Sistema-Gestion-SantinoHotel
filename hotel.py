@@ -753,3 +753,9 @@ def root():
             "/analytics/dashboard"
         ]
     }
+
+# ENDPOINT TEMPORAL PARA DEBUGGING (sin autenticación)
+@app.get("/test-pedidos")
+def test_pedidos_sin_auth(db: Session = Depends(obtener_db)):
+    pedidos = db.exec(select(Pedido)).all()
+    return {"total_pedidos": len(pedidos), "pedidos": pedidos}
