@@ -214,7 +214,6 @@ def eliminar_habitacion(
 # ─────────── ENDPOINTS DE CLIENTES ───────────
 @app.post("/clientes")
 def crear_cliente(cliente: Cliente, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
-    # Verificar si ya existe un cliente con ese DNI
     cliente_existente = db.exec(select(Cliente).where(Cliente.dni == cliente.dni)).first()
     if cliente_existente:
         raise HTTPException(status_code=400, detail="Ya existe un cliente con ese DNI")
@@ -240,7 +239,6 @@ def actualizar_cliente(
     if not cliente:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     
-    # Verificar DNI duplicado (excluyendo el cliente actual)
     cliente_existente = db.exec(
         select(Cliente).where(Cliente.dni == data.dni, Cliente.id != cliente_id)
     ).first()
@@ -271,15 +269,11 @@ def eliminar_cliente(
     return {"mensaje": "Cliente eliminado"}
 
 # ─────────── ENDPOINTS DE PEDIDOS ACTUALIZADOS ───────────
-@app.post("/pedidos", response_model=dict)
+@app.post("/pedidos")
 def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
-    # Calcular el monto total
     monto_total = sum(item.cantidad * item.precio for item in pedido.items)
-    
-    # Convertir items a JSON para almacenar en el campo detalle
     items_json = json.dumps([item.dict() for item in pedido.items])
     
-    # Crear el pedido
     nuevo_pedido = Pedido(
         detalle=items_json,
         monto=monto_total,
@@ -302,11 +296,9 @@ def obtener_todos_los_pedidos_con_items(db: Session = Depends(obtener_db), token
     resultado = []
     for pedido in pedidos:
         try:
-            # Parsear los items desde JSON
             items_data = json.loads(pedido.detalle)
             items = [ItemPedido(**item) for item in items_data]
         except:
-            # Si hay error al parsear, crear un item con el detalle original
             items = [ItemPedido(descripcion=pedido.detalle, cantidad=1, precio=pedido.monto)]
         
         resultado.append(PedidoRespuesta(
@@ -397,19 +389,14 @@ def actualizar_pedido_con_items(
     if not pedido:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
 
-    # Calcular nuevo monto total
     monto_total = sum(item.cantidad * item.precio for item in datos.items)
-    
-    # Convertir items a JSON
     items_json = json.dumps([item.dict() for item in datos.items])
 
-    # Actualizar el pedido
     pedido.detalle = items_json
     pedido.monto = monto_total
     pedido.habitacion_id = datos.habitacion_id
     pedido.externo = datos.externo
     pedido.forma_pago = datos.forma_pago
-    # Mantener la fecha original
 
     db.add(pedido)
     db.commit()
@@ -471,7 +458,6 @@ def actualizar_gasto(
     gasto.habitacion_id = datos.habitacion_id
     gasto.descripcion = datos.descripcion
     gasto.monto = datos.monto
-    # Mantener la fecha original
 
     db.add(gasto)
     db.commit()
@@ -511,7 +497,7 @@ def crear_reserva_simple(data: ReservaEntrada, db: Session = Depends(obtener_db)
         seña=data.seña,
         forma_pago=data.forma_pago,
         nombre_huesped=data.nombre_huesped,
-        cliente_id=0,  # Cliente temporal hasta que se implemente el sistema completo
+        cliente_id=0,
     )
     db.add(reserva)
     db.commit()
@@ -543,7 +529,6 @@ def realizar_checkout(reserva_id: int, db: Session = Depends(obtener_db), token:
     if not reserva:
         raise HTTPException(status_code=404, detail="Reserva no encontrada")
 
-    # Marcar como checkout estableciendo la fecha de checkout a ayer
     nueva_fecha = datetime.utcnow() - timedelta(days=1)
     reserva.fecha_checkout = datetime.combine(nueva_fecha.date(), datetime.min.time())
 
@@ -574,7 +559,6 @@ def resumen_del_dia(fecha: str, db: Session = Depends(obtener_db), token: dict =
 
     dia_siguiente = fecha_obj + timedelta(days=1)
 
-    # Ingresos por reservas (checkins del día)
     ingresos_reservas = db.exec(
         select(Reserva.total_estadia).where(
             Reserva.fecha_checkin >= fecha_obj,
@@ -583,7 +567,6 @@ def resumen_del_dia(fecha: str, db: Session = Depends(obtener_db), token: dict =
     ).all()
     total_reservas = sum(ingresos_reservas)
 
-    # Ingresos por pedidos del día
     ingresos_pedidos = db.exec(
         select(Pedido.monto).where(
             Pedido.fecha >= fecha_obj,
@@ -592,7 +575,6 @@ def resumen_del_dia(fecha: str, db: Session = Depends(obtener_db), token: dict =
     ).all()
     total_pedidos = sum(ingresos_pedidos)
 
-    # Gastos del día
     gastos = db.exec(
         select(GastoAdicional.monto).where(
             GastoAdicional.fecha >= fecha_obj,
@@ -611,11 +593,9 @@ def resumen_del_dia(fecha: str, db: Session = Depends(obtener_db), token: dict =
 # ─────────── ENDPOINTS DE ANALYTICS ───────────
 @app.get("/analytics/dashboard")
 def dashboard_analytics(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
-    """Dashboard principal con métricas generales"""
     hoy = datetime.utcnow()
     inicio_mes = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     
-    # Reservas del mes actual
     reservas_mes = db.exec(
         select(Reserva).where(
             Reserva.fecha_checkin >= inicio_mes,
@@ -623,7 +603,6 @@ def dashboard_analytics(db: Session = Depends(obtener_db), token: dict = Depends
         )
     ).all()
     
-    # Pedidos del mes actual
     pedidos_mes = db.exec(
         select(Pedido).where(
             Pedido.fecha >= inicio_mes,
@@ -631,7 +610,6 @@ def dashboard_analytics(db: Session = Depends(obtener_db), token: dict = Depends
         )
     ).all()
     
-    # Gastos del mes actual
     gastos_mes = db.exec(
         select(GastoAdicional).where(
             GastoAdicional.fecha >= inicio_mes,
@@ -639,17 +617,14 @@ def dashboard_analytics(db: Session = Depends(obtener_db), token: dict = Depends
         )
     ).all()
     
-    # Todas las habitaciones
     total_habitaciones = db.exec(select(Habitacion)).all()
     
-    # Calcular métricas
     ingresos_reservas = sum(r.total_estadia for r in reservas_mes)
     ingresos_pedidos = sum(p.monto for p in pedidos_mes)
     total_gastos = sum(g.monto for g in gastos_mes)
     total_ingresos = ingresos_reservas + ingresos_pedidos
     beneficio_neto = total_ingresos - total_gastos
     
-    # Tasa de ocupación del mes
     dias_mes = (hoy - inicio_mes).days + 1
     ocupacion_total_posible = len(total_habitaciones) * dias_mes
     dias_ocupados = sum((r.fecha_checkout - r.fecha_checkin).days for r in reservas_mes)
@@ -675,11 +650,9 @@ def ingresos_por_dia(
     db: Session = Depends(obtener_db),
     token: dict = Depends(verificar_token)
 ):
-    """Obtener ingresos diarios para gráfico"""
     fecha_fin = datetime.utcnow()
     fecha_inicio = fecha_fin - timedelta(days=dias)
     
-    # Reservas por día
     reservas = db.exec(
         select(Reserva).where(
             Reserva.fecha_checkin >= fecha_inicio,
@@ -687,7 +660,6 @@ def ingresos_por_dia(
         )
     ).all()
     
-    # Pedidos por día
     pedidos = db.exec(
         select(Pedido).where(
             Pedido.fecha >= fecha_inicio,
@@ -695,7 +667,6 @@ def ingresos_por_dia(
         )
     ).all()
     
-    # Agrupar por día
     ingresos_diarios = defaultdict(lambda: {"reservas": 0, "pedidos": 0, "total": 0})
     
     for reserva in reservas:
@@ -708,7 +679,6 @@ def ingresos_por_dia(
         ingresos_diarios[fecha_str]["pedidos"] += pedido.monto
         ingresos_diarios[fecha_str]["total"] += pedido.monto
     
-    # Crear lista ordenada por fecha
     resultado = []
     fecha_actual = fecha_inicio
     while fecha_actual <= fecha_fin:
@@ -724,70 +694,11 @@ def ingresos_por_dia(
     
     return resultado
 
-@app.get("/analytics/ocupacion-habitaciones")
-def ocupacion_habitaciones(
-    fecha_inicio: str = Query(...),
-    fecha_fin: str = Query(...),
-    db: Session = Depends(obtener_db),
-    token: dict = Depends(verificar_token)
-):
-    """Análisis de ocupación por habitación"""
-    try:
-        inicio = datetime.strptime(fecha_inicio, "%Y-%m-%d")
-        fin = datetime.strptime(fecha_fin, "%Y-%m-%d")
-    except:
-        raise HTTPException(status_code=400, detail="Formato de fecha inválido")
-    
-    # Obtener todas las habitaciones
-    habitaciones = db.exec(select(Habitacion)).all()
-    
-    # Obtener reservas en el período
-    reservas = db.exec(
-        select(Reserva).where(
-            Reserva.fecha_checkin <= fin,
-            Reserva.fecha_checkout >= inicio
-        )
-    ).all()
-    
-    # Calcular ocupación por habitación
-    dias_periodo = (fin - inicio).days + 1
-    ocupacion_por_habitacion = []
-    
-    for habitacion in habitaciones:
-        dias_ocupados = 0
-        reservas_habitacion = [r for r in reservas if r.habitacion_id == habitacion.numero]
-        
-        for reserva in reservas_habitacion:
-            # Calcular días de ocupación en el período
-            inicio_ocupacion = max(reserva.fecha_checkin.date(), inicio.date())
-            fin_ocupacion = min(reserva.fecha_checkout.date(), fin.date())
-            
-            if inicio_ocupacion <= fin_ocupacion:
-                dias_ocupados += (fin_ocupacion - inicio_ocupacion).days
-        
-        tasa_ocupacion = (dias_ocupados / dias_periodo * 100) if dias_periodo > 0 else 0
-        ingresos_habitacion = sum(r.total_estadia for r in reservas_habitacion)
-        
-        ocupacion_por_habitacion.append({
-            "habitacion": habitacion.numero,
-            "tipo": habitacion.tipo,
-            "dias_ocupados": dias_ocupados,
-            "dias_disponibles": dias_periodo,
-            "tasa_ocupacion": round(tasa_ocupacion, 2),
-            "ingresos": ingresos_habitacion,
-            "total_reservas": len(reservas_habitacion)
-        })
-    
-    return ocupacion_por_habitacion
-
 @app.get("/analytics/formas-pago")
 def analisis_formas_pago(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
-    """Análisis de formas de pago"""
-    # Obtener datos del mes actual
     hoy = datetime.utcnow()
     inicio_mes = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     
-    # Reservas del mes
     reservas = db.exec(
         select(Reserva).where(
             Reserva.fecha_checkin >= inicio_mes,
@@ -795,7 +706,6 @@ def analisis_formas_pago(db: Session = Depends(obtener_db), token: dict = Depend
         )
     ).all()
     
-    # Pedidos del mes
     pedidos = db.exec(
         select(Pedido).where(
             Pedido.fecha >= inicio_mes,
@@ -803,7 +713,6 @@ def analisis_formas_pago(db: Session = Depends(obtener_db), token: dict = Depend
         )
     ).all()
     
-    # Agrupar por forma de pago
     formas_pago = defaultdict(lambda: {"cantidad": 0, "monto": 0})
     
     for reserva in reservas:
@@ -826,105 +735,7 @@ def analisis_formas_pago(db: Session = Depends(obtener_db), token: dict = Depend
     
     return sorted(resultado, key=lambda x: x["monto"], reverse=True)
 
-@app.get("/analytics/reporte-mensual")
-def reporte_mensual(
-    mes: int = Query(..., ge=1, le=12),
-    año: int = Query(..., ge=2020),
-    db: Session = Depends(obtener_db),
-    token: dict = Depends(verificar_token)
-):
-    """Reporte completo mensual"""
-    # Definir fechas del mes
-    inicio_mes = datetime(año, mes, 1)
-    if mes == 12:
-        fin_mes = datetime(año + 1, 1, 1) - timedelta(days=1)
-    else:
-        fin_mes = datetime(año, mes + 1, 1) - timedelta(days=1)
-    
-    # Obtener datos del mes
-    reservas = db.exec(
-        select(Reserva).where(
-            Reserva.fecha_checkin >= inicio_mes,
-            Reserva.fecha_checkin <= fin_mes
-        )
-    ).all()
-    
-    pedidos = db.exec(
-        select(Pedido).where(
-            Pedido.fecha >= inicio_mes,
-            Pedido.fecha <= fin_mes
-        )
-    ).all()
-    
-    gastos = db.exec(
-        select(GastoAdicional).where(
-            GastoAdicional.fecha >= inicio_mes,
-            GastoAdicional.fecha <= fin_mes
-        )
-    ).all()
-    
-    habitaciones = db.exec(select(Habitacion)).all()
-    
-    # Calcular métricas
-    total_ingresos_reservas = sum(r.total_estadia for r in reservas)
-    total_ingresos_pedidos = sum(p.monto for p in pedidos)
-    total_gastos_monto = sum(g.monto for g in gastos)
-    beneficio_neto = total_ingresos_reservas + total_ingresos_pedidos - total_gastos_monto
-    
-    # Ocupación
-    dias_mes = (fin_mes - inicio_mes).days + 1
-    ocupacion_posible = len(habitaciones) * dias_mes
-    dias_ocupados = sum((r.fecha_checkout.date() - r.fecha_checkin.date()).days for r in reservas)
-    tasa_ocupacion = (dias_ocupados / ocupacion_posible * 100) if ocupacion_posible > 0 else 0
-    
-    return {
-        "periodo": f"{inicio_mes.strftime('%B %Y')}",
-        "resumen": {
-            "total_reservas": len(reservas),
-            "total_pedidos": len(pedidos),
-            "total_gastos": len(gastos),
-            "ingresos_reservas": total_ingresos_reservas,
-            "ingresos_pedidos": total_ingresos_pedidos,
-            "total_ingresos": total_ingresos_reservas + total_ingresos_pedidos,
-            "total_gastos_monto": total_gastos_monto,
-            "beneficio_neto": beneficio_neto,
-            "tasa_ocupacion": round(tasa_ocupacion, 2)
-        },
-        "detalles": {
-            "reservas": [
-                {
-                    "id": r.id,
-                    "habitacion": r.habitacion_id,
-                    "huesped": r.nombre_huesped,
-                    "checkin": r.fecha_checkin.strftime("%Y-%m-%d"),
-                    "checkout": r.fecha_checkout.strftime("%Y-%m-%d"),
-                    "monto": r.total_estadia,
-                    "forma_pago": r.forma_pago
-                } for r in reservas
-            ],
-            "pedidos": [
-                {
-                    "id": p.id,
-                    "detalle": p.detalle,
-                    "monto": p.monto,
-                    "habitacion": p.habitacion_id,
-                    "externo": p.externo,
-                    "fecha": p.fecha.strftime("%Y-%m-%d %H:%M")
-                } for p in pedidos
-            ],
-            "gastos": [
-                {
-                    "id": g.id,
-                    "habitacion": g.habitacion_id,
-                    "descripcion": g.descripcion,
-                    "monto": g.monto,
-                    "fecha": g.fecha.strftime("%Y-%m-%d %H:%M")
-                } for g in gastos
-            ]
-        }
-    }
-
-# ─────────── ENDPOINT ROOT PARA VERIFICAR QUE LA API FUNCIONA ───────────
+# ─────────── ENDPOINT ROOT ───────────
 @app.get("/")
 def root():
     return {
@@ -941,4 +752,4 @@ def root():
             "/gastos",
             "/analytics/dashboard"
         ]
-    }%
+    }
