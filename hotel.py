@@ -313,7 +313,7 @@ def obtener_todos_los_pedidos_con_items(db: Session = Depends(obtener_db), token
     
     return resultado
 
-@app.get("/pedidos/hoy", response_model=List[PedidoRespuesta])
+@app.get("/pedidos/hoy")
 def obtener_pedidos_hoy(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     hoy = datetime.utcnow().date()
     inicio_dia = datetime.combine(hoy, datetime.min.time())
@@ -327,19 +327,19 @@ def obtener_pedidos_hoy(db: Session = Depends(obtener_db), token: dict = Depends
     for pedido in pedidos:
         try:
             items_data = json.loads(pedido.detalle)
-            items = [ItemPedido(**item) for item in items_data]
+            items = [{"descripcion": item["descripcion"], "cantidad": item["cantidad"], "precio": item["precio"]} for item in items_data]
         except:
-            items = [ItemPedido(descripcion=pedido.detalle, cantidad=1, precio=pedido.monto)]
+            items = [{"descripcion": pedido.detalle, "cantidad": 1, "precio": pedido.monto}]
         
-        resultado.append(PedidoRespuesta(
-            id=pedido.id,
-            items=items,
-            monto=pedido.monto,
-            habitacion_id=pedido.habitacion_id,
-            externo=pedido.externo,
-            forma_pago=pedido.forma_pago,
-            fecha=pedido.fecha
-        ))
+        resultado.append({
+            "id": pedido.id,
+            "items": items,
+            "monto": pedido.monto,
+            "habitacion_id": pedido.habitacion_id,
+            "externo": pedido.externo,
+            "forma_pago": pedido.forma_pago,
+            "fecha": pedido.fecha.isoformat()
+        })
     
     return resultado
 
