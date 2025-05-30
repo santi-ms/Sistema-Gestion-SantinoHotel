@@ -105,6 +105,28 @@ class PedidoRespuesta(BaseModel):
     forma_pago: str
     fecha: datetime
 
+# ─────────── NUEVOS MODELOS PARA RESERVAS ───────────
+class ReservaEntrada(BaseModel):
+    habitacion_id: int
+    nombre_huesped: str
+    precio: float
+    seña: float = 0
+    forma_pago: str = "pendiente"
+    fecha_checkin: datetime
+    fecha_checkout: datetime
+
+class ReservaActualizar(BaseModel):
+    habitacion_id: Optional[int] = None
+    nombre_huesped: Optional[str] = None
+    precio: Optional[float] = None
+    seña: Optional[float] = None
+    forma_pago: Optional[str] = None
+    fecha_checkin: Optional[datetime] = None
+    fecha_checkout: Optional[datetime] = None
+
+class ActualizarPagoEntrada(BaseModel):
+    forma_pago: str
+
 @app.on_event("startup")
 def crear_tablas():
     SQLModel.metadata.create_all(engine)
@@ -477,16 +499,7 @@ def eliminar_gasto(
     db.commit()
     return {"mensaje": "Gasto eliminado"}
 
-# ─────────── ENDPOINTS DE RESERVAS ───────────
-class ReservaEntrada(BaseModel):
-    habitacion_id: int
-    nombre_huesped: str
-    precio: float
-    seña: float = 0
-    forma_pago: str = "pendiente"
-    fecha_checkin: datetime
-    fecha_checkout: datetime
-
+# ─────────── ENDPOINTS DE RESERVAS COMPLETOS ───────────
 @app.post("/reservas")
 def crear_reserva_simple(data: ReservaEntrada, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     reserva = Reserva(
@@ -523,6 +536,72 @@ def obtener_reservas_por_dia(fecha: str, db: Session = Depends(obtener_db), toke
     ).all()
     return reservas
 
+# ─────────── NUEVO: ENDPOINT PARA EDITAR RESERVA COMPLETA ───────────
+@app.put("/reservas/{reserva_id}")
+def actualizar_reserva_completa(
+    reserva_id: int,
+    data: ReservaActualizar,
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    reserva = db.get(Reserva, reserva_id)
+    if not reserva:
+        raise HTTPException(status_code=404, detail="Reserva no encontrada")
+    
+    # Actualizar solo los campos que se enviaron
+    if data.habitacion_id is not None:
+        # Verificar que la habitación existe
+        habitacion = db.get(Habitacion, data.habitacion_id)
+        if not habitacion:
+            raise HTTPException(status_code=400, detail="Habitación no encontrada")
+        reserva.habitacion_id = data.habitacion_id
+    
+    if data.nombre_huesped is not None:
+        reserva.nombre_huesped = data.nombre_huesped
+    
+    if data.precio is not None:
+        reserva.total_estadia = data.precio
+    
+    if data.seña is not None:
+        reserva.seña = data.seña
+    
+    if data.forma_pago is not None:
+        reserva.forma_pago = data.forma_pago
+    
+    if data.fecha_checkin is not None:
+        reserva.fecha_checkin = data.fecha_checkin
+    
+    if data.fecha_checkout is not None:
+        reserva.fecha_checkout = data.fecha_checkout
+    
+    db.add(reserva)
+    db.commit()
+    return {"mensaje": "Reserva actualizada correctamente"}
+
+# ─────────── NUEVO: ENDPOINT PARA ELIMINAR RESERVA ───────────
+@app.delete("/reservas/{reserva_id}")
+def eliminar_reserva(
+    reserva_id: int,
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    reserva = db.get(Reserva, reserva_id)
+    if not reserva:
+        raise HTTPException(status_code=404, detail="Reserva no encontrada")
+    
+    # Verificar si el usuario tiene permisos (opcional - solo dueños pueden eliminar)
+    usuario_rol = token.get("rol")
+    if usuario_rol != "dueño":
+        raise HTTPException(
+            status_code=403, 
+            detail="Solo el dueño puede eliminar reservas"
+        )
+    
+    db.delete(reserva)
+    db.commit()
+    return {"mensaje": "Reserva eliminada correctamente"}
+
+# ─────────── ENDPOINTS EXISTENTES DE RESERVAS (mantenidos) ───────────
 @app.patch("/reservas/{reserva_id}/checkout")
 def realizar_checkout(reserva_id: int, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     reserva = db.get(Reserva, reserva_id)
@@ -535,9 +614,6 @@ def realizar_checkout(reserva_id: int, db: Session = Depends(obtener_db), token:
     db.add(reserva)
     db.commit()
     return {"mensaje": "Checkout realizado"}
-
-class ActualizarPagoEntrada(BaseModel):
-    forma_pago: str
 
 @app.patch("/reservas/{reserva_id}/pago")
 def actualizar_forma_pago(reserva_id: int, data: ActualizarPagoEntrada, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
@@ -740,7 +816,7 @@ def analisis_formas_pago(db: Session = Depends(obtener_db), token: dict = Depend
 def root():
     return {
         "mensaje": "API del Hotel Santino funcionando correctamente",
-        "version": "2.0",
+        "version": "2.1",
         "fecha": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
         "endpoints_principales": [
             "/login",
@@ -751,11 +827,38 @@ def root():
             "/reservas",
             "/gastos",
             "/analytics/dashboard"
+        ],
+        "nuevos_endpoints": [
+            "PUT /reservas/{id} - Editar reserva completa",
+            "DELETE /reservas/{id} - Eliminar reserva (solo dueño)"
         ]
     }
 
 # ENDPOINT TEMPORAL PARA DEBUGGING (sin autenticación)
-@app.get("/test-pedidos")
-def test_pedidos_sin_auth(db: Session = Depends(obtener_db)):
-    pedidos = db.exec(select(Pedido)).all()
-    return {"total_pedidos": len(pedidos), "pedidos": pedidos}
+@app.post("/test-registrar-pedido")
+def test_registrar_pedido_simple(db: Session = Depends(obtener_db)):
+    try:
+        # Test simple sin autenticación
+        items_test = [{"descripcion": "Test Item", "cantidad": 1, "precio": 1000}]
+        items_json = json.dumps(items_test)
+        
+        nuevo_pedido = Pedido(
+            detalle=items_json,
+            monto=1000,
+            habitacion_id=None,
+            externo=False,
+            forma_pago="test",
+            fecha=datetime.utcnow()
+        )
+        
+        db.add(nuevo_pedido)
+        db.commit()
+        db.refresh(nuevo_pedido)
+        
+        return {
+            "status": "success", 
+            "mensaje": "Pedido de prueba creado",
+            "id": nuevo_pedido.id
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
