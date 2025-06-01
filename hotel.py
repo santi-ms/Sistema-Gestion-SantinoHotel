@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import SQLModel, Field, Session, select, create_engine
 from passlib.context import CryptContext
 from jose import JWTError, jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 from enum import Enum
 from pydantic import BaseModel
@@ -30,6 +30,20 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 120
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+# ─────────── CONFIGURACIÓN DE ZONA HORARIA ───────────
+# Zona horaria de Argentina (UTC-3)
+ARGENTINA_TZ = timezone(timedelta(hours=-3))
+
+def obtener_fecha_argentina():
+    """Obtiene la fecha y hora actual en zona horaria de Argentina"""
+    return datetime.now(ARGENTINA_TZ)
+
+def convertir_a_argentina(fecha_utc):
+    """Convierte una fecha UTC a zona horaria de Argentina"""
+    if fecha_utc.tzinfo is None:
+        fecha_utc = fecha_utc.replace(tzinfo=timezone.utc)
+    return fecha_utc.astimezone(ARGENTINA_TZ)
 
 # ─────────── MODELOS ───────────
 class Rol(str, Enum):
@@ -75,14 +89,14 @@ class Pedido(SQLModel, table=True):
     habitacion_id: Optional[int] = None
     externo: bool = False
     forma_pago: str
-    fecha: datetime = Field(default_factory=datetime.utcnow)
+    fecha: datetime = Field(default_factory=lambda: obtener_fecha_argentina())
 
 class GastoAdicional(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     habitacion_id: int
     descripcion: str
     monto: float
-    fecha: datetime = Field(default_factory=datetime.utcnow)
+    fecha: datetime = Field(default_factory=lambda: obtener_fecha_argentina())
 
 # ─────────── NUEVOS MODELOS PARA ITEMS MÚLTIPLES ───────────
 class ItemPedido(BaseModel):
@@ -138,8 +152,8 @@ def obtener_db():
 
 def crear_token(datos: dict):
     to_encode = datos.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
+    expire = obtener_fecha_argentina() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire.timestamp()})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 def verificar_token(token: str = Depends(oauth2_scheme)):
@@ -302,7 +316,7 @@ def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obt
         habitacion_id=pedido.habitacion_id,
         externo=pedido.externo,
         forma_pago=pedido.forma_pago,
-        fecha=datetime.utcnow()
+        fecha=obtener_fecha_argentina()
     )
     
     db.add(nuevo_pedido)
@@ -337,9 +351,10 @@ def obtener_todos_los_pedidos_con_items(db: Session = Depends(obtener_db), token
 
 @app.get("/pedidos/hoy")
 def obtener_pedidos_hoy(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
-    hoy = datetime.utcnow().date()
-    inicio_dia = datetime.combine(hoy, datetime.min.time())
-    fin_dia = datetime.combine(hoy, datetime.max.time())
+    # Usar fecha actual de Argentina
+    hoy_argentina = obtener_fecha_argentina().date()
+    inicio_dia = datetime.combine(hoy_argentina, datetime.min.time()).replace(tzinfo=ARGENTINA_TZ)
+    fin_dia = datetime.combine(hoy_argentina, datetime.max.time()).replace(tzinfo=ARGENTINA_TZ)
     
     pedidos = db.exec(
         select(Pedido).where(Pedido.fecha >= inicio_dia, Pedido.fecha <= fin_dia)
@@ -372,7 +387,7 @@ def obtener_pedidos_por_dia_con_items(
     token: dict = Depends(verificar_token)
 ):
     try:
-        fecha_obj = datetime.strptime(fecha, "%Y-%m-%d")
+        fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
     except:
         raise HTTPException(status_code=400, detail="Formato de fecha inválido")
 
@@ -441,7 +456,14 @@ def eliminar_pedido_actualizado(
 # ─────────── ENDPOINTS DE GASTOS ───────────
 @app.post("/gastos")
 def registrar_gasto(gasto: GastoAdicional, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
-    db.add(gasto)
+    # Asegurar que use fecha de Argentina
+    nuevo_gasto = GastoAdicional(
+        habitacion_id=gasto.habitacion_id,
+        descripcion=gasto.descripcion,
+        monto=gasto.monto,
+        fecha=obtener_fecha_argentina()
+    )
+    db.add(nuevo_gasto)
     db.commit()
     return {"mensaje": "Gasto adicional registrado"}
 
@@ -457,7 +479,7 @@ def obtener_gastos_por_dia(
     token: dict = Depends(verificar_token)
 ):
     try:
-        fecha_obj = datetime.strptime(fecha, "%Y-%m-%d")
+        fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
     except:
         raise HTTPException(status_code=400, detail="Formato de fecha inválido")
 
@@ -524,7 +546,7 @@ def obtener_todas_las_reservas(db: Session = Depends(obtener_db), token: dict = 
 @app.get("/reservas/dia")
 def obtener_reservas_por_dia(fecha: str, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     try:
-        fecha_obj = datetime.strptime(fecha, "%Y-%m-%d")
+        fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
     except:
         raise HTTPException(status_code=400, detail="Formato de fecha inválido")
 
@@ -608,8 +630,8 @@ def realizar_checkout(reserva_id: int, db: Session = Depends(obtener_db), token:
     if not reserva:
         raise HTTPException(status_code=404, detail="Reserva no encontrada")
 
-    nueva_fecha = datetime.utcnow() - timedelta(days=1)
-    reserva.fecha_checkout = datetime.combine(nueva_fecha.date(), datetime.min.time())
+    fecha_argentina = obtener_fecha_argentina() - timedelta(days=1)
+    reserva.fecha_checkout = datetime.combine(fecha_argentina.date(), datetime.min.time()).replace(tzinfo=ARGENTINA_TZ)
 
     db.add(reserva)
     db.commit()
@@ -629,7 +651,7 @@ def actualizar_forma_pago(reserva_id: int, data: ActualizarPagoEntrada, db: Sess
 @app.get("/resumen-dia")
 def resumen_del_dia(fecha: str, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     try:
-        fecha_obj = datetime.strptime(fecha, "%Y-%m-%d")
+        fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
     except:
         raise HTTPException(status_code=400, detail="Formato de fecha inválido")
 
@@ -669,7 +691,7 @@ def resumen_del_dia(fecha: str, db: Session = Depends(obtener_db), token: dict =
 # ─────────── ENDPOINTS DE ANALYTICS ───────────
 @app.get("/analytics/dashboard")
 def dashboard_analytics(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
-    hoy = datetime.utcnow()
+    hoy = obtener_fecha_argentina()
     inicio_mes = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     
     reservas_mes = db.exec(
@@ -726,7 +748,7 @@ def ingresos_por_dia(
     db: Session = Depends(obtener_db),
     token: dict = Depends(verificar_token)
 ):
-    fecha_fin = datetime.utcnow()
+    fecha_fin = obtener_fecha_argentina()
     fecha_inicio = fecha_fin - timedelta(days=dias)
     
     reservas = db.exec(
@@ -772,7 +794,7 @@ def ingresos_por_dia(
 
 @app.get("/analytics/formas-pago")
 def analisis_formas_pago(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
-    hoy = datetime.utcnow()
+    hoy = obtener_fecha_argentina()
     inicio_mes = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     
     reservas = db.exec(
@@ -814,10 +836,12 @@ def analisis_formas_pago(db: Session = Depends(obtener_db), token: dict = Depend
 # ─────────── ENDPOINT ROOT ───────────
 @app.get("/")
 def root():
+    fecha_argentina = obtener_fecha_argentina()
     return {
         "mensaje": "API del Hotel Santino funcionando correctamente",
-        "version": "2.1",
-        "fecha": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+        "version": "2.2",
+        "fecha": fecha_argentina.strftime("%Y-%m-%d %H:%M:%S"),
+        "zona_horaria": "Argentina (UTC-3)",
         "endpoints_principales": [
             "/login",
             "/pedidos",
@@ -838,7 +862,7 @@ def root():
 @app.post("/test-registrar-pedido")
 def test_registrar_pedido_simple(db: Session = Depends(obtener_db)):
     try:
-        # Test simple sin autenticación
+        # Test simple sin autenticación usando fecha de Argentina
         items_test = [{"descripcion": "Test Item", "cantidad": 1, "precio": 1000}]
         items_json = json.dumps(items_test)
         
@@ -848,7 +872,7 @@ def test_registrar_pedido_simple(db: Session = Depends(obtener_db)):
             habitacion_id=None,
             externo=False,
             forma_pago="test",
-            fecha=datetime.utcnow()
+            fecha=obtener_fecha_argentina()
         )
         
         db.add(nuevo_pedido)
@@ -858,7 +882,8 @@ def test_registrar_pedido_simple(db: Session = Depends(obtener_db)):
         return {
             "status": "success", 
             "mensaje": "Pedido de prueba creado",
-            "id": nuevo_pedido.id
+            "id": nuevo_pedido.id,
+            "fecha_argentina": nuevo_pedido.fecha.strftime("%Y-%m-%d %H:%M:%S")
         }
     except Exception as e:
         return {"status": "error", "error": str(e)}
