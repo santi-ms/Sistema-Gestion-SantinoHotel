@@ -170,7 +170,10 @@ class ReservaGestion(BaseModel):
     precio_total: float
     seña: float
     forma_pago: str
-
+    
+    # NUEVO: Campo para mascotas
+    mascota: bool = False
+    observaciones_mascota: Optional[str] = None  # Para notas adicionales sobre la mascota
 @app.on_event("startup")
 def crear_tablas():
     SQLModel.metadata.create_all(engine)
@@ -673,6 +676,15 @@ def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obte
             db.refresh(cliente)
             print(f"✅ Nuevo cliente creado: {cliente.nombre}")
         
+        # Preparar observaciones/requests
+        observaciones = []
+        if data.mascota:
+            observaciones.append("🐾 Viaja con mascota pequeña")
+            if data.observaciones_mascota:
+                observaciones.append(f"Detalles mascota: {data.observaciones_mascota}")
+        
+        observaciones_texto = " | ".join(observaciones) if observaciones else None
+        
         # Crear reserva
         reserva = Reserva(
             cliente_id=cliente.id,
@@ -688,12 +700,15 @@ def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obte
         db.commit()
         db.refresh(reserva)
         
-        print(f"🎉 Reserva creada desde sistema de gestión - ID: {reserva.id}")
+        mascota_msg = " (con mascota)" if data.mascota else ""
+        print(f"🎉 Reserva creada desde sistema de gestión - ID: {reserva.id}{mascota_msg}")
         
         return {
-            "mensaje": "Reserva registrada desde sistema de gestión",
+            "mensaje": f"Reserva registrada desde sistema de gestión{mascota_msg}",
             "reserva_id": reserva.id,
-            "cliente_id": cliente.id
+            "cliente_id": cliente.id,
+            "mascota": data.mascota,
+            "precio_total": data.precio_total
         }
         
     except Exception as e:
