@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, status, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import SQLModel, Field, Session, select, create_engine
+from sqlmodel import SQLModel, Field, Session, select, create_engine, text
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta, timezone
@@ -15,7 +15,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*", "https://zippy-kitten-890804.netlify.app"],  # ← Cambiar temporalmente para permitir todos los orígenes
+    allow_origins=["*"],  # Permite todos los orígenes
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -45,7 +45,7 @@ def convertir_a_argentina(fecha_utc):
         fecha_utc = fecha_utc.replace(tzinfo=timezone.utc)
     return fecha_utc.astimezone(ARGENTINA_TZ)
 
-# ─────────── MODELOS ───────────
+# ─────────── MODELOS ACTUALIZADOS ───────────
 class Rol(str, Enum):
     dueño = "dueño"
     empleado = "empleado"
@@ -98,7 +98,7 @@ class GastoAdicional(SQLModel, table=True):
     monto: float
     fecha: datetime = Field(default_factory=lambda: obtener_fecha_argentina())
 
-# ─────────── NUEVOS MODELOS PARA ITEMS MÚLTIPLES ───────────
+# ─────────── MODELOS PARA ITEMS MÚLTIPLES ───────────
 class ItemPedido(BaseModel):
     descripcion: str
     cantidad: int
@@ -119,7 +119,7 @@ class PedidoRespuesta(BaseModel):
     forma_pago: str
     fecha: datetime
 
-# ─────────── NUEVOS MODELOS PARA RESERVAS ───────────
+# ─────────── MODELOS PARA RESERVAS ───────────
 class ReservaEntrada(BaseModel):
     habitacion_id: int
     nombre_huesped: str
@@ -139,6 +139,36 @@ class ReservaActualizar(BaseModel):
     fecha_checkout: Optional[datetime] = None
 
 class ActualizarPagoEntrada(BaseModel):
+    forma_pago: str
+
+# ─────────── MODELO PARA RESERVAS WEB (ACTUALIZADO) ───────────
+class ReservaWeb(BaseModel):
+    firstName: str
+    lastName: str
+    email: str
+    phone: str
+    checkin: str  # formato: "2025-01-15"
+    checkout: str # formato: "2025-01-16"
+    roomType: str
+    guests: int
+    requests: Optional[str] = None
+    pet: bool = False
+
+# ─────────── MODELO PARA SISTEMA DE GESTIÓN ───────────
+class ReservaGestion(BaseModel):
+    # Datos del cliente
+    nombre_completo: str
+    dni: str
+    celular: str
+    patente: Optional[str] = None
+    cantidad_personas: int
+    
+    # Datos de la reserva
+    habitacion_id: int
+    fecha_ingreso: str  # formato: "dd/mm/aaaa"
+    fecha_egreso: str   # formato: "dd/mm/aaaa"
+    precio_total: float
+    seña: float
     forma_pago: str
 
 @app.on_event("startup")
@@ -162,6 +192,77 @@ def verificar_token(token: str = Depends(oauth2_scheme)):
         return payload
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido")
+
+# ─────────── ENDPOINT PARA ARREGLAR LA BASE DE DATOS ───────────
+@app.post("/fix-database")
+def arreglar_base_datos(db: Session = Depends(obtener_db)):
+    try:
+        print("🔧 Iniciando reparación de base de datos...")
+        
+        # Ejecutar comandos SQL directamente para agregar columnas faltantes
+        with engine.connect() as connection:
+            try:
+                # Agregar columna descripcion si no existe
+                connection.execute(text("ALTER TABLE habitacion ADD COLUMN descripcion TEXT"))
+                print("✅ Columna 'descripcion' agregada a tabla habitacion")
+            except Exception as e:
+                print(f"⚠️ Columna 'descripcion': {e}")
+            
+            try:
+                # Agregar columna capacidad si no existe  
+                connection.execute(text("ALTER TABLE habitacion ADD COLUMN capacidad INTEGER DEFAULT 2"))
+                print("✅ Columna 'capacidad' agregada a tabla habitacion")
+            except Exception as e:
+                print(f"⚠️ Columna 'capacidad': {e}")
+                
+            try:
+                # Agregar columna precio si no existe
+                connection.execute(text("ALTER TABLE habitacion ADD COLUMN precio REAL"))
+                print("✅ Columna 'precio' agregada a tabla habitacion")
+            except Exception as e:
+                print(f"⚠️ Columna 'precio': {e}")
+            
+            connection.commit()
+        
+        # Crear habitaciones de ejemplo si no existen
+        habitacion_estandar = db.exec(select(Habitacion).where(Habitacion.tipo == "Estándar")).first()
+        if not habitacion_estandar:
+            hab_estandar = Habitacion(
+                numero=1,
+                tipo="Estándar", 
+                precio=50000,
+                capacidad=2,
+                descripcion="Habitación estándar con todas las comodidades"
+            )
+            db.add(hab_estandar)
+            print("✅ Habitación Estándar creada")
+            
+        habitacion_confort = db.exec(select(Habitacion).where(Habitacion.tipo == "Confort")).first()
+        if not habitacion_confort:
+            hab_confort = Habitacion(
+                numero=2,
+                tipo="Confort",
+                precio=70000, 
+                capacidad=2,
+                descripcion="Habitación confort con servicios adicionales"
+            )
+            db.add(hab_confort)
+            print("✅ Habitación Confort creada")
+            
+        db.commit()
+        
+        return {
+            "success": True,
+            "mensaje": "Base de datos reparada exitosamente",
+            "habitaciones_creadas": ["Estándar", "Confort"]
+        }
+        
+    except Exception as e:
+        print(f"💥 Error al reparar base de datos: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Error al reparar base de datos: {str(e)}"
+        }
 
 # ─────────── ENDPOINTS DE AUTENTICACIÓN ───────────
 class UsuarioRegistro(BaseModel):
@@ -304,7 +405,7 @@ def eliminar_cliente(
     db.commit()
     return {"mensaje": "Cliente eliminado"}
 
-# ─────────── ENDPOINTS DE PEDIDOS ACTUALIZADOS ───────────
+# ─────────── ENDPOINTS DE PEDIDOS ───────────
 @app.post("/pedidos")
 def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     monto_total = sum(item.cantidad * item.precio for item in pedido.items)
@@ -521,7 +622,7 @@ def eliminar_gasto(
     db.commit()
     return {"mensaje": "Gasto eliminado"}
 
-# ─────────── ENDPOINTS DE RESERVAS COMPLETOS ───────────
+# ─────────── ENDPOINTS DE RESERVAS ───────────
 @app.post("/reservas")
 def crear_reserva_simple(data: ReservaEntrada, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     reserva = Reserva(
@@ -537,6 +638,67 @@ def crear_reserva_simple(data: ReservaEntrada, db: Session = Depends(obtener_db)
     db.add(reserva)
     db.commit()
     return {"mensaje": "Reserva registrada"}
+
+# ─────────── ENDPOINT PARA RESERVAS DESDE SISTEMA DE GESTIÓN ───────────
+@app.post("/reservas-gestion")
+def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+    try:
+        print(f"📥 Datos recibidos del sistema de gestión: {data}")
+        
+        # Convertir fechas formato dd/mm/aaaa a datetime
+        fecha_checkin = datetime.strptime(data.fecha_ingreso, "%d/%m/%Y").replace(tzinfo=ARGENTINA_TZ)
+        fecha_checkout = datetime.strptime(data.fecha_egreso, "%d/%m/%Y").replace(tzinfo=ARGENTINA_TZ)
+        
+        # Verificar si el cliente ya existe
+        cliente_existente = db.exec(select(Cliente).where(Cliente.dni == data.dni)).first()
+        if cliente_existente:
+            cliente = cliente_existente
+            # Actualizar datos del cliente si es necesario
+            cliente.nombre = data.nombre_completo
+            cliente.celular = data.celular
+            cliente.patente = data.patente
+            db.add(cliente)
+            db.commit()
+            print(f"✅ Cliente existente actualizado: {cliente.nombre}")
+        else:
+            # Crear nuevo cliente
+            cliente = Cliente(
+                nombre=data.nombre_completo,
+                dni=data.dni,
+                celular=data.celular,
+                patente=data.patente
+            )
+            db.add(cliente)
+            db.commit()
+            db.refresh(cliente)
+            print(f"✅ Nuevo cliente creado: {cliente.nombre}")
+        
+        # Crear reserva
+        reserva = Reserva(
+            cliente_id=cliente.id,
+            habitacion_id=data.habitacion_id,
+            fecha_checkin=fecha_checkin,
+            fecha_checkout=fecha_checkout,
+            seña=data.seña,
+            total_estadia=data.precio_total,
+            forma_pago=data.forma_pago,
+            nombre_huesped=data.nombre_completo
+        )
+        db.add(reserva)
+        db.commit()
+        db.refresh(reserva)
+        
+        print(f"🎉 Reserva creada desde sistema de gestión - ID: {reserva.id}")
+        
+        return {
+            "mensaje": "Reserva registrada desde sistema de gestión",
+            "reserva_id": reserva.id,
+            "cliente_id": cliente.id
+        }
+        
+    except Exception as e:
+        print(f"💥 Error al procesar reserva desde gestión: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Error al procesar reserva: {str(e)}")
 
 @app.get("/reservas")
 def obtener_todas_las_reservas(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
@@ -558,7 +720,7 @@ def obtener_reservas_por_dia(fecha: str, db: Session = Depends(obtener_db), toke
     ).all()
     return reservas
 
-# ─────────── NUEVO: ENDPOINT PARA EDITAR RESERVA COMPLETA ───────────
+# ─────────── ENDPOINT PARA EDITAR RESERVA COMPLETA ───────────
 @app.put("/reservas/{reserva_id}")
 def actualizar_reserva_completa(
     reserva_id: int,
@@ -600,7 +762,7 @@ def actualizar_reserva_completa(
     db.commit()
     return {"mensaje": "Reserva actualizada correctamente"}
 
-# ─────────── NUEVO: ENDPOINT PARA ELIMINAR RESERVA ───────────
+# ─────────── ENDPOINT PARA ELIMINAR RESERVA ───────────
 @app.delete("/reservas/{reserva_id}")
 def eliminar_reserva(
     reserva_id: int,
@@ -623,7 +785,7 @@ def eliminar_reserva(
     db.commit()
     return {"mensaje": "Reserva eliminada correctamente"}
 
-# ─────────── ENDPOINTS EXISTENTES DE RESERVAS (mantenidos) ───────────
+# ─────────── ENDPOINTS EXISTENTES DE RESERVAS ───────────
 @app.patch("/reservas/{reserva_id}/checkout")
 def realizar_checkout(reserva_id: int, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     reserva = db.get(Reserva, reserva_id)
@@ -646,6 +808,148 @@ def actualizar_forma_pago(reserva_id: int, data: ActualizarPagoEntrada, db: Sess
     db.add(reserva)
     db.commit()
     return {"mensaje": "Forma de pago actualizada"}
+
+# ─────────── ENDPOINT PÚBLICO PARA RESERVAS WEB (CORREGIDO) ───────────
+@app.post("/reservas-web")
+def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db)):
+    try:
+        print(f"🌐 Reserva recibida desde página web")
+        print(f"📥 Datos recibidos: {data}")
+        
+        # Convertir fechas string a datetime
+        try:
+            fecha_checkin = datetime.strptime(data.checkin, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+            fecha_checkout = datetime.strptime(data.checkout, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        except ValueError as e:
+            print(f"❌ Error en formato de fechas: {e}")
+            raise HTTPException(status_code=400, detail=f"Formato de fecha inválido: {e}")
+        
+        # Crear cliente automáticamente
+        nombre_completo = f"{data.firstName} {data.lastName}"
+        
+        # Verificar si el cliente ya existe por teléfono o email
+        cliente_existente = db.exec(
+            select(Cliente).where(
+                (Cliente.celular == data.phone) | 
+                (Cliente.nombre == nombre_completo)
+            )
+        ).first()
+        
+        if cliente_existente:
+            cliente = cliente_existente
+            print(f"✅ Cliente existente encontrado: {cliente.nombre}")
+        else:
+            # Crear nuevo cliente con DNI único basado en teléfono
+            dni_web = f"WEB-{data.phone[-8:]}"
+            cliente = Cliente(
+                nombre=nombre_completo,
+                dni=dni_web,
+                celular=data.phone,
+                patente=None
+            )
+            db.add(cliente)
+            db.commit()
+            db.refresh(cliente)
+            print(f"✅ Nuevo cliente creado: {cliente.nombre} (DNI: {dni_web})")
+        
+        # Buscar habitación por tipo
+        habitacion = None
+        try:
+            if data.roomType == "Estándar":
+                habitacion = db.exec(select(Habitacion).where(Habitacion.tipo == "Estándar")).first()
+            elif data.roomType == "Confort":
+                habitacion = db.exec(select(Habitacion).where(Habitacion.tipo == "Confort")).first()
+            
+            # Fallback a cualquier habitación disponible
+            if not habitacion:
+                habitacion = db.exec(select(Habitacion)).first()
+                if habitacion:
+                    print(f"⚠️ No se encontró habitación {data.roomType}, usando habitación {habitacion.numero}")
+                    
+        except Exception as e:
+            print(f"❌ Error al buscar habitación: {e}")
+            
+        # Si no hay ninguna habitación, crear una temporal
+        if not habitacion:
+            print("⚠️ No hay habitaciones en la base de datos, creando habitación temporal")
+            habitacion = Habitacion(
+                numero=99,
+                tipo=data.roomType,
+                precio=50000 if data.roomType == "Estándar" else 70000,
+                capacidad=data.guests,
+                descripcion=f"Habitación {data.roomType} - Creada automáticamente"
+            )
+            db.add(habitacion)
+            db.commit()
+            db.refresh(habitacion)
+            print(f"✅ Habitación temporal creada: {habitacion.numero}")
+        
+        # Calcular precio
+        noches = (fecha_checkout - fecha_checkin).days
+        if noches <= 0:
+            noches = 1  # Mínimo una noche
+            
+        # Precios base
+        precio_por_noche = habitacion.precio if habitacion.precio else (50000 if data.roomType == "Estándar" else 70000)
+        precio_total = precio_por_noche * noches
+        
+        # Agregar costo de mascota
+        if data.pet:
+            precio_total += 7000
+            print(f"🐾 Costo de mascota agregado: +$7.000")
+        
+        # Crear reserva
+        reserva = Reserva(
+            cliente_id=cliente.id,
+            habitacion_id=habitacion.id,
+            fecha_checkin=fecha_checkin,
+            fecha_checkout=fecha_checkout,
+            seña=0,
+            total_estadia=precio_total,
+            forma_pago="Pendiente - Reserva Web",
+            nombre_huesped=nombre_completo
+        )
+        db.add(reserva)
+        db.commit()
+        db.refresh(reserva)
+        
+        # Número de confirmación
+        numero_confirmacion = f"CS{reserva.id:08d}"
+        
+        print(f"🎉 Reserva web creada exitosamente:")
+        print(f"   - ID: {reserva.id}")
+        print(f"   - Cliente: {nombre_completo}")
+        print(f"   - Habitación: {data.roomType} (ID: {habitacion.id})")
+        print(f"   - Fechas: {data.checkin} a {data.checkout}")
+        print(f"   - Precio: ${precio_total}")
+        print(f"   - Confirmación: {numero_confirmacion}")
+        
+        return {
+            "success": True,
+            "mensaje": "Reserva recibida correctamente",
+            "confirmacion": numero_confirmacion,
+            "precio_total": precio_total,
+            "noches": noches,
+            "checkin": data.checkin,
+            "checkout": data.checkout,
+            "habitacion": data.roomType,
+            "cliente": nombre_completo,
+            "reserva_id": reserva.id,
+            "cliente_id": cliente.id
+        }
+        
+    except HTTPException:
+        # Re-lanzar HTTPExceptions
+        raise
+    except Exception as e:
+        print(f"💥 Error completo al procesar reserva web: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        return {
+            "success": False, 
+            "error": f"Error interno del servidor: {str(e)}"
+        }
 
 # ─────────── ENDPOINT DE RESUMEN ───────────
 @app.get("/resumen-dia")
@@ -839,9 +1143,10 @@ def root():
     fecha_argentina = obtener_fecha_argentina()
     return {
         "mensaje": "API del Hotel Santino funcionando correctamente",
-        "version": "2.2",
+        "version": "3.0",
         "fecha": fecha_argentina.strftime("%Y-%m-%d %H:%M:%S"),
         "zona_horaria": "Argentina (UTC-3)",
+        "status": "Conectado ✅",
         "endpoints_principales": [
             "/login",
             "/pedidos",
@@ -849,16 +1154,22 @@ def root():
             "/habitaciones",
             "/clientes",
             "/reservas",
+            "/reservas-web (público)",
+            "/reservas-gestion",
             "/gastos",
-            "/analytics/dashboard"
+            "/analytics/dashboard",
+            "/fix-database"
         ],
         "nuevos_endpoints": [
+            "POST /reservas-web - Reservas desde página web (público)",
+            "POST /reservas-gestion - Reservas desde sistema de gestión",
+            "POST /fix-database - Reparar base de datos",
             "PUT /reservas/{id} - Editar reserva completa",
             "DELETE /reservas/{id} - Eliminar reserva (solo dueño)"
         ]
     }
 
-# ENDPOINT TEMPORAL PARA DEBUGGING (sin autenticación)
+# ─────────── ENDPOINT TEMPORAL PARA DEBUGGING ───────────
 @app.post("/test-registrar-pedido")
 def test_registrar_pedido_simple(db: Session = Depends(obtener_db)):
     try:
@@ -888,100 +1199,43 @@ def test_registrar_pedido_simple(db: Session = Depends(obtener_db)):
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
-# ─────────── ENDPOINT PÚBLICO PARA RESERVAS WEB ───────────
-class ReservaWeb(BaseModel):
-    firstName: str
-    lastName: str
-    email: str
-    phone: str
-    checkin: str  # formato: "2025-01-15"
-    checkout: str # formato: "2025-01-16"
-    roomType: str
-    guests: int
-    requests: Optional[str] = None
-    pet: bool = False
-
-@app.post("/reservas-web")
-def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db)):
+# ─────────── ENDPOINT DE ESTADO Y ESTADÍSTICAS ───────────
+@app.get("/status")
+def obtener_estado_sistema(db: Session = Depends(obtener_db)):
     try:
-        # Convertir fechas string a datetime
-        fecha_checkin = datetime.strptime(data.checkin, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
-        fecha_checkout = datetime.strptime(data.checkout, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        # Contar elementos en la base de datos
+        total_usuarios = len(db.exec(select(Usuario)).all())
+        total_habitaciones = len(db.exec(select(Habitacion)).all())
+        total_clientes = len(db.exec(select(Cliente)).all())
+        total_reservas = len(db.exec(select(Reserva)).all())
+        total_pedidos = len(db.exec(select(Pedido)).all())
+        total_gastos = len(db.exec(select(GastoAdicional)).all())
         
-        # Crear cliente automáticamente
-        nombre_completo = f"{data.firstName} {data.lastName}"
-        
-        # Verificar si el cliente ya existe
-        cliente_existente = db.exec(select(Cliente).where(Cliente.celular == data.phone)).first()
-        if cliente_existente:
-            cliente = cliente_existente
-        else:
-            cliente = Cliente(
-                nombre=nombre_completo,
-                dni=f"WEB-{data.phone[-8:]}",  # Usar últimos 8 dígitos del teléfono
-                celular=data.phone,
-                patente=None
-            )
-            db.add(cliente)
-            db.commit()
-            db.refresh(cliente)
-        
-        # Buscar habitación por tipo
-        habitacion = None
-        if data.roomType == "Estándar":
-            habitacion = db.exec(select(Habitacion).where(Habitacion.tipo == "Estándar")).first()
-        elif data.roomType == "Confort":
-            habitacion = db.exec(select(Habitacion).where(Habitacion.tipo == "Confort")).first()
-        
-        # Fallback a cualquier habitación disponible
-        if not habitacion:
-            habitacion = db.exec(select(Habitacion)).first()
-        
-        # Calcular precio
-        noches = (fecha_checkout - fecha_checkin).days
-        if noches <= 0:
-            noches = 1  # Mínimo una noche
-            
-        # Precios base
-        precio_por_noche = 50000 if data.roomType == "Estándar" else 70000
-        precio_total = precio_por_noche * noches
-        
-        # Agregar costo de mascota
-        if data.pet:
-            precio_total += 7000
-        
-        # Crear reserva
-        reserva = Reserva(
-            cliente_id=cliente.id,
-            habitacion_id=habitacion.id if habitacion else 1,
-            fecha_checkin=fecha_checkin,
-            fecha_checkout=fecha_checkout,
-            seña=0,
-            total_estadia=precio_total,
-            forma_pago="Pendiente - Reserva Web",
-            nombre_huesped=nombre_completo
-        )
-        db.add(reserva)
-        db.commit()
-        db.refresh(reserva)
-        
-        # Número de confirmación
-        numero_confirmacion = f"CS{reserva.id:08d}"
+        # Última reserva
+        ultima_reserva = db.exec(select(Reserva).order_by(Reserva.id.desc())).first()
         
         return {
-            "success": True,
-            "mensaje": "Reserva recibida correctamente",
-            "confirmacion": numero_confirmacion,
-            "precio_total": precio_total,
-            "noches": noches,
-            "checkin": data.checkin,
-            "checkout": data.checkout,
-            "habitacion": data.roomType,
-            "cliente": nombre_completo
+            "sistema": "Hotel Santino API",
+            "version": "3.0",
+            "status": "✅ Funcionando correctamente",
+            "fecha": obtener_fecha_argentina().strftime("%Y-%m-%d %H:%M:%S"),
+            "base_datos": {
+                "usuarios": total_usuarios,
+                "habitaciones": total_habitaciones,
+                "clientes": total_clientes,
+                "reservas": total_reservas,
+                "pedidos": total_pedidos,
+                "gastos": total_gastos
+            },
+            "ultima_reserva": {
+                "id": ultima_reserva.id if ultima_reserva else None,
+                "cliente": ultima_reserva.nombre_huesped if ultima_reserva else None,
+                "fecha": ultima_reserva.fecha_checkin.strftime("%Y-%m-%d") if ultima_reserva else None
+            } if ultima_reserva else None
         }
-        
     except Exception as e:
         return {
-            "success": False, 
-            "error": f"Error al procesar reserva: {str(e)}"
+            "sistema": "Hotel Santino API",
+            "status": "❌ Error en base de datos",
+            "error": str(e)
         }
