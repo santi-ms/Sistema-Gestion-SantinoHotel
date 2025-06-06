@@ -15,7 +15,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ← Cambiar temporalmente para permitir todos los orígenes
+    allow_origins=["*", "https://zippy-kitten-890804.netlify.app"],  # ← Cambiar temporalmente para permitir todos los orígenes
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
