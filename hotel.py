@@ -10,6 +10,8 @@ from enum import Enum
 from pydantic import BaseModel
 import json
 from collections import defaultdict
+from flask import Flask, request, jsonify
+import sqlite3
 
 app = FastAPI()
 
@@ -824,6 +826,192 @@ def actualizar_forma_pago(reserva_id: int, data: ActualizarPagoEntrada, db: Sess
     db.commit()
     return {"mensaje": "Forma de pago actualizada"}
 
+@app.post("/setup-habitaciones")
+def configurar_habitaciones_con_capacidades(db: Session = Depends(obtener_db)):
+    """
+    Configura todas las habitaciones con sus capacidades específicas
+    """
+    try:
+        # Configuración de habitaciones según especificaciones
+        habitaciones_config = [
+            # Habitaciones ESTÁNDAR para 5 personas
+            {"numero": 1, "tipo": "Estándar", "capacidad": 5, "precio": 50000},
+            {"numero": 2, "tipo": "Estándar", "capacidad": 5, "precio": 50000},
+            {"numero": 3, "tipo": "Estándar", "capacidad": 5, "precio": 50000},
+            {"numero": 4, "tipo": "Estándar", "capacidad": 5, "precio": 50000},
+            
+            # Habitación ESTÁNDAR para 4 personas
+            {"numero": 5, "tipo": "Estándar", "capacidad": 4, "precio": 50000},
+            
+            # Habitaciones ESTÁNDAR para 1-2 personas
+            {"numero": 6, "tipo": "Estándar", "capacidad": 2, "precio": 45000},
+            {"numero": 11, "tipo": "Estándar", "capacidad": 2, "precio": 45000},
+            
+            # Habitación ESTÁNDAR para 6 personas
+            {"numero": 7, "tipo": "Estándar", "capacidad": 6, "precio": 55000},
+            
+            # Habitaciones ESTÁNDAR para 3 personas
+            {"numero": 8, "tipo": "Estándar", "capacidad": 3, "precio": 48000},
+            {"numero": 9, "tipo": "Estándar", "capacidad": 3, "precio": 48000},
+            
+            # Habitación ESTÁNDAR para 7 personas
+            {"numero": 10, "tipo": "Estándar", "capacidad": 7, "precio": 60000},
+            
+            # Habitaciones CONFORT para 4 personas
+            {"numero": 12, "tipo": "Confort", "capacidad": 4, "precio": 70000},
+            {"numero": 13, "tipo": "Confort", "capacidad": 4, "precio": 70000},
+            {"numero": 14, "tipo": "Confort", "capacidad": 4, "precio": 70000},
+            {"numero": 15, "tipo": "Confort", "capacidad": 4, "precio": 70000},
+        ]
+        
+        for config in habitaciones_config:
+            # Buscar si la habitación ya existe
+            habitacion_existente = db.exec(
+                select(Habitacion).where(Habitacion.numero == config["numero"])
+            ).first()
+            
+            if habitacion_existente:
+                # Actualizar habitación existente
+                habitacion_existente.tipo = config["tipo"]
+                habitacion_existente.capacidad = config["capacidad"]
+                habitacion_existente.precio = config["precio"]
+                habitacion_existente.descripcion = f"Habitación {config['tipo']} para {config['capacidad']} personas"
+                db.add(habitacion_existente)
+            else:
+                # Crear nueva habitación
+                nueva_habitacion = Habitacion(
+                    numero=config["numero"],
+                    tipo=config["tipo"],
+                    capacidad=config["capacidad"],
+                    precio=config["precio"],
+                    descripcion=f"Habitación {config['tipo']} para {config['capacidad']} personas"
+                )
+                db.add(nueva_habitacion)
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "mensaje": "Habitaciones configuradas correctamente",
+            "habitaciones_configuradas": len(habitaciones_config)
+        }
+        
+    except Exception as e:
+        print(f"Error al configurar habitaciones: {e}")
+        return {"success": False, "error": str(e)}
+
+# 2. ENDPOINT PARA VERIFICAR DISPONIBILIDAD
+@app.get("/verificar-disponibilidad")
+def verificar_disponibilidad(
+    checkin: str,
+    checkout: str,
+    huespedes: int,
+    tipo_preferido: str = Query(None, description="Estándar o Confort"),
+    db: Session = Depends(obtener_db)
+):
+    """
+    Verifica disponibilidad para fechas y número de huéspedes específicos
+    """
+    try:
+        # Convertir fechas
+        fecha_checkin = datetime.strptime(checkin, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        fecha_checkout = datetime.strptime(checkout, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        
+        # Obtener todas las habitaciones que pueden acomodar a los huéspedes
+        habitaciones_adecuadas = db.exec(
+            select(Habitacion).where(Habitacion.capacidad >= huespedes)
+        ).all()
+        
+        if tipo_preferido:
+            habitaciones_adecuadas = [h for h in habitaciones_adecuadas if h.tipo == tipo_preferido]
+        
+        # Verificar cuáles están disponibles en las fechas solicitadas
+        habitaciones_disponibles = []
+        
+        for habitacion in habitaciones_adecuadas:
+            # Buscar reservas que se solapen con las fechas solicitadas
+            reservas_solapadas = db.exec(
+                select(Reserva).where(
+                    Reserva.habitacion_id == habitacion.id,
+                    Reserva.fecha_checkin < fecha_checkout,
+                    Reserva.fecha_checkout > fecha_checkin
+                )
+            ).all()
+            
+            # Si no hay reservas solapadas, la habitación está disponible
+            if not reservas_solapadas:
+                habitaciones_disponibles.append({
+                    "id": habitacion.id,
+                    "numero": habitacion.numero,
+                    "tipo": habitacion.tipo,
+                    "capacidad": habitacion.capacidad,
+                    "precio": habitacion.precio,
+                    "descripcion": habitacion.descripcion
+                })
+        
+        # Calcular estadísticas
+        total_habitaciones = len(habitaciones_adecuadas)
+        habitaciones_libres = len(habitaciones_disponibles)
+        
+        # Organizar por tipo
+        disponibles_por_tipo = {}
+        for hab in habitaciones_disponibles:
+            tipo = hab["tipo"]
+            if tipo not in disponibles_por_tipo:
+                disponibles_por_tipo[tipo] = []
+            disponibles_por_tipo[tipo].append(hab)
+        
+        return {
+            "disponible": habitaciones_libres > 0,
+            "habitaciones_libres": habitaciones_libres,
+            "total_habitaciones_adecuadas": total_habitaciones,
+            "fechas": {
+                "checkin": checkin,
+                "checkout": checkout
+            },
+            "huespedes": huespedes,
+            "habitaciones_disponibles": habitaciones_disponibles,
+            "disponibles_por_tipo": disponibles_por_tipo,
+            "recomendacion": seleccionar_mejor_habitacion(habitaciones_disponibles, huespedes, tipo_preferido)
+        }
+        
+    except Exception as e:
+        print(f"Error al verificar disponibilidad: {e}")
+        return {"success": False, "error": str(e)}
+
+def seleccionar_mejor_habitacion(habitaciones_disponibles, huespedes, tipo_preferido):
+    """
+    Selecciona la mejor habitación basada en criterios de optimización
+    """
+    if not habitaciones_disponibles:
+        return None
+    
+    # Filtrar por tipo preferido si se especifica
+    if tipo_preferido:
+        habitaciones_filtradas = [h for h in habitaciones_disponibles if h["tipo"] == tipo_preferido]
+        if habitaciones_filtradas:
+            habitaciones_disponibles = habitaciones_filtradas
+    
+    # Ordenar por criterios de preferencia:
+    # 1. Capacidad exacta o lo más cercana posible
+    # 2. Precio (menor es mejor)
+    # 3. Número de habitación (menor es mejor)
+    
+    def criterio_seleccion(habitacion):
+        diferencia_capacidad = habitacion["capacidad"] - huespedes
+        # Penalizar mucho si la capacidad es menor (no debería pasar)
+        if diferencia_capacidad < 0:
+            diferencia_capacidad = 100
+        
+        return (diferencia_capacidad, habitacion["precio"], habitacion["numero"])
+    
+    mejor_habitacion = min(habitaciones_disponibles, key=criterio_seleccion)
+    
+    return {
+        "habitacion_recomendada": mejor_habitacion,
+        "razon": f"Mejor opción para {huespedes} huéspedes: capacidad {mejor_habitacion['capacidad']}, precio ${mejor_habitacion['precio']:,}"
+    }
+
 # ─────────── ENDPOINT PÚBLICO PARA RESERVAS WEB (CORREGIDO) ───────────
 @app.post("/reservas-web")
 def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db)):
@@ -838,6 +1026,33 @@ def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db))
         except ValueError as e:
             print(f"❌ Error en formato de fechas: {e}")
             raise HTTPException(status_code=400, detail=f"Formato de fecha inválido: {e}")
+        
+        # ✅ VERIFICAR DISPONIBILIDAD INTELIGENTE
+        # Determinar tipo preferido basado en roomType
+        tipo_preferido = data.roomType if data.roomType in ["Estándar", "Confort"] else None
+        
+        # Verificar disponibilidad
+        disponibilidad = verificar_disponibilidad(
+            checkin=data.checkin,
+            checkout=data.checkout,
+            huespedes=data.guests,
+            tipo_preferido=tipo_preferido,
+            db=db
+        )
+        
+        if not disponibilidad["disponible"]:
+            return {
+                "success": False,
+                "error": f"No hay habitaciones disponibles para {data.guests} huéspedes del {data.checkin} al {data.checkout}",
+                "alternativas": "Por favor selecciona otras fechas o contacta al hotel"
+            }
+        
+        # Obtener la habitación recomendada
+        habitacion_recomendada = disponibilidad["recomendacion"]["habitacion_recomendada"]
+        habitacion_id = habitacion_recomendada["id"]
+        precio_por_noche = habitacion_recomendada["precio"]
+        
+        print(f"✅ Habitación asignada automáticamente: {habitacion_recomendada['numero']} ({habitacion_recomendada['tipo']})")
         
         # Crear cliente automáticamente
         nombre_completo = f"{data.firstName} {data.lastName}"
@@ -867,45 +1082,11 @@ def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db))
             db.refresh(cliente)
             print(f"✅ Nuevo cliente creado: {cliente.nombre} (DNI: {dni_web})")
         
-        # Buscar habitación por tipo
-        habitacion = None
-        try:
-            if data.roomType == "Estándar":
-                habitacion = db.exec(select(Habitacion).where(Habitacion.tipo == "Estándar")).first()
-            elif data.roomType == "Confort":
-                habitacion = db.exec(select(Habitacion).where(Habitacion.tipo == "Confort")).first()
-            
-            # Fallback a cualquier habitación disponible
-            if not habitacion:
-                habitacion = db.exec(select(Habitacion)).first()
-                if habitacion:
-                    print(f"⚠️ No se encontró habitación {data.roomType}, usando habitación {habitacion.numero}")
-                    
-        except Exception as e:
-            print(f"❌ Error al buscar habitación: {e}")
-            
-        # Si no hay ninguna habitación, crear una temporal
-        if not habitacion:
-            print("⚠️ No hay habitaciones en la base de datos, creando habitación temporal")
-            habitacion = Habitacion(
-                numero=99,
-                tipo=data.roomType,
-                precio=50000 if data.roomType == "Estándar" else 70000,
-                capacidad=data.guests,
-                descripcion=f"Habitación {data.roomType} - Creada automáticamente"
-            )
-            db.add(habitacion)
-            db.commit()
-            db.refresh(habitacion)
-            print(f"✅ Habitación temporal creada: {habitacion.numero}")
-        
-        # Calcular precio
+        # Calcular precio total
         noches = (fecha_checkout - fecha_checkin).days
         if noches <= 0:
             noches = 1  # Mínimo una noche
             
-        # Precios base
-        precio_por_noche = habitacion.precio if habitacion.precio else (50000 if data.roomType == "Estándar" else 70000)
         precio_total = precio_por_noche * noches
         
         # Agregar costo de mascota
@@ -913,10 +1094,10 @@ def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db))
             precio_total += 7000
             print(f"🐾 Costo de mascota agregado: +$7.000")
         
-        # Crear reserva
+        # Crear reserva con habitación asignada automáticamente
         reserva = Reserva(
             cliente_id=cliente.id,
-            habitacion_id=habitacion.id,
+            habitacion_id=habitacion_id,
             fecha_checkin=fecha_checkin,
             fecha_checkout=fecha_checkout,
             seña=0,
@@ -934,23 +1115,31 @@ def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db))
         print(f"🎉 Reserva web creada exitosamente:")
         print(f"   - ID: {reserva.id}")
         print(f"   - Cliente: {nombre_completo}")
-        print(f"   - Habitación: {data.roomType} (ID: {habitacion.id})")
-        print(f"   - Fechas: {data.checkin} a {data.checkout}")
-        print(f"   - Precio: ${precio_total}")
+        print(f"   - Habitación: {habitacion_recomendada['numero']} ({habitacion_recomendada['tipo']})")
+        print(f"   - Capacidad: {habitacion_recomendada['capacidad']} personas")
+        print(f"   - Fechas: {data.checkin} a {data.checkout} ({noches} noches)")
+        print(f"   - Precio: ${precio_total:,}")
         print(f"   - Confirmación: {numero_confirmacion}")
         
         return {
             "success": True,
-            "mensaje": "Reserva recibida correctamente",
+            "mensaje": "Reserva confirmada y habitación asignada automáticamente",
             "confirmacion": numero_confirmacion,
+            "habitacion_asignada": {
+                "numero": habitacion_recomendada["numero"],
+                "tipo": habitacion_recomendada["tipo"],
+                "capacidad": habitacion_recomendada["capacidad"]
+            },
             "precio_total": precio_total,
+            "precio_por_noche": precio_por_noche,
             "noches": noches,
             "checkin": data.checkin,
             "checkout": data.checkout,
-            "habitacion": data.roomType,
+            "huespedes": data.guests,
             "cliente": nombre_completo,
             "reserva_id": reserva.id,
-            "cliente_id": cliente.id
+            "cliente_id": cliente.id,
+            "mascota": data.pet
         }
         
     except HTTPException:
@@ -965,6 +1154,78 @@ def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db))
             "success": False, 
             "error": f"Error interno del servidor: {str(e)}"
         }
+
+# 4. ENDPOINT PARA OBTENER ESTADÍSTICAS DE OCUPACIÓN
+@app.get("/ocupacion-estadisticas")
+def obtener_estadisticas_ocupacion(
+    fecha_inicio: str,
+    fecha_fin: str,
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    """
+    Obtiene estadísticas detalladas de ocupación para un rango de fechas
+    """
+    try:
+        inicio = datetime.strptime(fecha_inicio, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        fin = datetime.strptime(fecha_fin, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        
+        # Obtener todas las habitaciones
+        todas_habitaciones = db.exec(select(Habitacion)).all()
+        total_habitaciones = len(todas_habitaciones)
+        
+        # Obtener reservas en el rango
+        reservas = db.exec(
+            select(Reserva).where(
+                Reserva.fecha_checkin < fin,
+                Reserva.fecha_checkout > inicio
+            )
+        ).all()
+        
+        # Calcular días totales
+        dias_total = (fin - inicio).days
+        
+        # Estadísticas por tipo
+        stats_por_tipo = {}
+        for habitacion in todas_habitaciones:
+            tipo = habitacion.tipo
+            if tipo not in stats_por_tipo:
+                stats_por_tipo[tipo] = {
+                    "total_habitaciones": 0,
+                    "capacidad_total": 0,
+                    "habitaciones": []
+                }
+            
+            stats_por_tipo[tipo]["total_habitaciones"] += 1
+            stats_por_tipo[tipo]["capacidad_total"] += habitacion.capacidad
+            stats_por_tipo[tipo]["habitaciones"].append({
+                "numero": habitacion.numero,
+                "capacidad": habitacion.capacidad,
+                "precio": habitacion.precio
+            })
+        
+        # Calcular ocupación
+        habitaciones_ocupadas = set(r.habitacion_id for r in reservas)
+        tasa_ocupacion = (len(habitaciones_ocupadas) / total_habitaciones * 100) if total_habitaciones > 0 else 0
+        
+        return {
+            "periodo": {
+                "inicio": fecha_inicio,
+                "fin": fecha_fin,
+                "dias": dias_total
+            },
+            "resumen": {
+                "total_habitaciones": total_habitaciones,
+                "habitaciones_ocupadas": len(habitaciones_ocupadas),
+                "habitaciones_libres": total_habitaciones - len(habitaciones_ocupadas),
+                "tasa_ocupacion": round(tasa_ocupacion, 2)
+            },
+            "por_tipo": stats_por_tipo,
+            "reservas_activas": len(reservas)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al calcular estadísticas: {str(e)}")
 
 # ─────────── ENDPOINT DE RESUMEN ───────────
 @app.get("/resumen-dia")
@@ -1254,3 +1515,118 @@ def obtener_estado_sistema(db: Session = Depends(obtener_db)):
             "status": "❌ Error en base de datos",
             "error": str(e)
         }
+
+# Endpoint para verificar disponibilidad (VERSIÓN PYTHON CORREGIDA)
+@app.route('/verificar-disponibilidad', methods=['GET'])
+def verificar_disponibilidad():
+    try:
+        checkin = request.args.get('checkin')
+        checkout = request.args.get('checkout')
+        huespedes = request.args.get('huespedes')
+        tipo_preferido = request.args.get('tipo_preferido')
+        
+        print(f'🔍 Verificando disponibilidad: checkin={checkin}, checkout={checkout}, huespedes={huespedes}, tipo={tipo_preferido}')
+        
+        # Validar parámetros requeridos
+        if not checkin or not checkout or not huespedes:
+            return jsonify({
+                'disponible': False,
+                'error': 'Faltan parámetros requeridos: checkin, checkout, huespedes'
+            }), 400
+        
+        huespedes = int(huespedes)
+        
+        # Conectar a la base de datos
+        conn = sqlite3.connect('hotel.db')
+        cursor = conn.cursor()
+        
+        # Buscar habitaciones disponibles por capacidad
+        cursor.execute("""
+            SELECT numero, tipo, capacidad, precio_noche 
+            FROM habitaciones 
+            WHERE capacidad >= ? AND estado = 'disponible'
+        """, (huespedes,))
+        
+        habitaciones_disponibles = cursor.fetchall()
+        
+        if not habitaciones_disponibles:
+            conn.close()
+            return jsonify({
+                'disponible': False,
+                'mensaje': 'No hay habitaciones disponibles para la cantidad de huéspedes',
+                'fechas': {'checkin': checkin, 'checkout': checkout},
+                'huespedes': huespedes,
+                'alternativas': [
+                    'Intenta con menos huéspedes si es posible',
+                    'Contacta al hotel para consultar disponibilidad',
+                    'Prueba con fechas diferentes'
+                ]
+            })
+        
+        # Verificar si hay conflictos con reservas existentes
+        cursor.execute("""
+            SELECT DISTINCT habitacion_numero 
+            FROM reservas 
+            WHERE estado != 'cancelada'
+            AND (
+                (checkin <= ? AND checkout >= ?) OR
+                (checkin >= ? AND checkin <= ?)
+            )
+        """, (checkout, checkin, checkin, checkout))
+        
+        habitaciones_ocupadas = [row[0] for row in cursor.fetchall()]
+        
+        # Filtrar habitaciones libres
+        habitaciones_libres = [
+            h for h in habitaciones_disponibles 
+            if h[0] not in habitaciones_ocupadas
+        ]
+        
+        if not habitaciones_libres:
+            conn.close()
+            return jsonify({
+                'disponible': False,
+                'mensaje': 'No hay habitaciones disponibles para las fechas seleccionadas',
+                'fechas': {'checkin': checkin, 'checkout': checkout},
+                'huespedes': huespedes,
+                'alternativas': [
+                    'Intenta con fechas diferentes',
+                    'Considera menos huéspedes si es posible',
+                    'Contacta al hotel para consultar disponibilidad'
+                ]
+            })
+        
+        # Seleccionar la mejor habitación
+        habitacion_recomendada = habitaciones_libres[0]
+        
+        # Priorizar por tipo preferido si se especifica
+        if tipo_preferido:
+            for habitacion in habitaciones_libres:
+                if habitacion[1] == tipo_preferido:  # habitacion[1] es el tipo
+                    habitacion_recomendada = habitacion
+                    break
+        
+        conn.close()
+        
+        # Respuesta exitosa
+        return jsonify({
+            'disponible': True,
+            'habitaciones_libres': len(habitaciones_libres),
+            'recomendacion': {
+                'habitacion_recomendada': {
+                    'numero': habitacion_recomendada[0],
+                    'tipo': habitacion_recomendada[1],
+                    'capacidad': habitacion_recomendada[2],
+                    'precio': habitacion_recomendada[3]
+                }
+            },
+            'fechas': {'checkin': checkin, 'checkout': checkout},
+            'huespedes': huespedes
+        })
+        
+    except Exception as error:
+        print(f'Error al verificar disponibilidad: {error}')
+        return jsonify({
+            'disponible': False,
+            'error': 'Error interno del servidor al verificar disponibilidad'
+        }), 500
