@@ -957,6 +957,7 @@ def configurar_habitaciones_completas(db: Session = Depends(obtener_db)):
         return {"success": False, "error": str(e)}
 
 # 2. ENDPOINT PARA VERIFICAR DISPONIBILIDAD
+# ✅ FUNCIÓN CORREGIDA - Reemplazar en el backend
 @app.get("/verificar-disponibilidad")
 def verificar_disponibilidad(
     checkin: str,
@@ -969,30 +970,51 @@ def verificar_disponibilidad(
     Verifica disponibilidad para fechas y número de huéspedes específicos
     """
     try:
+        print(f"🔍 Verificando disponibilidad:")
+        print(f"   - Fechas: {checkin} a {checkout}")
+        print(f"   - Huéspedes: {huespedes}")
+        print(f"   - Tipo preferido: {tipo_preferido}")
+        
         # Convertir fechas
         fecha_checkin = datetime.strptime(checkin, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
         fecha_checkout = datetime.strptime(checkout, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
         
-        # Obtener todas las habitaciones que pueden acomodar a los huéspedes
-        habitaciones_adecuadas = db.exec(
-            select(Habitacion).where(Habitacion.capacidad >= huespedes)
-        ).all()
+        # ✅ OBTENER TODAS LAS HABITACIONES SIN FILTRO DE CAPACIDAD PRIMERO
+        todas_habitaciones = db.exec(select(Habitacion)).all()
+        print(f"📊 Total habitaciones en BD: {len(todas_habitaciones)}")
         
+        # ✅ FILTRAR POR CAPACIDAD (>= huéspedes, no solo ==)
+        habitaciones_adecuadas = [h for h in todas_habitaciones if h.capacidad >= huespedes]
+        print(f"📊 Habitaciones con capacidad >= {huespedes}: {len(habitaciones_adecuadas)}")
+        
+        # Mostrar detalles para debug
+        for hab in habitaciones_adecuadas:
+            print(f"   - Hab {hab.numero}: capacidad {hab.capacidad}, tipo {hab.tipo}")
+        
+        # ✅ FILTRAR POR TIPO SI SE ESPECIFICA
         if tipo_preferido:
-            habitaciones_adecuadas = [h for h in habitaciones_adecuadas if h.tipo == tipo_preferido]
+            habitaciones_filtradas = [h for h in habitaciones_adecuadas if h.tipo == tipo_preferido]
+            print(f"📊 Después de filtrar por tipo '{tipo_preferido}': {len(habitaciones_filtradas)}")
+            habitaciones_adecuadas = habitaciones_filtradas
         
-        # Verificar cuáles están disponibles en las fechas solicitadas
+        # ✅ VERIFICAR DISPONIBILIDAD EN FECHAS
         habitaciones_disponibles = []
         
         for habitacion in habitaciones_adecuadas:
+            print(f"🔍 Verificando habitación {habitacion.numero}...")
+            
             # Buscar reservas que se solapen con las fechas solicitadas
             reservas_solapadas = db.exec(
                 select(Reserva).where(
                     Reserva.habitacion_id == habitacion.id,
-                    Reserva.fecha_checkin < fecha_checkout,
-                    Reserva.fecha_checkout > fecha_checkin
+                    Reserva.fecha_checkin < fecha_checkout,  # Reserva empieza antes del checkout
+                    Reserva.fecha_checkout > fecha_checkin   # Reserva termina después del checkin
                 )
             ).all()
+            
+            print(f"   - Reservas encontradas: {len(reservas_solapadas)}")
+            for r in reservas_solapadas:
+                print(f"     • {r.nombre_huesped}: {r.fecha_checkin.date()} a {r.fecha_checkout.date()}")
             
             # Si no hay reservas solapadas, la habitación está disponible
             if not reservas_solapadas:
@@ -1004,10 +1026,11 @@ def verificar_disponibilidad(
                     "precio": habitacion.precio,
                     "descripcion": habitacion.descripcion
                 })
+                print(f"   ✅ Habitación {habitacion.numero} DISPONIBLE")
+            else:
+                print(f"   ❌ Habitación {habitacion.numero} OCUPADA")
         
-        # Calcular estadísticas
-        total_habitaciones = len(habitaciones_adecuadas)
-        habitaciones_libres = len(habitaciones_disponibles)
+        print(f"🎯 RESULTADO: {len(habitaciones_disponibles)} habitaciones disponibles")
         
         # Organizar por tipo
         disponibles_por_tipo = {}
@@ -1017,10 +1040,10 @@ def verificar_disponibilidad(
                 disponibles_por_tipo[tipo] = []
             disponibles_por_tipo[tipo].append(hab)
         
-        return {
-            "disponible": habitaciones_libres > 0,
-            "habitaciones_libres": habitaciones_libres,
-            "total_habitaciones_adecuadas": total_habitaciones,
+        resultado = {
+            "disponible": len(habitaciones_disponibles) > 0,
+            "habitaciones_libres": len(habitaciones_disponibles),
+            "total_habitaciones_adecuadas": len(habitaciones_adecuadas),
             "fechas": {
                 "checkin": checkin,
                 "checkout": checkout
@@ -1028,12 +1051,30 @@ def verificar_disponibilidad(
             "huespedes": huespedes,
             "habitaciones_disponibles": habitaciones_disponibles,
             "disponibles_por_tipo": disponibles_por_tipo,
-            "recomendacion": seleccionar_mejor_habitacion(habitaciones_disponibles, huespedes, tipo_preferido)
+            "recomendacion": seleccionar_mejor_habitacion(habitaciones_disponibles, huespedes, tipo_preferido),
+            # ✅ INFORMACIÓN DE DEBUG
+            "debug": {
+                "total_habitaciones_bd": len(todas_habitaciones),
+                "capacidades_disponibles": [h.capacidad for h in todas_habitaciones],
+                "habitaciones_capacidad_suficiente": len(habitaciones_adecuadas),
+                "tipo_filtro_aplicado": tipo_preferido
+            }
         }
         
+        print(f"📤 Enviando respuesta: {resultado['disponible']}")
+        return resultado
+        
     except Exception as e:
-        print(f"Error al verificar disponibilidad: {e}")
-        return {"success": False, "error": str(e)}
+        print(f"💥 Error en verificar_disponibilidad: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        return {
+            "disponible": False,
+            "error": f"Error al verificar disponibilidad: {str(e)}",
+            "habitaciones_libres": 0,
+            "habitaciones_disponibles": []
+        }
 
 def seleccionar_mejor_habitacion(habitaciones_disponibles, huespedes, tipo_preferido):
     """
@@ -1668,3 +1709,42 @@ def obtener_estado_sistema(db: Session = Depends(obtener_db)):
             "status": "❌ Error en base de datos",
             "error": str(e)
         }
+
+# ✅ ENDPOINT PARA DEBUG - Agregar temporalmente al backend
+@app.get("/debug/habitaciones")
+def debug_habitaciones(db: Session = Depends(obtener_db)):
+    """
+    Endpoint temporal para verificar la configuración de habitaciones
+    """
+    habitaciones = db.exec(select(Habitacion)).all()
+    
+    resultado = []
+    for hab in habitaciones:
+        resultado.append({
+            "id": hab.id,
+            "numero": hab.numero,
+            "tipo": hab.tipo,
+            "capacidad": hab.capacidad,
+            "precio": hab.precio,
+            "descripcion": hab.descripcion
+        })
+    
+    # Agrupar por capacidad
+    por_capacidad = {}
+    for hab in resultado:
+        cap = hab["capacidad"]
+        if cap not in por_capacidad:
+            por_capacidad[cap] = []
+        por_capacidad[cap].append(hab["numero"])
+    
+    return {
+        "total_habitaciones": len(resultado),
+        "habitaciones_detalle": resultado,
+        "agrupadas_por_capacidad": por_capacidad,
+        "resumen": {
+            "capacidad_1-2": len([h for h in resultado if h["capacidad"] <= 2]),
+            "capacidad_3": len([h for h in resultado if h["capacidad"] == 3]),
+            "capacidad_4": len([h for h in resultado if h["capacidad"] == 4]),
+            "capacidad_5+": len([h for h in resultado if h["capacidad"] >= 5])
+        }
+    }
