@@ -6,3 +6,4 @@ python-jose[cryptography]
 python-multipart
 pydantic
 flask
+flask-cors
