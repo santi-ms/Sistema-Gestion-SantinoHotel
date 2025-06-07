@@ -825,41 +825,41 @@ def actualizar_forma_pago(reserva_id: int, data: ActualizarPagoEntrada, db: Sess
     return {"mensaje": "Forma de pago actualizada"}
 
 @app.post("/setup-habitaciones")
-def configurar_habitaciones_con_capacidades(db: Session = Depends(obtener_db)):
+def configurar_habitaciones_completas(db: Session = Depends(obtener_db)):
     """
-    Configura todas las habitaciones con sus capacidades específicas
+    Configura todas las 15 habitaciones del Complejo Santino con sus precios y capacidades reales
     """
     try:
-        # Configuración de habitaciones según especificaciones
+        # Configuración real de habitaciones del Complejo Santino
         habitaciones_config = [
-            # Habitaciones ESTÁNDAR para 5 personas
-            {"numero": 1, "tipo": "Estándar", "capacidad": 5, "precio": 50000},
-            {"numero": 2, "tipo": "Estándar", "capacidad": 5, "precio": 50000},
-            {"numero": 3, "tipo": "Estándar", "capacidad": 5, "precio": 50000},
-            {"numero": 4, "tipo": "Estándar", "capacidad": 5, "precio": 50000},
+            # Habitaciones Estándar para 5 personas
+            {"numero": 1, "tipo": "Estándar", "capacidad": 5, "precio": 90000},
+            {"numero": 2, "tipo": "Estándar", "capacidad": 5, "precio": 90000},
+            {"numero": 3, "tipo": "Estándar", "capacidad": 5, "precio": 90000},
+            {"numero": 4, "tipo": "Estándar", "capacidad": 5, "precio": 90000},
             
-            # Habitación ESTÁNDAR para 4 personas
-            {"numero": 5, "tipo": "Estándar", "capacidad": 4, "precio": 50000},
+            # Habitación Estándar para 4 personas
+            {"numero": 5, "tipo": "Estándar", "capacidad": 4, "precio": 80000},
             
-            # Habitaciones ESTÁNDAR para 1-2 personas
-            {"numero": 6, "tipo": "Estándar", "capacidad": 2, "precio": 45000},
-            {"numero": 11, "tipo": "Estándar", "capacidad": 2, "precio": 45000},
+            # Habitaciones Estándar para 1-2 personas (precio para 2 personas, mínimo 1)
+            {"numero": 6, "tipo": "Estándar", "capacidad": 2, "precio": 50000},  # $40k para 1 persona, $50k para 2
+            {"numero": 11, "tipo": "Estándar", "capacidad": 2, "precio": 50000}, # $40k para 1 persona, $50k para 2
             
-            # Habitación ESTÁNDAR para 6 personas
-            {"numero": 7, "tipo": "Estándar", "capacidad": 6, "precio": 55000},
+            # Habitación Estándar para 6 personas
+            {"numero": 7, "tipo": "Estándar", "capacidad": 6, "precio": 100000},
             
-            # Habitaciones ESTÁNDAR para 3 personas
-            {"numero": 8, "tipo": "Estándar", "capacidad": 3, "precio": 48000},
-            {"numero": 9, "tipo": "Estándar", "capacidad": 3, "precio": 48000},
+            # Habitaciones Estándar para 3 personas
+            {"numero": 8, "tipo": "Estándar", "capacidad": 3, "precio": 65000},
+            {"numero": 9, "tipo": "Estándar", "capacidad": 3, "precio": 65000},
             
-            # Habitación ESTÁNDAR para 7 personas
-            {"numero": 10, "tipo": "Estándar", "capacidad": 7, "precio": 60000},
+            # Habitación Estándar para 7 personas
+            {"numero": 10, "tipo": "Estándar", "capacidad": 7, "precio": 110000},
             
-            # Habitaciones CONFORT para 4 personas
-            {"numero": 12, "tipo": "Confort", "capacidad": 4, "precio": 70000},
-            {"numero": 13, "tipo": "Confort", "capacidad": 4, "precio": 70000},
-            {"numero": 14, "tipo": "Confort", "capacidad": 4, "precio": 70000},
-            {"numero": 15, "tipo": "Confort", "capacidad": 4, "precio": 70000},
+            # Habitaciones Confort para 4 personas
+            {"numero": 12, "tipo": "Confort", "capacidad": 4, "precio": 90000},
+            {"numero": 13, "tipo": "Confort", "capacidad": 4, "precio": 90000},
+            {"numero": 14, "tipo": "Confort", "capacidad": 4, "precio": 90000},
+            {"numero": 15, "tipo": "Confort", "capacidad": 4, "precio": 90000},
         ]
         
         for config in habitaciones_config:
@@ -868,12 +868,18 @@ def configurar_habitaciones_con_capacidades(db: Session = Depends(obtener_db)):
                 select(Habitacion).where(Habitacion.numero == config["numero"])
             ).first()
             
+            descripcion = f"Habitación {config['tipo']} para {config['capacidad']} personas"
+            
+            # Agregar info especial para hab. 6 y 11
+            if config["numero"] in [6, 11]:
+                descripcion += " (1 persona: $40,000 | 2 personas: $50,000)"
+            
             if habitacion_existente:
                 # Actualizar habitación existente
                 habitacion_existente.tipo = config["tipo"]
                 habitacion_existente.capacidad = config["capacidad"]
                 habitacion_existente.precio = config["precio"]
-                habitacion_existente.descripcion = f"Habitación {config['tipo']} para {config['capacidad']} personas"
+                habitacion_existente.descripcion = descripcion
                 db.add(habitacion_existente)
             else:
                 # Crear nueva habitación
@@ -882,7 +888,7 @@ def configurar_habitaciones_con_capacidades(db: Session = Depends(obtener_db)):
                     tipo=config["tipo"],
                     capacidad=config["capacidad"],
                     precio=config["precio"],
-                    descripcion=f"Habitación {config['tipo']} para {config['capacidad']} personas"
+                    descripcion=descripcion
                 )
                 db.add(nueva_habitacion)
         
@@ -890,14 +896,23 @@ def configurar_habitaciones_con_capacidades(db: Session = Depends(obtener_db)):
         
         return {
             "success": True,
-            "mensaje": "Habitaciones configuradas correctamente",
-            "habitaciones_configuradas": len(habitaciones_config)
+            "mensaje": "✅ Complejo Santino - 15 habitaciones configuradas correctamente",
+            "habitaciones_configuradas": len(habitaciones_config),
+            "detalles": {
+                "estandar_5_personas": "Hab. 1-4: $90,000",
+                "estandar_4_personas": "Hab. 5: $80,000", 
+                "estandar_1_2_personas": "Hab. 6,11: $40k-$50k",
+                "estandar_6_personas": "Hab. 7: $100,000",
+                "estandar_3_personas": "Hab. 8,9: $65,000",
+                "estandar_7_personas": "Hab. 10: $110,000",
+                "confort_4_personas": "Hab. 12-15: $90,000"
+            },
+            "nota": "Precios en efectivo/transferencia: descuento de $10,000 en la mayoría"
         }
         
     except Exception as e:
         print(f"Error al configurar habitaciones: {e}")
         return {"success": False, "error": str(e)}
-
 # 2. ENDPOINT PARA VERIFICAR DISPONIBILIDAD
 @app.get("/verificar-disponibilidad")
 def verificar_disponibilidad(
