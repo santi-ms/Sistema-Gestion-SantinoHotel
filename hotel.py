@@ -153,6 +153,9 @@ class ReservaWeb(BaseModel):
     guests: int
     requests: Optional[str] = None
     pet: bool = False
+    # NUEVOS CAMPOS PARA MANEJAR LA SEÑA
+    tipoPago: Optional[str] = "transferencia"  # Tipo de pago desde el frontend
+    montoSeña: Optional[float] = None  # Monto de la seña calculado en el frontend
 
 # ─────────── MODELO PARA SISTEMA DE GESTIÓN ───────────
 class ReservaGestion(BaseModel):
@@ -824,6 +827,45 @@ def actualizar_forma_pago(reserva_id: int, data: ActualizarPagoEntrada, db: Sess
     db.commit()
     return {"mensaje": "Forma de pago actualizada"}
 
+@app.patch("/reservas/{reserva_id}/actualizar-sena")
+def actualizar_estado_sena(
+    reserva_id: int, 
+    estado: str = Query(..., description="'Seña Recibida' o 'Seña Pendiente'"),
+    db: Session = Depends(obtener_db), 
+    token: dict = Depends(verificar_token)
+):
+    """
+    Actualiza el estado de la seña de una reserva
+    """
+    reserva = db.get(Reserva, reserva_id)
+    if not reserva:
+        raise HTTPException(status_code=404, detail="Reserva no encontrada")
+    
+    # Validar estados permitidos
+    estados_permitidos = ["Seña Recibida", "Seña Pendiente", "Pagado Completo", "Cancelado"]
+    if estado not in estados_permitidos:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Estado inválido. Estados permitidos: {', '.join(estados_permitidos)}"
+        )
+    
+    estado_anterior = reserva.forma_pago
+    reserva.forma_pago = estado
+    
+    db.add(reserva)
+    db.commit()
+    
+    print(f"📋 Reserva {reserva_id}: Estado actualizado de '{estado_anterior}' a '{estado}'")
+    
+    return {
+        "mensaje": f"Estado de seña actualizado correctamente",
+        "reserva_id": reserva_id,
+        "estado_anterior": estado_anterior,
+        "estado_nuevo": estado,
+        "seña": reserva.seña,
+        "total": reserva.total_estadia
+    }
+
 @app.post("/setup-habitaciones")
 def configurar_habitaciones_completas(db: Session = Depends(obtener_db)):
     """
@@ -913,6 +955,7 @@ def configurar_habitaciones_completas(db: Session = Depends(obtener_db)):
     except Exception as e:
         print(f"Error al configurar habitaciones: {e}")
         return {"success": False, "error": str(e)}
+
 # 2. ENDPOINT PARA VERIFICAR DISPONIBILIDAD
 @app.get("/verificar-disponibilidad")
 def verificar_disponibilidad(
@@ -1025,12 +1068,92 @@ def seleccionar_mejor_habitacion(habitaciones_disponibles, huespedes, tipo_prefe
         "razon": f"Mejor opción para {huespedes} huéspedes: capacidad {mejor_habitacion['capacidad']}, precio ${mejor_habitacion['precio']:,}"
     }
 
+
+@app.get("/reservas/senas-pendientes")
+def obtener_reservas_senas_pendientes(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+    """
+    Obtiene todas las reservas con seña pendiente
+    """
+    reservas_pendientes = db.exec(
+        select(Reserva).where(
+            Reserva.forma_pago.in_(["Seña Pendiente", "Pendiente - Reserva Web"])
+        )
+    ).all()
+    
+    resultado = []
+    for reserva in reservas_pendientes:
+        # Obtener datos del cliente
+        cliente = db.get(Cliente, reserva.cliente_id)
+        # Obtener datos de la habitación
+        habitacion = db.get(Habitacion, reserva.habitacion_id)
+        
+        resultado.append({
+            "reserva_id": reserva.id,
+            "cliente": {
+                "nombre": cliente.nombre if cliente else "Cliente no encontrado",
+                "dni": cliente.dni if cliente else "N/A",
+                "celular": cliente.celular if cliente else "N/A"
+            },
+            "habitacion": {
+                "numero": habitacion.numero if habitacion else "N/A",
+                "tipo": habitacion.tipo if habitacion else "N/A"
+            },
+            "fecha_checkin": reserva.fecha_checkin.strftime("%Y-%m-%d"),
+            "fecha_checkout": reserva.fecha_checkout.strftime("%Y-%m-%d"),
+            "seña": reserva.seña,
+            "total_estadia": reserva.total_estadia,
+            "estado": reserva.forma_pago,
+            "dias_restantes": (reserva.fecha_checkin - obtener_fecha_argentina()).days
+        })
+    
+    return {
+        "total_pendientes": len(resultado),
+        "monto_total_pendiente": sum(r["seña"] for r in resultado),
+        "reservas": resultado
+    }
+
+@app.get("/estadisticas/senas")
+def estadisticas_senas(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+    """
+    Obtiene estadísticas sobre el estado de las señas
+    """
+    todas_reservas = db.exec(select(Reserva)).all()
+    
+    estadisticas = {
+        "total_reservas": len(todas_reservas),
+        "senas_pendientes": 0,
+        "senas_recibidas": 0,
+        "pagado_completo": 0,
+        "otros_estados": 0,
+        "monto_pendiente": 0,
+        "monto_recibido": 0
+    }
+    
+    for reserva in todas_reservas:
+        estado = reserva.forma_pago.lower()
+        
+        if "pendiente" in estado:
+            estadisticas["senas_pendientes"] += 1
+            estadisticas["monto_pendiente"] += reserva.seña
+        elif "recibida" in estado:
+            estadisticas["senas_recibidas"] += 1
+            estadisticas["monto_recibido"] += reserva.seña
+        elif "pagado" in estado or "completo" in estado:
+            estadisticas["pagado_completo"] += 1
+            estadisticas["monto_recibido"] += reserva.total_estadia
+        else:
+            estadisticas["otros_estados"] += 1
+    
+    return estadisticas
+
 # ─────────── ENDPOINT PÚBLICO PARA RESERVAS WEB (CORREGIDO) ───────────
 @app.post("/reservas-web")
 def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db)):
     try:
         print(f"🌐 Reserva recibida desde página web")
         print(f"📥 Datos recibidos: {data}")
+        print(f"💰 Monto seña recibido: {data.montoSeña}")
+        print(f"💳 Tipo de pago: {data.tipoPago}")
         
         # Convertir fechas string a datetime
         try:
@@ -1041,10 +1164,8 @@ def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db))
             raise HTTPException(status_code=400, detail=f"Formato de fecha inválido: {e}")
         
         # ✅ VERIFICAR DISPONIBILIDAD INTELIGENTE
-        # Determinar tipo preferido basado en roomType
         tipo_preferido = data.roomType if data.roomType in ["Estándar", "Confort"] else None
         
-        # Verificar disponibilidad
         disponibilidad = verificar_disponibilidad(
             checkin=data.checkin,
             checkout=data.checkout,
@@ -1107,15 +1228,28 @@ def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db))
             precio_total += 7000
             print(f"🐾 Costo de mascota agregado: +$7.000")
         
-        # Crear reserva con habitación asignada automáticamente
+        # ✅ PROCESAR SEÑA Y TIPO DE PAGO CORRECTAMENTE
+        # Usar el monto de seña enviado desde el frontend (50% calculado)
+        monto_sena = data.montoSeña if data.montoSeña is not None else (precio_total * 0.5)
+        
+        # Establecer estado según el tipo de pago
+        if data.tipoPago == "transferencia":
+            estado_pago = "Seña Pendiente"
+        else:
+            estado_pago = "Pendiente - Reserva Web"
+        
+        print(f"💰 Seña calculada: ${monto_sena:,.0f}")
+        print(f"📋 Estado de pago: {estado_pago}")
+        
+        # Crear reserva con seña y estado correctos
         reserva = Reserva(
             cliente_id=cliente.id,
             habitacion_id=habitacion_id,
             fecha_checkin=fecha_checkin,
             fecha_checkout=fecha_checkout,
-            seña=0,
+            seña=monto_sena,  # ✅ AHORA GUARDA LA SEÑA CORRECTAMENTE
             total_estadia=precio_total,
-            forma_pago="Pendiente - Reserva Web",
+            forma_pago=estado_pago,  # ✅ ESTABLECE EL ESTADO CORRECTO
             nombre_huesped=nombre_completo
         )
         db.add(reserva)
@@ -1131,7 +1265,9 @@ def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db))
         print(f"   - Habitación: {habitacion_recomendada['numero']} ({habitacion_recomendada['tipo']})")
         print(f"   - Capacidad: {habitacion_recomendada['capacidad']} personas")
         print(f"   - Fechas: {data.checkin} a {data.checkout} ({noches} noches)")
-        print(f"   - Precio: ${precio_total:,}")
+        print(f"   - Precio total: ${precio_total:,}")
+        print(f"   - Seña: ${monto_sena:,}")
+        print(f"   - Estado: {estado_pago}")
         print(f"   - Confirmación: {numero_confirmacion}")
         
         return {
@@ -1145,6 +1281,8 @@ def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db))
             },
             "precio_total": precio_total,
             "precio_por_noche": precio_por_noche,
+            "seña_requerida": monto_sena,  # ✅ DEVUELVE EL MONTO DE SEÑA
+            "estado_pago": estado_pago,  # ✅ DEVUELVE EL ESTADO
             "noches": noches,
             "checkin": data.checkin,
             "checkout": data.checkout,
@@ -1152,7 +1290,8 @@ def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db))
             "cliente": nombre_completo,
             "reserva_id": reserva.id,
             "cliente_id": cliente.id,
-            "mascota": data.pet
+            "mascota": data.pet,
+            "tipo_pago": data.tipoPago
         }
         
     except HTTPException:
@@ -1167,6 +1306,7 @@ def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db))
             "success": False, 
             "error": f"Error interno del servidor: {str(e)}"
         }
+
 
 # 4. ENDPOINT PARA OBTENER ESTADÍSTICAS DE OCUPACIÓN
 @app.get("/ocupacion-estadisticas")
