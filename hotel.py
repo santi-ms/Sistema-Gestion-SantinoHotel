@@ -10,10 +10,6 @@ from enum import Enum
 from pydantic import BaseModel
 import json
 from collections import defaultdict
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-import atexit
-from typing import Dict, Any
 
 app = FastAPI()
 
@@ -1754,46 +1750,17 @@ def debug_habitaciones(db: Session = Depends(obtener_db)):
     }
 
 # ===============================================
-# SISTEMA DE CHECK-OUT AUTOMÁTICO PARA HOTEL SANTINO
+# SISTEMA DE CHECK-OUT AUTOMÁTICO SIMPLIFICADO
+# Compatible con Railway - Sin scheduler automático
 # ===============================================
 
-# 1. AGREGAR ESTOS IMPORTS AL INICIO DEL ARCHIVO hotel.py
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-import atexit
-from typing import Dict, Any
+# 1. AGREGAR ESTOS ENDPOINTS AL FINAL DE TU ARCHIVO hotel.py
+# (después de la línea 1750)
 
-# 2. AGREGAR ESTOS MODELOS DESPUÉS DE LOS MODELOS EXISTENTES
-
-class EstadoReserva(str, Enum):
-    activa = "activa"
-    checkout_automatico = "checkout_automatico"
-    checkout_manual = "checkout_manual"
-    cancelada = "cancelada"
-    no_show = "no_show"
-
-# 3. AGREGAR ESTA COLUMNA AL MODELO RESERVA (después de la línea de nombre_huesped)
-class ReservaActualizada(SQLModel, table=True):
-    __tablename__ = "reserva"
-    
-    id: Optional[int] = Field(default=None, primary_key=True)
-    cliente_id: int
-    habitacion_id: int
-    fecha_checkin: datetime
-    fecha_checkout: datetime
-    seña: float
-    total_estadia: float
-    forma_pago: str
-    nombre_huesped: Optional[str] = None
-    estado: str = Field(default="activa")  # ✅ NUEVA COLUMNA
-    checkout_automatico: bool = Field(default=False)  # ✅ NUEVA COLUMNA
-    fecha_checkout_real: Optional[datetime] = None  # ✅ NUEVA COLUMNA
-
-# 4. FUNCIONES DEL SISTEMA DE CHECK-OUT AUTOMÁTICO
-
-def ejecutar_checkout_automatico(db: Session) -> Dict[str, Any]:
+@app.post("/checkout-automatico")
+def ejecutar_checkout_manual(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     """
-    Ejecuta el check-out automático para todas las reservas que vencen hoy
+    Ejecuta manualmente el check-out automático para liberar habitaciones
     """
     try:
         fecha_hoy = obtener_fecha_argentina().date()
@@ -1805,7 +1772,7 @@ def ejecutar_checkout_automatico(db: Session) -> Dict[str, Any]:
         reservas_a_finalizar = db.exec(
             select(Reserva).where(
                 Reserva.fecha_checkout <= datetime.combine(fecha_hoy, datetime.min.time()).replace(tzinfo=ARGENTINA_TZ) + timedelta(hours=hora_checkout),
-                Reserva.forma_pago.notin_(["checkout_automatico", "checkout_manual", "cancelada"])
+                Reserva.forma_pago.notin_(["Checkout Automático", "checkout_manual", "Cancelado"])
             )
         ).all()
         
@@ -1836,7 +1803,7 @@ def ejecutar_checkout_automatico(db: Session) -> Dict[str, Any]:
                 habitaciones_liberadas.append(habitacion_info)
                 reservas_procesadas.append(reserva.id)
                 
-                print(f"✅ Check-out automático: Habitación {habitacion.numero if habitacion else reserva.habitacion_id} - {cliente.nombre if cliente else reserva.nombre_huesped}")
+                print(f"✅ Check-out automático: Habitación {habitacion.numero if habitacion else reserva.habitacion_id}")
                 
             except Exception as e:
                 print(f"❌ Error procesando reserva {reserva.id}: {str(e)}")
@@ -1845,7 +1812,9 @@ def ejecutar_checkout_automatico(db: Session) -> Dict[str, Any]:
         # Guardar cambios
         db.commit()
         
-        resultado = {
+        return {
+            "success": True,
+            "mensaje": "Check-out automático ejecutado correctamente",
             "fecha_ejecucion": fecha_hoy.strftime("%Y-%m-%d"),
             "hora_ejecucion": obtener_fecha_argentina().strftime("%H:%M:%S"),
             "total_habitaciones_liberadas": len(habitaciones_liberadas),
@@ -1854,125 +1823,12 @@ def ejecutar_checkout_automatico(db: Session) -> Dict[str, Any]:
             "estado": "completado" if habitaciones_liberadas else "sin_checkouts_pendientes"
         }
         
-        print(f"🎉 Check-out automático completado: {len(habitaciones_liberadas)} habitaciones liberadas")
-        return resultado
-        
     except Exception as e:
         print(f"💥 Error en check-out automático: {str(e)}")
-        return {
-            "fecha_ejecucion": obtener_fecha_argentina().strftime("%Y-%m-%d"),
-            "error": str(e),
-            "estado": "error"
-        }
-
-def configurar_scheduler():
-    """
-    Configura el scheduler para ejecutar el check-out automático todos los días a las 10:00 AM
-    """
-    scheduler = BackgroundScheduler()
-    
-    # Programar para las 10:00 AM todos los días
-    scheduler.add_job(
-        func=lambda: ejecutar_checkout_automatico_job(),
-        trigger=CronTrigger(hour=10, minute=0),  # 10:00 AM
-        id='checkout_automatico',
-        name='Check-out Automático Diario',
-        replace_existing=True
-    )
-    
-    # También programar a las 12:00 PM por si hay retrasos
-    scheduler.add_job(
-        func=lambda: ejecutar_checkout_automatico_job(),
-        trigger=CronTrigger(hour=12, minute=0),  # 12:00 PM
-        id='checkout_automatico_backup',
-        name='Check-out Automático Backup',
-        replace_existing=True
-    )
-    
-    scheduler.start()
-    print("📅 Scheduler de check-out automático iniciado")
-    print("⏰ Programado para las 10:00 AM y 12:00 PM diariamente")
-    
-    # Asegurar que el scheduler se cierre correctamente
-    atexit.register(lambda: scheduler.shutdown())
-    
-    return scheduler
-
-def ejecutar_checkout_automatico_job():
-    """
-    Función wrapper para ejecutar el check-out desde el scheduler
-    """
-    try:
-        with Session(engine) as db:
-            resultado = ejecutar_checkout_automatico(db)
-            print(f"📊 Resultado del check-out programado: {resultado}")
-    except Exception as e:
-        print(f"💥 Error en job de check-out automático: {str(e)}")
-
-# 5. ENDPOINTS PARA EL SISTEMA DE CHECK-OUT AUTOMÁTICO
-
-@app.post("/checkout-automatico")
-def ejecutar_checkout_manual(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
-    """
-    Ejecuta manualmente el check-out automático
-    """
-    try:
-        resultado = ejecutar_checkout_automatico(db)
-        
-        return {
-            "success": True,
-            "mensaje": "Check-out automático ejecutado manualmente",
-            **resultado
-        }
-        
-    except Exception as e:
         return {
             "success": False,
             "error": f"Error al ejecutar check-out automático: {str(e)}"
         }
-
-@app.get("/checkout-automatico/historial")
-def obtener_historial_checkout_automatico(
-    dias: int = Query(7, description="Días hacia atrás"),
-    db: Session = Depends(obtener_db),
-    token: dict = Depends(verificar_token)
-):
-    """
-    Obtiene el historial de check-outs automáticos
-    """
-    try:
-        fecha_inicio = obtener_fecha_argentina() - timedelta(days=dias)
-        
-        checkouts_automaticos = db.exec(
-            select(Reserva).where(
-                Reserva.forma_pago == "Checkout Automático",
-                Reserva.fecha_checkout >= fecha_inicio
-            )
-        ).all()
-        
-        historial = []
-        for reserva in checkouts_automaticos:
-            habitacion = db.get(Habitacion, reserva.habitacion_id)
-            cliente = db.get(Cliente, reserva.cliente_id)
-            
-            historial.append({
-                "reserva_id": reserva.id,
-                "fecha_checkout": reserva.fecha_checkout.strftime("%Y-%m-%d %H:%M"),
-                "habitacion_numero": habitacion.numero if habitacion else "N/A",
-                "habitacion_tipo": habitacion.tipo if habitacion else "N/A",
-                "cliente_nombre": cliente.nombre if cliente else reserva.nombre_huesped,
-                "precio_total": reserva.total_estadia,
-                "seña": reserva.seña
-            })
-        
-        return {
-            "total_checkouts_automaticos": len(historial),
-            "periodo": f"Últimos {dias} días",
-            "historial": historial
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error al obtener historial: {str(e)}")
 
 @app.get("/checkout-automatico/proximos")
 def obtener_proximos_checkouts(
@@ -2020,6 +1876,7 @@ def obtener_proximos_checkouts(
         proximos_checkouts.sort(key=lambda x: x["fecha_checkout"])
         
         return {
+            "success": True,
             "total_proximos_checkouts": len(proximos_checkouts),
             "checkouts_hoy": len([c for c in proximos_checkouts if c["es_hoy"]]),
             "checkouts_mañana": len([c for c in proximos_checkouts if c["dias_restantes"] == 1]),
@@ -2028,117 +1885,57 @@ def obtener_proximos_checkouts(
         }
         
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error al obtener próximos checkouts: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Error al obtener próximos checkouts: {str(e)}"
+        }
 
-@app.post("/checkout-automatico/configurar")
-def configurar_checkout_automatico(
-    habilitado: bool = Query(True, description="Habilitar o deshabilitar"),
-    hora: int = Query(10, description="Hora del día (0-23)"),
-    minuto: int = Query(0, description="Minuto (0-59)"),
+@app.get("/checkout-automatico/historial")
+def obtener_historial_checkout_automatico(
+    dias: int = Query(7, description="Días hacia atrás"),
+    db: Session = Depends(obtener_db),
     token: dict = Depends(verificar_token)
 ):
     """
-    Configura los parámetros del check-out automático
+    Obtiene el historial de check-outs automáticos
     """
     try:
-        # En una implementación completa, esto se guardaría en la base de datos
-        # Por ahora, solo validamos los parámetros
+        fecha_inicio = obtener_fecha_argentina() - timedelta(days=dias)
         
-        if hora < 0 or hora > 23:
-            raise HTTPException(status_code=400, detail="Hora debe estar entre 0 y 23")
+        checkouts_automaticos = db.exec(
+            select(Reserva).where(
+                Reserva.forma_pago == "Checkout Automático",
+                Reserva.fecha_checkout >= fecha_inicio
+            )
+        ).all()
         
-        if minuto < 0 or minuto > 59:
-            raise HTTPException(status_code=400, detail="Minuto debe estar entre 0 y 59")
+        historial = []
+        for reserva in checkouts_automaticos:
+            habitacion = db.get(Habitacion, reserva.habitacion_id)
+            cliente = db.get(Cliente, reserva.cliente_id)
+            
+            historial.append({
+                "reserva_id": reserva.id,
+                "fecha_checkout": reserva.fecha_checkout.strftime("%Y-%m-%d %H:%M"),
+                "habitacion_numero": habitacion.numero if habitacion else "N/A",
+                "habitacion_tipo": habitacion.tipo if habitacion else "N/A",
+                "cliente_nombre": cliente.nombre if cliente else reserva.nombre_huesped,
+                "precio_total": reserva.total_estadia,
+                "seña": reserva.seña
+            })
         
         return {
             "success": True,
-            "mensaje": "Configuración de check-out automático actualizada",
-            "configuracion": {
-                "habilitado": habilitado,
-                "hora_ejecucion": f"{hora:02d}:{minuto:02d}",
-                "zona_horaria": "Argentina (UTC-3)"
-            },
-            "nota": "La configuración se aplicará en el próximo reinicio del servidor"
+            "total_checkouts_automaticos": len(historial),
+            "periodo": f"Últimos {dias} días",
+            "historial": historial
         }
         
     except Exception as e:
         return {
             "success": False,
-            "error": f"Error al configurar check-out automático: {str(e)}"
+            "error": f"Error al obtener historial: {str(e)}"
         }
-
-# 6. ENDPOINT PARA ARREGLAR LA BASE DE DATOS Y AGREGAR COLUMNAS NUEVAS
-
-@app.post("/fix-database-checkout")
-def arreglar_base_datos_checkout(db: Session = Depends(obtener_db)):
-    """
-    Agrega las columnas necesarias para el sistema de check-out automático
-    """
-    try:
-        print("🔧 Actualizando base de datos para check-out automático...")
-        
-        with engine.connect() as connection:
-            try:
-                # Agregar columna estado si no existe
-                connection.execute(text("ALTER TABLE reserva ADD COLUMN estado TEXT DEFAULT 'activa'"))
-                print("✅ Columna 'estado' agregada a tabla reserva")
-            except Exception as e:
-                print(f"⚠️ Columna 'estado': {e}")
-            
-            try:
-                # Agregar columna checkout_automatico si no existe
-                connection.execute(text("ALTER TABLE reserva ADD COLUMN checkout_automatico BOOLEAN DEFAULT FALSE"))
-                print("✅ Columna 'checkout_automatico' agregada a tabla reserva")
-            except Exception as e:
-                print(f"⚠️ Columna 'checkout_automatico': {e}")
-            
-            try:
-                # Agregar columna fecha_checkout_real si no existe
-                connection.execute(text("ALTER TABLE reserva ADD COLUMN fecha_checkout_real DATETIME"))
-                print("✅ Columna 'fecha_checkout_real' agregada a tabla reserva")
-            except Exception as e:
-                print(f"⚠️ Columna 'fecha_checkout_real': {e}")
-            
-            connection.commit()
-        
-        return {
-            "success": True,
-            "mensaje": "Base de datos actualizada para check-out automático",
-            "columnas_agregadas": ["estado", "checkout_automatico", "fecha_checkout_real"]
-        }
-        
-    except Exception as e:
-        print(f"💥 Error al actualizar base de datos: {str(e)}")
-        return {
-            "success": False,
-            "error": f"Error al actualizar base de datos: {str(e)}"
-        }
-
-# 7. INICIALIZAR EL SCHEDULER AL ARRANCAR LA APLICACIÓN
-
-# Agregar esto después de la línea `app = FastAPI()`
-scheduler = None
-
-@app.on_event("startup")
-def startup_event():
-    global scheduler
-    crear_tablas()
-    
-    # Inicializar el scheduler de check-out automático
-    try:
-        scheduler = configurar_scheduler()
-        print("🚀 Sistema de check-out automático iniciado correctamente")
-    except Exception as e:
-        print(f"⚠️ Error al inicializar check-out automático: {str(e)}")
-
-@app.on_event("shutdown")
-def shutdown_event():
-    global scheduler
-    if scheduler:
-        scheduler.shutdown()
-        print("🛑 Scheduler de check-out automático detenido")
-
-# 8. ENDPOINT ACTUALIZADO DE ESTADO DEL SISTEMA
 
 @app.get("/status-checkout")
 def obtener_estado_checkout_automatico(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
@@ -2165,10 +1962,10 @@ def obtener_estado_checkout_automatico(db: Session = Depends(obtener_db), token:
         ).all())
         
         return {
+            "success": True,
             "sistema_checkout": {
-                "estado": "✅ Activo",
-                "scheduler_activo": scheduler is not None and scheduler.running,
-                "proxima_ejecucion": "10:00 AM diariamente",
+                "estado": "✅ Manual (sin scheduler automático)",
+                "modo": "Ejecución manual solamente",
                 "timezone": "Argentina (UTC-3)"
             },
             "estadisticas": {
@@ -2176,26 +1973,22 @@ def obtener_estado_checkout_automatico(db: Session = Depends(obtener_db), token:
                 "checkouts_pendientes_hoy": checkouts_hoy,
                 "total_checkouts_automaticos": checkouts_automaticos_total
             },
-            "configuracion": {
-                "hora_ejecucion": "10:00 AM",
-                "hora_backup": "12:00 PM",
-                "habilitado": True
+            "instrucciones": {
+                "ejecutar_manualmente": "POST /checkout-automatico",
+                "ver_proximos": "GET /checkout-automatico/proximos",
+                "ver_historial": "GET /checkout-automatico/historial"
             }
         }
         
     except Exception as e:
         return {
-            "sistema_checkout": {
-                "estado": "❌ Error",
-                "error": str(e)
-            }
+            "success": False,
+            "error": f"Error al obtener estado: {str(e)}"
         }
 
-print("✅ Sistema de Check-out Automático configurado correctamente")
+print("✅ Sistema de Check-out Manual configurado correctamente")
 print("📋 Endpoints disponibles:")
 print("   - POST /checkout-automatico (ejecutar manualmente)")
 print("   - GET /checkout-automatico/historial (ver historial)")
 print("   - GET /checkout-automatico/proximos (próximos checkouts)")
-print("   - POST /checkout-automatico/configurar (configurar parámetros)")
-print("   - POST /fix-database-checkout (actualizar BD)")
 print("   - GET /status-checkout (estado del sistema)")
