@@ -5,3 +5,4 @@ passlib
 python-jose[cryptography]
 python-multipart
 pydantic
+apscheduler==3.10.4
