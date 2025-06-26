@@ -10,6 +10,7 @@ from enum import Enum
 from pydantic import BaseModel
 import json
 from collections import defaultdict
+import os
 
 app = FastAPI()
 
@@ -21,8 +22,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DATABASE_URL = "sqlite:///hotel.db"
-engine = create_engine(DATABASE_URL, echo=False)
+# 1) Toma la URL de Postgres que pusiste en las variables de Railway.
+# 2) Si la variable no existe (por ejemplo, corriendo local), sigue usando SQLite.
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:NNwreKxqLXrhlnBFNfSfcWqgEnZdrRnk@turntable.proxy.rlwy.net:38203/railway")
+
+# 3) Railway obliga a usar SSL en Postgres, así que le pasamos sslmode=require
+engine = create_engine(
+    DATABASE_URL,
+    echo=False,
+    connect_args={"sslmode": "require"} if DATABASE_URL.startswith("postgres") else {}
+)
+
 
 SECRET_KEY = "clave-secreta"
 ALGORITHM = "HS256"
