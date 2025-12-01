@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { 
   Calendar, 
   User, 
@@ -15,7 +16,8 @@ import {
   IdCard,
   Car,
   Phone,
-  Users
+  Users,
+  Heart
 } from "lucide-react";
 
 export default function ReservasDia() {
@@ -36,6 +38,10 @@ export default function ReservasDia() {
   const [celular, setCelular] = useState("");
   const [cantidadPersonas, setCantidadPersonas] = useState(1);
   
+  // Campos para mascotas
+  const [mascota, setMascota] = useState(false);
+  const [observacionesMascota, setObservacionesMascota] = useState("");
+  
   const [fechaSeleccionada, setFechaSeleccionada] = useState(new Date().toLocaleDateString('fr-CA'));
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
   const [cargando, setCargando] = useState(false);
@@ -44,9 +50,9 @@ export default function ReservasDia() {
   // ✅ FUNCIÓN ORIGINAL - Conecta con tu backend real
   const obtenerReservas = async () => {
     setCargando(true);
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem(TOKEN_KEY);
     try {
-      const res = await axios.get(`https://hotel-santino-backend-production.up.railway.app/reservas/dia?fecha=${fechaSeleccionada}`, {
+      const res = await axios.get(`${API_BASE_URL}/reservas/dia?fecha=${fechaSeleccionada}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setReservas(res.data);
@@ -93,9 +99,11 @@ export default function ReservasDia() {
     setPatente("");
     setCelular("");
     setCantidadPersonas(1);
+    setMascota(false);
+    setObservacionesMascota("");
   };
 
-  // ✅ FUNCIÓN ACTUALIZADA - Incluye los nuevos campos
+  // ✅ FUNCIÓN CORREGIDA - Usa /reservas-gestion con formato correcto
   const registrarReserva = async () => {
     // Validaciones básicas
     if (!nombre || !precio || !ingreso || !egreso || !dni || !celular) {
@@ -106,35 +114,55 @@ export default function ReservasDia() {
       return alert("Esa habitación ya está ocupada en el rango de fechas ingresado.");
     }
 
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem(TOKEN_KEY);
+    
+    // Convertir fechas de formato ISO (YYYY-MM-DD) a formato dd/mm/aaaa
+    const fechaIngreso = ingreso.split('-').reverse().join('/');
+    const fechaEgreso = egreso.split('-').reverse().join('/');
+    
     try {
-      await axios.post(
-        "https://hotel-santino-backend-production.up.railway.app/reservas",
-        {
-          habitacion_id: habitacion,
-          nombre_huesped: nombre,
-          precio: parseFloat(precio),
-          seña: parseFloat(seña) || 0,
-          fecha_checkin: ingreso,
-          fecha_checkout: egreso,
-          forma_pago: formaPago,
-          // Nuevos campos del cliente
-          dni: dni,
-          patente: patente || null, // Opcional
-          celular: celular,
-          cantidad_personas: parseInt(cantidadPersonas)
-        },
+      const datosReserva = {
+        // Campos para crear el cliente
+        nombre_completo: nombre,
+        dni: dni,
+        celular: celular,
+        patente: patente || null,
+        cantidad_personas: parseInt(cantidadPersonas),
+        
+        // Campos para la reserva
+        habitacion_id: habitacion,
+        fecha_ingreso: fechaIngreso, // Formato dd/mm/aaaa
+        fecha_egreso: fechaEgreso,   // Formato dd/mm/aaaa
+        precio_total: parseFloat(precio),
+        seña: parseFloat(seña) || 0,
+        forma_pago: formaPago,
+        
+        // Campos de mascota
+        mascota: mascota,
+        observaciones_mascota: observacionesMascota || null
+      };
+
+      const response = await axios.post(
+        `${API_BASE_URL}/reservas-gestion`,
+        datosReserva,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
-      alert("Reserva registrada correctamente");
+      
+      const mensajeExito = mascota 
+        ? "Reserva registrada correctamente (con mascota 🐾)" 
+        : "Reserva registrada correctamente";
+      
+      alert(mensajeExito);
       setMostrarFormulario(false);
       limpiarFormulario();
       obtenerReservas();
     } catch (err) {
-      alert("Error al registrar reserva");
-      console.error(err);
+      console.error("Error completo:", err);
+      console.error("Respuesta del servidor:", err.response?.data);
+      const errorMsg = err.response?.data?.detail || "Error al registrar reserva";
+      alert(`Error: ${errorMsg}`);
     }
   };
 
@@ -142,9 +170,9 @@ export default function ReservasDia() {
   const actualizarPago = async (id) => {
     const nuevaForma = prompt("Nueva forma de pago (efectivo, tarjeta, transferencia):");
     if (!nuevaForma) return;
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem(TOKEN_KEY);
     try {
-      await axios.patch(`https://hotel-santino-backend-production.up.railway.app/reservas/${id}/pago`, { forma_pago: nuevaForma }, {
+      await axios.patch(`${API_BASE_URL}/reservas/${id}/pago`, { forma_pago: nuevaForma }, {
         headers: { Authorization: `Bearer ${token}` },
       });
       alert("Forma de pago actualizada");
@@ -157,9 +185,9 @@ export default function ReservasDia() {
 
   // ✅ FUNCIÓN ORIGINAL - Hace checkout real en tu backend
   const realizarCheckout = async (id) => {
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem(TOKEN_KEY);
     try {
-      const res = await axios.patch(`https://hotel-santino-backend-production.up.railway.app/reservas/${id}/checkout`, {}, {
+      const res = await axios.patch(`${API_BASE_URL}/reservas/${id}/checkout`, {}, {
         headers: { Authorization: `Bearer ${token}` },
       });
       console.log("Checkout response:", res.data);
@@ -398,6 +426,41 @@ export default function ReservasDia() {
                     <option value="transferencia">Transferencia</option>
                   </select>
                 </div>
+              </div>
+            </div>
+            
+            {/* Sección de Mascotas */}
+            <div className="mb-6">
+              <h4 className="text-lg font-medium text-slate-700 mb-4 flex items-center gap-2">
+                <Heart className="w-5 h-5 text-slate-600" />
+                Información de Mascota (Opcional)
+              </h4>
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="mascota"
+                    checked={mascota}
+                    onChange={(e) => setMascota(e.target.checked)}
+                    className="w-5 h-5 text-blue-600 border-slate-300 rounded focus:ring-2 focus:ring-blue-500"
+                  />
+                  <label htmlFor="mascota" className="text-slate-700 font-medium cursor-pointer">
+                    El huésped viaja con mascota pequeña (+$7,000)
+                  </label>
+                </div>
+                {mascota && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Observaciones sobre la mascota
+                    </label>
+                    <textarea
+                      placeholder="Ej: Perro pequeño, requiere cama especial..."
+                      value={observacionesMascota}
+                      onChange={(e) => setObservacionesMascota(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-slate-400 min-h-[80px]"
+                    />
+                  </div>
+                )}
               </div>
             </div>
             

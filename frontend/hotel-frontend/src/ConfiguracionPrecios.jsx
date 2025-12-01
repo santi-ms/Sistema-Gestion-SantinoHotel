@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { TOKEN_KEY } from "./config";
 import { 
   Coffee, 
   DollarSign, 
@@ -20,7 +21,7 @@ import {
 export default function ConfiguracionPrecios() {
   const [userRole, setUserRole] = useState("");
 
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem(TOKEN_KEY);
 
   // Obtener rol del usuario desde el token
   useEffect(() => {

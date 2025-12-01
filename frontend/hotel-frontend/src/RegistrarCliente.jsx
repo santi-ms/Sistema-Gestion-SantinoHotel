@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { 
   User, 
   UserPlus, 
@@ -34,12 +35,12 @@ function RegistrarCliente() {
   const [busqueda, setBusqueda] = useState("");
   const navigate = useNavigate();
 
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem(TOKEN_KEY);
 
   // Obtener clientes existentes
   const obtenerClientes = async () => {
     try {
-      const res = await axios.get("https://hotel-santino-backend-production.up.railway.app/clientes", {
+      const res = await axios.get(`${API_BASE_URL}/clientes`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setClientes(res.data);
@@ -107,12 +108,12 @@ function RegistrarCliente() {
     setCargando(true);
     try {
       if (editandoId) {
-        await axios.put(`https://hotel-santino-backend-production.up.railway.app/clientes/${editandoId}`, cliente, {
+        await axios.put(`${API_BASE_URL}/clientes/${editandoId}`, cliente, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setMensaje("✅ Cliente actualizado correctamente");
       } else {
-        await axios.post("https://hotel-santino-backend-production.up.railway.app/clientes", cliente, {
+        await axios.post(`${API_BASE_URL}/clientes`, cliente, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setMensaje("✅ Cliente registrado correctamente");
@@ -154,7 +155,7 @@ function RegistrarCliente() {
     if (!window.confirm("¿Estás seguro de que querés eliminar este cliente?")) return;
     
     try {
-      await axios.delete(`https://hotel-santino-backend-production.up.railway.app/clientes/${id}`, {
+      await axios.delete(`${API_BASE_URL}/clientes/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setMensaje("🗑️ Cliente eliminado correctamente");

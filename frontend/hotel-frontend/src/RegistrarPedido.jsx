@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import axios from "axios";
+import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { 
   Coffee, 
   DollarSign, 
@@ -27,35 +29,10 @@ export default function RegistrarPedido() {
     forma_pago: ""
   });
   const [mensaje, setMensaje] = useState("");
-  const [pedidosHoy, setPedidosHoy] = useState([
-    {
-      id: 1,
-      items: [
-        { descripcion: "Hamburguesa", cantidad: 1, precio: 10000 }
-      ],
-      monto: 10000,
-      habitacion_id: 1,
-      externo: false,
-      forma_pago: "efectivo",
-      fecha: new Date().toISOString()
-    },
-    {
-      id: 2,
-      items: [
-        { descripcion: "Hamburguesa", cantidad: 2, precio: 10000 },
-        { descripcion: "Papas fritas", cantidad: 2, precio: 5000 },
-        { descripcion: "Coca cola", cantidad: 2, precio: 3000 }
-      ],
-      monto: 36000,
-      habitacion_id: 4,
-      externo: false,
-      forma_pago: "efectivo",
-      fecha: new Date().toISOString()
-    }
-  ]);
+  const [pedidosHoy, setPedidosHoy] = useState([]);
   const [editandoId, setEditandoId] = useState(null);
   const [cargando, setCargando] = useState(false);
-  const [userRole, setUserRole] = useState("empleado"); // Simulado para demo
+  const [userRole, setUserRole] = useState("empleado");
   const [mostrarFormulario, setMostrarFormulario] = useState(true);
 
   // Calcular el total automáticamente
@@ -64,6 +41,40 @@ export default function RegistrarPedido() {
       return total + (item.cantidad * item.precio);
     }, 0);
   };
+
+  // Cargar pedidos del día desde el backend
+  const cargarPedidosHoy = async () => {
+    setCargando(true);
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const hoy = new Date().toISOString().split('T')[0];
+      const res = await axios.get(`${API_BASE_URL}/pedidos-dia?fecha=${hoy}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      // Convertir los pedidos del backend al formato esperado
+      const pedidosFormateados = res.data.map(pedido => ({
+        id: pedido.id,
+        items: pedido.items || [],
+        monto: pedido.monto,
+        habitacion_id: pedido.habitacion_id,
+        externo: pedido.externo,
+        forma_pago: pedido.forma_pago,
+        fecha: pedido.fecha
+      }));
+      
+      setPedidosHoy(pedidosFormateados);
+    } catch (err) {
+      console.error("Error al cargar pedidos:", err);
+      setMensaje("❌ Error al cargar pedidos del día");
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  useEffect(() => {
+    cargarPedidosHoy();
+  }, []);
 
   const handleItemChange = (index, field, value) => {
     const nuevosItems = [...form.items];
@@ -113,34 +124,26 @@ export default function RegistrarPedido() {
 
     setCargando(true);
     
-    // Simular API call
-    setTimeout(() => {
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const pedidoData = {
+        items: form.items,
+        habitacion_id: form.habitacion_id ? parseInt(form.habitacion_id) : null,
+        externo: form.externo,
+        forma_pago: form.forma_pago
+      };
+
       if (editandoId) {
-        const pedidosActualizados = pedidosHoy.map(pedido => 
-          pedido.id === editandoId 
-            ? { 
-                ...pedido, 
-                items: form.items,
-                monto: total,
-                habitacion_id: form.habitacion_id ? parseInt(form.habitacion_id) : null,
-                externo: form.externo,
-                forma_pago: form.forma_pago
-              }
-            : pedido
-        );
-        setPedidosHoy(pedidosActualizados);
+        // Actualizar pedido existente
+        await axios.put(`${API_BASE_URL}/pedidos/${editandoId}`, pedidoData, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
         setMensaje("✅ Pedido actualizado correctamente");
       } else {
-        const nuevoPedido = {
-          id: pedidosHoy.length + 1,
-          items: form.items,
-          monto: total,
-          habitacion_id: form.habitacion_id ? parseInt(form.habitacion_id) : null,
-          externo: form.externo,
-          forma_pago: form.forma_pago,
-          fecha: new Date().toISOString()
-        };
-        setPedidosHoy([...pedidosHoy, nuevoPedido]);
+        // Crear nuevo pedido
+        await axios.post(`${API_BASE_URL}/pedidos`, pedidoData, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
         setMensaje("✅ Pedido registrado correctamente");
       }
       
@@ -153,10 +156,19 @@ export default function RegistrarPedido() {
       });
       setEditandoId(null);
       setMostrarFormulario(false);
-      setCargando(false);
+      
+      // Recargar pedidos del día
+      await cargarPedidosHoy();
       
       setTimeout(() => setMensaje(""), 3000);
-    }, 1000);
+    } catch (error) {
+      console.error("Error al guardar pedido:", error);
+      const errorMsg = error.response?.data?.detail || "Error al guardar el pedido";
+      setMensaje(`❌ ${errorMsg}`);
+      setTimeout(() => setMensaje(""), 5000);
+    } finally {
+      setCargando(false);
+    }
   };
 
   const cargarParaEditar = (pedido) => {
@@ -186,13 +198,22 @@ export default function RegistrarPedido() {
     if (!window.confirm("¿Estás seguro de que querés eliminar este pedido?")) return;
     
     setCargando(true);
-    setTimeout(() => {
-      const pedidosFiltrados = pedidosHoy.filter(pedido => pedido.id !== id);
-      setPedidosHoy(pedidosFiltrados);
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      await axios.delete(`${API_BASE_URL}/pedidos/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       setMensaje("🗑️ Pedido eliminado");
-      setCargando(false);
+      await cargarPedidosHoy(); // Recargar pedidos del día
       setTimeout(() => setMensaje(""), 3000);
-    }, 500);
+    } catch (error) {
+      console.error("Error al eliminar pedido:", error);
+      const errorMsg = error.response?.data?.detail || "Error al eliminar el pedido";
+      setMensaje(`❌ ${errorMsg}`);
+      setTimeout(() => setMensaje(""), 5000);
+    } finally {
+      setCargando(false);
+    }
   };
 
   const getPaymentIcon = (formaPago) => {

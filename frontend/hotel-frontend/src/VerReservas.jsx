@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { 
   Calendar, 
   User, 
@@ -32,8 +33,8 @@ export default function VerReservas() {
     const obtener = async () => {
       setCargando(true);
       try {
-        const token = localStorage.getItem("token");
-        const res = await axios.get("https://hotel-santino-backend-production.up.railway.app/reservas", {
+        const token = localStorage.getItem(TOKEN_KEY);
+        const res = await axios.get(`${API_BASE_URL}/reservas`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setReservas(res.data);

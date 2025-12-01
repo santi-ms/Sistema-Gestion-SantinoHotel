@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { 
   Home, 
   Plus, 
@@ -28,12 +29,12 @@ export default function AgregarHabitacion() {
   const [cargando, setCargando] = useState(false);
   const navigate = useNavigate();
 
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem(TOKEN_KEY);
 
   // Obtener habitaciones existentes
   const obtenerHabitaciones = async () => {
     try {
-      const res = await axios.get("https://hotel-santino-backend-production.up.railway.app/habitaciones", {
+      const res = await axios.get(`${API_BASE_URL}/habitaciones`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setHabitaciones(res.data);
@@ -70,12 +71,12 @@ export default function AgregarHabitacion() {
       };
 
       if (editandoId) {
-        await axios.put(`https://hotel-santino-backend-production.up.railway.app/habitaciones/${editandoId}`, payload, {
+        await axios.put(`${API_BASE_URL}/habitaciones/${editandoId}`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setMensaje("✅ Habitación actualizada correctamente");
       } else {
-        await axios.post("https://hotel-santino-backend-production.up.railway.app/habitaciones", payload, {
+        await axios.post(`${API_BASE_URL}/habitaciones`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setMensaje("✅ Habitación registrada correctamente");
@@ -122,7 +123,7 @@ export default function AgregarHabitacion() {
     if (!window.confirm("¿Estás seguro de que querés eliminar esta habitación?")) return;
     
     try {
-      await axios.delete(`https://hotel-santino-backend-production.up.railway.app/habitaciones/${id}`, {
+      await axios.delete(`${API_BASE_URL}/habitaciones/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setMensaje("🗑️ Habitación eliminada correctamente");

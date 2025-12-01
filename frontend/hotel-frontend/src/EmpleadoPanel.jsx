@@ -1,5 +1,6 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import { TOKEN_KEY } from "./config";
 import { 
   Calendar, 
   ShoppingCart, 
@@ -21,7 +22,7 @@ export default function EmpleadoPanel() {
   const navigate = useNavigate();
 
   const cerrarSesion = () => {
-    localStorage.removeItem("token");
+    localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem("rol");
     navigate("/");
   };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { API_BASE_URL, TOKEN_KEY } from './config';
 import {
   LineChart,
   Line,
@@ -39,7 +40,7 @@ export default function DashboardAnalytics() {
   const [periodoIngresos, setPeriodoIngresos] = useState(30);
   const navigate = useNavigate();
 
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem(TOKEN_KEY);
 
   // Colores para los gráficos
   const colores = [
@@ -59,13 +60,13 @@ export default function DashboardAnalytics() {
     setCargando(true);
     try {
       // Dashboard principal
-      const dashboardRes = await axios.get('https://hotel-santino-backend-production.up.railway.app/analytics/dashboard', {
+      const dashboardRes = await axios.get(`${API_BASE_URL}/analytics/dashboard`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setDashboardData(dashboardRes.data);
 
       // Formas de pago
-      const formasPagoRes = await axios.get('https://hotel-santino-backend-production.up.railway.app/analytics/formas-pago', {
+      const formasPagoRes = await axios.get(`${API_BASE_URL}/analytics/formas-pago`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setFormasPagoData(formasPagoRes.data);
@@ -75,7 +76,7 @@ export default function DashboardAnalytics() {
       const hace30Dias = new Date();
       hace30Dias.setDate(hoy.getDate() - 30);
       
-      const ocupacionRes = await axios.get('https://hotel-santino-backend-production.up.railway.app/analytics/ocupacion-habitaciones', {
+      const ocupacionRes = await axios.get(`${API_BASE_URL}/analytics/ocupacion-habitaciones`, {
         params: {
           fecha_inicio: hace30Dias.toISOString().split('T')[0],
           fecha_fin: hoy.toISOString().split('T')[0]
@@ -93,7 +94,7 @@ export default function DashboardAnalytics() {
 
   const cargarIngresosData = async () => {
     try {
-      const res = await axios.get('https://hotel-santino-backend-production.up.railway.app/analytics/ingresos-por-dia', {
+      const res = await axios.get(`${API_BASE_URL}/analytics/ingresos-por-dia`, {
         params: { dias: periodoIngresos },
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -124,7 +125,7 @@ export default function DashboardAnalytics() {
       const mes = hoy.getMonth() + 1;
       const año = hoy.getFullYear();
       
-      const res = await axios.get('https://hotel-santino-backend-production.up.railway.app/analytics/reporte-mensual', {
+      const res = await axios.get(`${API_BASE_URL}/analytics/reporte-mensual`, {
         params: { mes, año },
         headers: { Authorization: `Bearer ${token}` }
       });

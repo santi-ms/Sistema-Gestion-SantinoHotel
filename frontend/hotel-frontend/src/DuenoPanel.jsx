@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { API_BASE_URL, TOKEN_KEY } from './config';
 import { 
   Calendar, 
   Users, 
@@ -43,9 +44,9 @@ export default function DuenoPanel() {
 
   useEffect(() => {
     const obtenerResumen = async () => {
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem(TOKEN_KEY);
       try {
-        const res = await axios.get(`https://hotel-santino-backend-production.up.railway.app/resumen-dia?fecha=${fecha}`, {
+        const res = await axios.get(`${API_BASE_URL}/resumen-dia?fecha=${fecha}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setResumen(res.data);
@@ -60,7 +61,7 @@ export default function DuenoPanel() {
   }, [fecha]);
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
+    localStorage.removeItem(TOKEN_KEY);
     navigate('/');
   };
 

@@ -2,6 +2,7 @@ import { useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { Mail, Lock, Eye, EyeOff, MapPin, ArrowRight, Coffee } from "lucide-react";
+import { API_BASE_URL, TOKEN_KEY } from "./config";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -18,14 +19,14 @@ export default function Login() {
       data.append("username", email);
       data.append("password", contraseña);
 
-      const response = await axios.post("https://hotel-santino-backend-production.up.railway.app/login", data, {
+      const response = await axios.post(`${API_BASE_URL}/login`, data, {
         headers: {
           "Content-Type": "application/x-www-form-urlencoded"
         }
       });
 
       const token = response.data.access_token;
-      localStorage.setItem("token", token);
+      localStorage.setItem(TOKEN_KEY, token);
       setMensaje("✅ Bienvenido al Hotel Santino");
 
       // Decodificar el token para obtener el rol

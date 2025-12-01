@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { 
   Receipt, 
   DollarSign, 
@@ -30,7 +31,7 @@ export default function RegistrarGasto() {
   const [userRole, setUserRole] = useState("");
   const navigate = useNavigate();
 
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem(TOKEN_KEY);
 
   // Obtener rol del usuario desde el token
   useEffect(() => {
@@ -48,7 +49,7 @@ export default function RegistrarGasto() {
     setCargando(true);
     const hoy = new Date().toISOString().split("T")[0];
     try {
-      const res = await axios.get(`https://hotel-santino-backend-production.up.railway.app/gastos-dia?fecha=${hoy}`, {
+      const res = await axios.get(`${API_BASE_URL}/gastos-dia?fecha=${hoy}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setGastosHoy(res.data);
@@ -87,12 +88,12 @@ export default function RegistrarGasto() {
     
     try {
       if (editandoId) {
-        await axios.put(`https://hotel-santino-backend-production.up.railway.app/gastos/${editandoId}`, payload, {
+        await axios.put(`${API_BASE_URL}/gastos/${editandoId}`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setMensaje("✅ Gasto actualizado correctamente");
       } else {
-        await axios.post("https://hotel-santino-backend-production.up.railway.app/gastos", payload, {
+        await axios.post(`${API_BASE_URL}/gastos`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setMensaje("✅ Gasto registrado correctamente");
@@ -131,7 +132,7 @@ export default function RegistrarGasto() {
     
     setCargando(true);
     try {
-      await axios.delete(`https://hotel-santino-backend-production.up.railway.app/gastos/${id}`, {
+      await axios.delete(`${API_BASE_URL}/gastos/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setMensaje("🗑️ Gasto eliminado");

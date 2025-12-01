@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { 
   Coffee, 
   DollarSign, 
@@ -35,8 +36,8 @@ export default function VerPedidos() {
     const obtenerPedidos = async () => {
       setCargando(true);
       try {
-        const token = localStorage.getItem("token");
-        const res = await axios.get("https://hotel-santino-backend-production.up.railway.app/pedidos", {
+        const token = localStorage.getItem(TOKEN_KEY);
+        const res = await axios.get(`${API_BASE_URL}/pedidos`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         setPedidos(res.data);
