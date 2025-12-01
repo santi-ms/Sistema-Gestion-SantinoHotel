@@ -24,7 +24,8 @@ app.add_middleware(
 
 # 1) Toma la URL de Postgres que pusiste en las variables de Railway.
 # 2) Si la variable no existe (por ejemplo, corriendo local), sigue usando SQLite.
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:NNwreKxqLXrhlnBFNfSfcWqgEnZdrRnk@turntable.proxy.rlwy.net:38203/railway")
+# NOTA: En Railway, DATABASE_URL se configura automáticamente al agregar PostgreSQL
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///hotel.db")
 
 # 3) Railway obliga a usar SSL en Postgres, así que le pasamos sslmode=require
 engine = create_engine(
@@ -34,7 +35,9 @@ engine = create_engine(
 )
 
 
-SECRET_KEY = "clave-secreta"
+# SECRET_KEY: En producción, usar variable de entorno. En desarrollo local, usar valor por defecto.
+# IMPORTANTE: Cambiar en producción por seguridad
+SECRET_KEY = os.getenv("SECRET_KEY", "clave-secreta-desarrollo-local-cambiar-en-produccion")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 120
 
