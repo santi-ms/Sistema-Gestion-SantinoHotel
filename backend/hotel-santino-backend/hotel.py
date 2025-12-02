@@ -109,7 +109,18 @@ class GastoAdicional(SQLModel, table=True):
     habitacion_id: int
     descripcion: str
     monto: float
-    fecha: datetime = Field(default_factory=lambda: obtener_fecha_argentina())
+    fecha: datetime
+
+class Actividad(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    titulo: str
+    descripcion: Optional[str] = None
+    estado: str = "pendiente"  # pendiente, en_progreso, completada
+    prioridad: str = "media"  # baja, media, alta
+    fecha_creacion: datetime = Field(default_factory=lambda: obtener_fecha_argentina())
+    fecha_vencimiento: Optional[datetime] = None
+    creado_por: int  # ID del usuario que creó la actividad
+    asignado_a: Optional[int] = None  # ID del usuario asignado (opcional)
 
 # ─────────── MODELOS PARA ITEMS MÚLTIPLES ───────────
 class ItemPedido(BaseModel):
@@ -640,6 +651,144 @@ def eliminar_gasto(
     db.delete(gasto)
     db.commit()
     return {"mensaje": "Gasto eliminado"}
+
+# ─────────── ENDPOINTS DE ACTIVIDADES ───────────
+class ActividadEntrada(BaseModel):
+    titulo: str
+    descripcion: Optional[str] = None
+    prioridad: str = "media"  # baja, media, alta
+    fecha_vencimiento: Optional[str] = None  # formato: "YYYY-MM-DD" o "YYYY-MM-DD HH:MM"
+    asignado_a: Optional[int] = None
+
+class ActividadActualizar(BaseModel):
+    titulo: Optional[str] = None
+    descripcion: Optional[str] = None
+    estado: Optional[str] = None  # pendiente, en_progreso, completada
+    prioridad: Optional[str] = None  # baja, media, alta
+    fecha_vencimiento: Optional[str] = None
+    asignado_a: Optional[int] = None
+
+@app.post("/actividades")
+def crear_actividad(
+    data: ActividadEntrada,
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    # Obtener el usuario actual desde el token
+    usuario_actual = db.exec(select(Usuario).where(Usuario.email == token["sub"])).first()
+    if not usuario_actual:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # Parsear fecha de vencimiento si se proporciona
+    fecha_vencimiento = None
+    if data.fecha_vencimiento:
+        try:
+            # Intentar formato con hora
+            try:
+                fecha_vencimiento = datetime.strptime(data.fecha_vencimiento, "%Y-%m-%d %H:%M").replace(tzinfo=ARGENTINA_TZ)
+            except:
+                # Si falla, intentar solo fecha
+                fecha_vencimiento = datetime.strptime(data.fecha_vencimiento, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de fecha inválido. Use YYYY-MM-DD o YYYY-MM-DD HH:MM")
+    
+    actividad = Actividad(
+        titulo=data.titulo,
+        descripcion=data.descripcion,
+        prioridad=data.prioridad,
+        fecha_vencimiento=fecha_vencimiento,
+        creado_por=usuario_actual.id,
+        asignado_a=data.asignado_a
+    )
+    
+    db.add(actividad)
+    db.commit()
+    db.refresh(actividad)
+    return {"mensaje": "Actividad creada correctamente", "actividad": actividad}
+
+@app.get("/actividades")
+def obtener_actividades(
+    estado: Optional[str] = Query(None, description="Filtrar por estado: pendiente, en_progreso, completada"),
+    prioridad: Optional[str] = Query(None, description="Filtrar por prioridad: baja, media, alta"),
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    query = select(Actividad)
+    
+    # Filtrar por estado si se proporciona
+    if estado:
+        query = query.where(Actividad.estado == estado)
+    
+    # Filtrar por prioridad si se proporciona
+    if prioridad:
+        query = query.where(Actividad.prioridad == prioridad)
+    
+    actividades = db.exec(query.order_by(Actividad.fecha_creacion.desc())).all()
+    return actividades
+
+@app.get("/actividades/{actividad_id}")
+def obtener_actividad(
+    actividad_id: int,
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    actividad = db.get(Actividad, actividad_id)
+    if not actividad:
+        raise HTTPException(status_code=404, detail="Actividad no encontrada")
+    return actividad
+
+@app.put("/actividades/{actividad_id}")
+def actualizar_actividad(
+    actividad_id: int,
+    data: ActividadActualizar,
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    actividad = db.get(Actividad, actividad_id)
+    if not actividad:
+        raise HTTPException(status_code=404, detail="Actividad no encontrada")
+    
+    # Actualizar campos si se proporcionan
+    if data.titulo is not None:
+        actividad.titulo = data.titulo
+    if data.descripcion is not None:
+        actividad.descripcion = data.descripcion
+    if data.estado is not None:
+        actividad.estado = data.estado
+    if data.prioridad is not None:
+        actividad.prioridad = data.prioridad
+    if data.asignado_a is not None:
+        actividad.asignado_a = data.asignado_a
+    if data.fecha_vencimiento is not None:
+        if data.fecha_vencimiento == "":
+            actividad.fecha_vencimiento = None
+        else:
+            try:
+                try:
+                    actividad.fecha_vencimiento = datetime.strptime(data.fecha_vencimiento, "%Y-%m-%d %H:%M").replace(tzinfo=ARGENTINA_TZ)
+                except:
+                    actividad.fecha_vencimiento = datetime.strptime(data.fecha_vencimiento, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Formato de fecha inválido")
+    
+    db.add(actividad)
+    db.commit()
+    db.refresh(actividad)
+    return {"mensaje": "Actividad actualizada correctamente", "actividad": actividad}
+
+@app.delete("/actividades/{actividad_id}")
+def eliminar_actividad(
+    actividad_id: int,
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    actividad = db.get(Actividad, actividad_id)
+    if not actividad:
+        raise HTTPException(status_code=404, detail="Actividad no encontrada")
+    
+    db.delete(actividad)
+    db.commit()
+    return {"mensaje": "Actividad eliminada correctamente"}
 
 # ─────────── ENDPOINTS DE RESERVAS ───────────
 @app.post("/reservas")

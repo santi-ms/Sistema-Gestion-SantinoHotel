@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
+import { useToast } from "./components/ToastContainer";
+import ConfirmModal from "./components/ConfirmModal";
 import { 
   Home, 
   Plus, 
@@ -27,6 +29,9 @@ export default function AgregarHabitacion() {
   const [habitaciones, setHabitaciones] = useState([]);
   const [editandoId, setEditandoId] = useState(null);
   const [cargando, setCargando] = useState(false);
+  const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
+  const [habitacionAEliminar, setHabitacionAEliminar] = useState(null);
+  const { success, error: errorToast } = useToast();
   const navigate = useNavigate();
 
   const token = localStorage.getItem(TOKEN_KEY);
@@ -49,14 +54,27 @@ export default function AgregarHabitacion() {
 
   const handleSubmit = async () => {
     if (!numero || !tipo) {
-      setMensaje("❌ El número y tipo de habitación son obligatorios");
+      errorToast("El número y tipo de habitación son obligatorios");
+      return;
+    }
+
+    // Validar que el número sea un entero positivo
+    const numeroInt = parseInt(numero);
+    if (isNaN(numeroInt) || numeroInt <= 0) {
+      errorToast("El número de habitación debe ser un número positivo");
       return;
     }
 
     // Verificar si ya existe una habitación con ese número
-    const habitacionExistente = habitaciones.find(h => h.numero === parseInt(numero) && h.id !== editandoId);
+    const habitacionExistente = habitaciones.find(h => h.numero === numeroInt && h.id !== editandoId);
     if (habitacionExistente) {
-      setMensaje("❌ Ya existe una habitación con ese número");
+      errorToast("Ya existe una habitación con ese número");
+      return;
+    }
+
+    // Validar precio si se proporciona
+    if (precio && (isNaN(parseFloat(precio)) || parseFloat(precio) < 0)) {
+      errorToast("El precio debe ser un número positivo");
       return;
     }
 
@@ -74,12 +92,12 @@ export default function AgregarHabitacion() {
         await axios.put(`${API_BASE_URL}/habitaciones/${editandoId}`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setMensaje("✅ Habitación actualizada correctamente");
+        success("Habitación actualizada correctamente");
       } else {
         await axios.post(`${API_BASE_URL}/habitaciones`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setMensaje("✅ Habitación registrada correctamente");
+        success("Habitación registrada correctamente");
       }
 
       // Limpiar formulario
@@ -91,9 +109,8 @@ export default function AgregarHabitacion() {
       setEditandoId(null);
       
       obtenerHabitaciones();
-      setTimeout(() => setMensaje(""), 3000);
-    } catch {
-      setMensaje("❌ Error al registrar/actualizar habitación");
+    } catch (err) {
+      errorToast(err.response?.data?.detail || "Error al registrar/actualizar habitación");
     } finally {
       setCargando(false);
     }
@@ -119,18 +136,21 @@ export default function AgregarHabitacion() {
     setMensaje("");
   };
 
-  const eliminarHabitacion = async (id) => {
-    if (!window.confirm("¿Estás seguro de que querés eliminar esta habitación?")) return;
-    
+  const abrirConfirmEliminar = (id) => {
+    setHabitacionAEliminar(id);
+    setMostrarConfirmEliminar(true);
+  };
+
+  const eliminarHabitacion = async () => {
     try {
-      await axios.delete(`${API_BASE_URL}/habitaciones/${id}`, {
+      await axios.delete(`${API_BASE_URL}/habitaciones/${habitacionAEliminar}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setMensaje("🗑️ Habitación eliminada correctamente");
+      success("Habitación eliminada correctamente");
+      setMostrarConfirmEliminar(false);
       obtenerHabitaciones();
-      setTimeout(() => setMensaje(""), 3000);
     } catch {
-      setMensaje("❌ Error al eliminar habitación");
+      errorToast("Error al eliminar habitación");
     }
   };
 
@@ -377,7 +397,7 @@ export default function AgregarHabitacion() {
                         <Edit3 className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => eliminarHabitacion(habitacion.id)}
+                        onClick={() => abrirConfirmEliminar(habitacion.id)}
                         className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors duration-200"
                         title="Eliminar habitación"
                       >
@@ -410,6 +430,18 @@ export default function AgregarHabitacion() {
           )}
         </div>
       </div>
+
+      {/* Modal de confirmación para eliminar */}
+      <ConfirmModal
+        isOpen={mostrarConfirmEliminar}
+        onClose={() => setMostrarConfirmEliminar(false)}
+        onConfirm={eliminarHabitacion}
+        title="Eliminar Habitación"
+        message="¿Estás seguro de que deseas eliminar esta habitación? Esta acción no se puede deshacer."
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        type="danger"
+      />
     </div>
   );
 }

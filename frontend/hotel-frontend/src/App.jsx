@@ -12,6 +12,7 @@ import ReservasDia from "./ReservasDia";
 import RegistrarCliente from "./RegistrarCliente";
 import DashboardAnalytics from "./DashboardAnalytics";
 import ConfiguracionPrecios from "./ConfiguracionPrecios";
+import GestionarActividades from "./GestionarActividades";
 
 function App() {
   return (
@@ -73,6 +74,12 @@ function App() {
       <Route path="/registrar-cliente" element={
         <RutaPrivada rol={["empleado", "dueño"]}>
           <RegistrarCliente />
+        </RutaPrivada>
+      } />
+
+      <Route path="/actividades" element={
+        <RutaPrivada rol={["empleado", "dueño"]}>
+          <GestionarActividades />
         </RutaPrivada>
       } />
 

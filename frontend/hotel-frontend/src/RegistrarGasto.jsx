@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
+import { useToast } from "./components/ToastContainer";
+import ConfirmModal from "./components/ConfirmModal";
 import { 
   Receipt, 
   DollarSign, 
@@ -28,6 +30,9 @@ export default function RegistrarGasto() {
   const [gastosHoy, setGastosHoy] = useState([]);
   const [editandoId, setEditandoId] = useState(null);
   const [cargando, setCargando] = useState(false);
+  const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
+  const [gastoAEliminar, setGastoAEliminar] = useState(null);
+  const { success, error: errorToast } = useToast();
   const [userRole, setUserRole] = useState("");
   const navigate = useNavigate();
 
@@ -55,7 +60,7 @@ export default function RegistrarGasto() {
       setGastosHoy(res.data);
     } catch (err) {
       console.error("Error al obtener gastos del día", err);
-      setMensaje("❌ Error al cargar gastos del día");
+      errorToast("Error al cargar gastos del día");
     } finally {
       setCargando(false);
     }
@@ -75,7 +80,14 @@ export default function RegistrarGasto() {
 
   const handleSubmit = async () => {
     if (!form.descripcion || !form.monto || !form.habitacion_id) {
-      setMensaje("❌ Todos los campos son obligatorios");
+      errorToast("Todos los campos son obligatorios");
+      return;
+    }
+
+    // Validar monto
+    const montoNum = parseFloat(form.monto);
+    if (isNaN(montoNum) || montoNum <= 0) {
+      errorToast("El monto debe ser un número positivo");
       return;
     }
 
@@ -83,7 +95,7 @@ export default function RegistrarGasto() {
     const payload = {
       ...form,
       habitacion_id: parseInt(form.habitacion_id),
-      monto: parseFloat(form.monto)
+      monto: montoNum
     };
     
     try {
@@ -91,21 +103,19 @@ export default function RegistrarGasto() {
         await axios.put(`${API_BASE_URL}/gastos/${editandoId}`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setMensaje("✅ Gasto actualizado correctamente");
+        success("Gasto actualizado correctamente");
       } else {
         await axios.post(`${API_BASE_URL}/gastos`, payload, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setMensaje("✅ Gasto registrado correctamente");
+        success("Gasto registrado correctamente");
       }
 
       setForm({ habitacion_id: "", descripcion: "", monto: "" });
       setEditandoId(null);
       obtenerGastosHoy();
-      
-      setTimeout(() => setMensaje(""), 3000);
-    } catch {
-      setMensaje("❌ Error al registrar/actualizar gasto");
+    } catch (err) {
+      errorToast(err.response?.data?.detail || "Error al registrar/actualizar gasto");
     } finally {
       setCargando(false);
     }
@@ -127,19 +137,22 @@ export default function RegistrarGasto() {
     setMensaje("");
   };
 
-  const borrarGasto = async (id) => {
-    if (!window.confirm("¿Estás seguro de que querés eliminar este gasto?")) return;
-    
+  const abrirConfirmEliminar = (id) => {
+    setGastoAEliminar(id);
+    setMostrarConfirmEliminar(true);
+  };
+
+  const borrarGasto = async () => {
     setCargando(true);
     try {
-      await axios.delete(`${API_BASE_URL}/gastos/${id}`, {
+      await axios.delete(`${API_BASE_URL}/gastos/${gastoAEliminar}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setMensaje("🗑️ Gasto eliminado");
+      success("Gasto eliminado correctamente");
+      setMostrarConfirmEliminar(false);
       obtenerGastosHoy();
-      setTimeout(() => setMensaje(""), 3000);
     } catch {
-      setMensaje("❌ Error al eliminar gasto");
+      errorToast("Error al eliminar gasto");
     } finally {
       setCargando(false);
     }
@@ -426,7 +439,7 @@ export default function RegistrarGasto() {
                             <Edit3 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => borrarGasto(gasto.id)}
+                            onClick={() => abrirConfirmEliminar(gasto.id)}
                             className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors duration-200"
                             title="Eliminar gasto"
                           >
@@ -442,6 +455,18 @@ export default function RegistrarGasto() {
           )}
         </div>
       </div>
+
+      {/* Modal de confirmación para eliminar */}
+      <ConfirmModal
+        isOpen={mostrarConfirmEliminar}
+        onClose={() => setMostrarConfirmEliminar(false)}
+        onConfirm={borrarGasto}
+        title="Eliminar Gasto"
+        message="¿Estás seguro de que deseas eliminar este gasto? Esta acción no se puede deshacer."
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        type="danger"
+      />
     </div>
   );
 }

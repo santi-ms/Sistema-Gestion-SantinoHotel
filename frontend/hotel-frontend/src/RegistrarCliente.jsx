@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
+import { useToast } from "./components/ToastContainer";
+import ConfirmModal from "./components/ConfirmModal";
 import { 
   User, 
   UserPlus, 
@@ -33,6 +35,9 @@ function RegistrarCliente() {
   const [editandoId, setEditandoId] = useState(null);
   const [cargando, setCargando] = useState(false);
   const [busqueda, setBusqueda] = useState("");
+  const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
+  const [clienteAEliminar, setClienteAEliminar] = useState(null);
+  const { success, error: errorToast } = useToast();
   const navigate = useNavigate();
 
   const token = localStorage.getItem(TOKEN_KEY);
@@ -76,26 +81,30 @@ function RegistrarCliente() {
 
   const validarDatos = () => {
     if (!cliente.nombre.trim()) {
-      setMensaje("❌ El nombre es obligatorio");
+      errorToast("El nombre es obligatorio");
       return false;
     }
     if (!cliente.dni.trim()) {
-      setMensaje("❌ El DNI es obligatorio");
+      errorToast("El DNI es obligatorio");
       return false;
     }
-    if (cliente.dni.length < 7 || cliente.dni.length > 8) {
-      setMensaje("❌ El DNI debe tener 7 u 8 dígitos");
+    if (!/^\d{7,8}$/.test(cliente.dni)) {
+      errorToast("El DNI debe tener 7 u 8 dígitos numéricos");
       return false;
     }
     if (!cliente.celular.trim()) {
-      setMensaje("❌ El celular es obligatorio");
+      errorToast("El celular es obligatorio");
+      return false;
+    }
+    if (!/^\d{10,15}$/.test(cliente.celular.replace(/\s/g, ""))) {
+      errorToast("El celular debe contener solo números (10-15 dígitos)");
       return false;
     }
     
     // Verificar DNI duplicado
     const dniExistente = clientes.find(c => c.dni === cliente.dni && c.id !== editandoId);
     if (dniExistente) {
-      setMensaje("❌ Ya existe un cliente con ese DNI");
+      errorToast("Ya existe un cliente con ese DNI");
       return false;
     }
     
@@ -111,23 +120,22 @@ function RegistrarCliente() {
         await axios.put(`${API_BASE_URL}/clientes/${editandoId}`, cliente, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setMensaje("✅ Cliente actualizado correctamente");
+        success("Cliente actualizado correctamente");
       } else {
         await axios.post(`${API_BASE_URL}/clientes`, cliente, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setMensaje("✅ Cliente registrado correctamente");
+        success("Cliente registrado correctamente");
       }
       
       setCliente({ nombre: "", dni: "", celular: "", patente: "" });
       setEditandoId(null);
       obtenerClientes();
-      setTimeout(() => setMensaje(""), 3000);
     } catch (error) {
       if (error.response?.status === 400) {
-        setMensaje("❌ DNI ya registrado");
+        errorToast(error.response?.data?.detail || "DNI ya registrado");
       } else {
-        setMensaje("❌ Error al registrar/actualizar cliente");
+        errorToast("Error al registrar/actualizar cliente");
       }
     } finally {
       setCargando(false);
@@ -151,18 +159,21 @@ function RegistrarCliente() {
     setMensaje("");
   };
 
-  const eliminarCliente = async (id) => {
-    if (!window.confirm("¿Estás seguro de que querés eliminar este cliente?")) return;
-    
+  const abrirConfirmEliminar = (id) => {
+    setClienteAEliminar(id);
+    setMostrarConfirmEliminar(true);
+  };
+
+  const eliminarCliente = async () => {
     try {
-      await axios.delete(`${API_BASE_URL}/clientes/${id}`, {
+      await axios.delete(`${API_BASE_URL}/clientes/${clienteAEliminar}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setMensaje("🗑️ Cliente eliminado correctamente");
+      success("Cliente eliminado correctamente");
+      setMostrarConfirmEliminar(false);
       obtenerClientes();
-      setTimeout(() => setMensaje(""), 3000);
     } catch {
-      setMensaje("❌ Error al eliminar cliente");
+      errorToast("Error al eliminar cliente");
     }
   };
 
@@ -430,7 +441,7 @@ function RegistrarCliente() {
                             <Edit3 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => eliminarCliente(clienteData.id)}
+                            onClick={() => abrirConfirmEliminar(clienteData.id)}
                             className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors duration-200"
                             title="Eliminar cliente"
                           >
@@ -446,6 +457,18 @@ function RegistrarCliente() {
           )}
         </div>
       </div>
+
+      {/* Modal de confirmación para eliminar */}
+      <ConfirmModal
+        isOpen={mostrarConfirmEliminar}
+        onClose={() => setMostrarConfirmEliminar(false)}
+        onConfirm={eliminarCliente}
+        title="Eliminar Cliente"
+        message="¿Estás seguro de que deseas eliminar este cliente? Esta acción no se puede deshacer."
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        type="danger"
+      />
     </div>
   );
 }

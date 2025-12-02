@@ -15,7 +15,8 @@ import {
   Receipt,
   Menu,
   MapPin,
-  Utensils
+  Utensils,
+  CheckSquare
 } from 'lucide-react';
 
 export default function EmpleadoPanel() {
@@ -77,6 +78,16 @@ export default function EmpleadoPanel() {
       path: "/ver-reservas",
       bgColor: "bg-amber-50",
       borderColor: "border-amber-200"
+    },
+    {
+      title: "Actividades",
+      description: "Gestionar tareas y actividades",
+      icon: CheckSquare,
+      color: "from-indigo-500 to-purple-600",
+      hoverColor: "hover:from-indigo-600 hover:to-purple-700",
+      path: "/actividades",
+      bgColor: "bg-indigo-50",
+      borderColor: "border-indigo-200"
     }
   ];
 

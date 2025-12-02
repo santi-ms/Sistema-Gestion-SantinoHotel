@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { TOKEN_KEY } from "./config";
+import { useToast } from "./components/ToastContainer";
+import ConfirmModal from "./components/ConfirmModal";
 import { 
   Coffee, 
   DollarSign, 
@@ -64,6 +66,9 @@ export default function ConfiguracionPrecios() {
   const [categoriaFiltro, setCategoriaFiltro] = useState("todas");
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
   const [mostrarInactivos, setMostrarInactivos] = useState(false);
+  const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
+  const [productoAEliminar, setProductoAEliminar] = useState(null);
+  const { success, error: errorToast, warning: warningToast } = useToast();
 
   const esDueño = userRole === "dueño";
 
@@ -85,7 +90,14 @@ export default function ConfiguracionPrecios() {
 
   const handleSubmit = () => {
     if (!form.nombre.trim() || !form.precio) {
-      setMensaje("❌ Faltan campos obligatorios");
+      errorToast("Faltan campos obligatorios");
+      return;
+    }
+
+    // Validar precio
+    const precioNum = parseFloat(form.precio);
+    if (isNaN(precioNum) || precioNum <= 0) {
+      errorToast("El precio debe ser un número positivo");
       return;
     }
 
@@ -99,24 +111,24 @@ export default function ConfiguracionPrecios() {
             ? { 
                 ...producto, 
                 nombre: form.nombre.trim(),
-                precio: parseFloat(form.precio),
+                precio: precioNum,
                 categoria: form.categoria
               }
             : producto
         );
         setProductos(productosActualizados);
-        setMensaje("✅ Producto actualizado correctamente");
+        success("Producto actualizado correctamente");
       } else {
         // Crear nuevo producto
         const nuevoProducto = {
           id: Math.max(...productos.map(p => p.id)) + 1,
           nombre: form.nombre.trim(),
-          precio: parseFloat(form.precio),
+          precio: precioNum,
           categoria: form.categoria,
           activo: true
         };
         setProductos([...productos, nuevoProducto]);
-        setMensaje("✅ Producto agregado correctamente");
+        success("Producto agregado correctamente");
       }
       
       // Reset form
@@ -124,8 +136,6 @@ export default function ConfiguracionPrecios() {
       setEditandoId(null);
       setMostrarFormulario(false);
       setCargando(false);
-      
-      setTimeout(() => setMensaje(""), 3000);
     }, 800);
   };
 
@@ -154,20 +164,27 @@ export default function ConfiguracionPrecios() {
         : producto
     );
     setProductos(productosActualizados);
-    setMensaje(productosActualizados.find(p => p.id === id).activo ? "✅ Producto activado" : "⚠️ Producto desactivado");
-    setTimeout(() => setMensaje(""), 3000);
+    const productoActualizado = productosActualizados.find(p => p.id === id);
+    if (productoActualizado.activo) {
+      success("Producto activado");
+    } else {
+      warningToast("Producto desactivado");
+    }
   };
 
-  const eliminarProducto = (id) => {
-    if (!window.confirm("¿Estás seguro de que querés eliminar este producto?")) return;
-    
+  const abrirConfirmEliminar = (id) => {
+    setProductoAEliminar(id);
+    setMostrarConfirmEliminar(true);
+  };
+
+  const eliminarProducto = () => {
     setCargando(true);
     setTimeout(() => {
-      const productosActualizados = productos.filter(producto => producto.id !== id);
+      const productosActualizados = productos.filter(producto => producto.id !== productoAEliminar);
       setProductos(productosActualizados);
-      setMensaje("🗑️ Producto eliminado");
+      success("Producto eliminado correctamente");
+      setMostrarConfirmEliminar(false);
       setCargando(false);
-      setTimeout(() => setMensaje(""), 3000);
     }, 500);
   };
 
@@ -526,7 +543,7 @@ export default function ConfiguracionPrecios() {
                               {producto.activo ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                             </button>
                             <button
-                              onClick={() => eliminarProducto(producto.id)}
+                              onClick={() => abrirConfirmEliminar(producto.id)}
                               className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors duration-200"
                               title="Eliminar producto"
                             >
@@ -543,6 +560,18 @@ export default function ConfiguracionPrecios() {
           )}
         </div>
       </div>
+
+      {/* Modal de confirmación para eliminar */}
+      <ConfirmModal
+        isOpen={mostrarConfirmEliminar}
+        onClose={() => setMostrarConfirmEliminar(false)}
+        onConfirm={eliminarProducto}
+        title="Eliminar Producto"
+        message="¿Estás seguro de que deseas eliminar este producto? Esta acción no se puede deshacer."
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        type="danger"
+      />
     </div>
   );
 }

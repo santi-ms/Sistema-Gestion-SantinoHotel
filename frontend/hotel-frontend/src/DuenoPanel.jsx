@@ -28,7 +28,8 @@ import {
   Coffee,
   MapPin,
   Crown,
-  TrendingUp
+  TrendingUp,
+  CheckSquare
 } from 'lucide-react';
 
 export default function DuenoPanel() {
@@ -156,6 +157,14 @@ export default function DuenoPanel() {
       color: "from-teal-500 to-cyan-600",
       hoverColor: "hover:from-teal-600 hover:to-cyan-700",
       path: "/registrar-cliente"
+    },
+    {
+      title: "Actividades",
+      description: "Gestionar tareas y actividades del hotel",
+      icon: CheckSquare,
+      color: "from-indigo-500 to-purple-600",
+      hoverColor: "hover:from-indigo-600 hover:to-purple-700",
+      path: "/actividades"
     }
   ];
 

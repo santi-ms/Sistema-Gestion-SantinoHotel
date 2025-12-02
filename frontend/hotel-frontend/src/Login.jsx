@@ -3,13 +3,14 @@ import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { Mail, Lock, Eye, EyeOff, MapPin, ArrowRight, Coffee } from "lucide-react";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
+import { useToast } from "./components/ToastContainer";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [contraseña, setContraseña] = useState("");
-  const [mensaje, setMensaje] = useState("");
   const [mostrarContraseña, setMostrarContraseña] = useState(false);
   const [cargando, setCargando] = useState(false);
+  const { success, error: errorToast } = useToast();
   const navigate = useNavigate();
 
   const handleLogin = async () => {
@@ -27,7 +28,7 @@ export default function Login() {
 
       const token = response.data.access_token;
       localStorage.setItem(TOKEN_KEY, token);
-      setMensaje("✅ Bienvenido al Hotel Santino");
+      success("Bienvenido al Hotel Santino");
 
       // Decodificar el token para obtener el rol
       const payload = JSON.parse(atob(token.split(".")[1]));
@@ -39,8 +40,10 @@ export default function Login() {
           navigate("/dueno");
         }
       }, 500);
-    } catch {
-      setMensaje("❌ Error al iniciar sesión");
+    } catch (error) {
+      console.error("Error de login:", error);
+      const errorMsg = error.response?.data?.detail || error.message || "Credenciales incorrectas";
+      errorToast(errorMsg);
     } finally {
       setCargando(false);
     }
@@ -144,17 +147,6 @@ export default function Login() {
                 </div>
               )}
             </button>
-
-            {/* Mensaje de estado */}
-            {mensaje && (
-              <div className={`mt-6 p-4 rounded-xl text-center font-medium transition-all duration-300 ${
-                mensaje.includes('✅') 
-                  ? 'bg-green-500 bg-opacity-20 text-green-300 border border-green-400 border-opacity-30' 
-                  : 'bg-red-500 bg-opacity-20 text-red-300 border border-red-400 border-opacity-30'
-              }`}>
-                {mensaje}
-              </div>
-            )}
           </div>
 
           {/* Footer personalizado */}

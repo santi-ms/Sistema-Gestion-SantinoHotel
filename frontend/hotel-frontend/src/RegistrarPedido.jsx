@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
+import { useToast } from "./components/ToastContainer";
+import ConfirmModal from "./components/ConfirmModal";
 import { 
   Coffee, 
   DollarSign, 
@@ -34,6 +36,9 @@ export default function RegistrarPedido() {
   const [cargando, setCargando] = useState(false);
   const [userRole, setUserRole] = useState("empleado");
   const [mostrarFormulario, setMostrarFormulario] = useState(true);
+  const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
+  const [pedidoAEliminar, setPedidoAEliminar] = useState(null);
+  const { success, error: errorToast } = useToast();
 
   // Calcular el total automáticamente
   const calcularTotal = () => {
@@ -66,7 +71,7 @@ export default function RegistrarPedido() {
       setPedidosHoy(pedidosFormateados);
     } catch (err) {
       console.error("Error al cargar pedidos:", err);
-      setMensaje("❌ Error al cargar pedidos del día");
+      errorToast("Error al cargar pedidos del día");
     } finally {
       setCargando(false);
     }
@@ -112,13 +117,18 @@ export default function RegistrarPedido() {
     const itemsValidos = form.items.every(item => item.descripcion.trim() !== "");
     
     if (!itemsValidos) {
-      setMensaje("❌ Todos los items deben tener una descripción");
+      errorToast("Todos los items deben tener una descripción");
       return;
     }
 
     const total = calcularTotal();
     if (total <= 0) {
-      setMensaje("❌ El total debe ser mayor a cero");
+      errorToast("El total debe ser mayor a cero");
+      return;
+    }
+
+    if (!form.forma_pago) {
+      errorToast("Debes seleccionar una forma de pago");
       return;
     }
 
@@ -138,13 +148,13 @@ export default function RegistrarPedido() {
         await axios.put(`${API_BASE_URL}/pedidos/${editandoId}`, pedidoData, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setMensaje("✅ Pedido actualizado correctamente");
+        success("Pedido actualizado correctamente");
       } else {
         // Crear nuevo pedido
         await axios.post(`${API_BASE_URL}/pedidos`, pedidoData, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        setMensaje("✅ Pedido registrado correctamente");
+        success("Pedido registrado correctamente");
       }
       
       // Reset form
@@ -159,13 +169,10 @@ export default function RegistrarPedido() {
       
       // Recargar pedidos del día
       await cargarPedidosHoy();
-      
-      setTimeout(() => setMensaje(""), 3000);
     } catch (error) {
       console.error("Error al guardar pedido:", error);
       const errorMsg = error.response?.data?.detail || "Error al guardar el pedido";
-      setMensaje(`❌ ${errorMsg}`);
-      setTimeout(() => setMensaje(""), 5000);
+      errorToast(errorMsg);
     } finally {
       setCargando(false);
     }
@@ -194,23 +201,25 @@ export default function RegistrarPedido() {
     setMensaje("");
   };
 
-  const borrarPedido = async (id) => {
-    if (!window.confirm("¿Estás seguro de que querés eliminar este pedido?")) return;
-    
+  const abrirConfirmEliminar = (id) => {
+    setPedidoAEliminar(id);
+    setMostrarConfirmEliminar(true);
+  };
+
+  const borrarPedido = async () => {
     setCargando(true);
     try {
       const token = localStorage.getItem(TOKEN_KEY);
-      await axios.delete(`${API_BASE_URL}/pedidos/${id}`, {
+      await axios.delete(`${API_BASE_URL}/pedidos/${pedidoAEliminar}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setMensaje("🗑️ Pedido eliminado");
+      success("Pedido eliminado correctamente");
+      setMostrarConfirmEliminar(false);
       await cargarPedidosHoy(); // Recargar pedidos del día
-      setTimeout(() => setMensaje(""), 3000);
     } catch (error) {
       console.error("Error al eliminar pedido:", error);
       const errorMsg = error.response?.data?.detail || "Error al eliminar el pedido";
-      setMensaje(`❌ ${errorMsg}`);
-      setTimeout(() => setMensaje(""), 5000);
+      errorToast(errorMsg);
     } finally {
       setCargando(false);
     }
@@ -644,7 +653,7 @@ export default function RegistrarPedido() {
                             <Edit3 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => borrarPedido(pedido.id)}
+                            onClick={() => abrirConfirmEliminar(pedido.id)}
                             className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors duration-200"
                             title="Eliminar pedido"
                           >
@@ -660,6 +669,18 @@ export default function RegistrarPedido() {
           )}
         </div>
       </div>
+
+      {/* Modal de confirmación para eliminar */}
+      <ConfirmModal
+        isOpen={mostrarConfirmEliminar}
+        onClose={() => setMostrarConfirmEliminar(false)}
+        onConfirm={borrarPedido}
+        title="Eliminar Pedido"
+        message="¿Estás seguro de que deseas eliminar este pedido? Esta acción no se puede deshacer."
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        type="danger"
+      />
     </div>
   );
 }

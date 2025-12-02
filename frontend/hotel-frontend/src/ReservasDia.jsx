@@ -2,6 +2,9 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
+import { useToast } from "./components/ToastContainer";
+import ConfirmModal from "./components/ConfirmModal";
+import Modal from "./components/Modal";
 import { 
   Calendar, 
   User, 
@@ -45,6 +48,12 @@ export default function ReservasDia() {
   const [fechaSeleccionada, setFechaSeleccionada] = useState(new Date().toLocaleDateString('fr-CA'));
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
   const [cargando, setCargando] = useState(false);
+  const [mostrarConfirmCheckout, setMostrarConfirmCheckout] = useState(false);
+  const [reservaCheckoutId, setReservaCheckoutId] = useState(null);
+  const [mostrarModalPago, setMostrarModalPago] = useState(false);
+  const [reservaPagoId, setReservaPagoId] = useState(null);
+  const [nuevaFormaPago, setNuevaFormaPago] = useState("");
+  const { success, error, warning } = useToast();
   const navigate = useNavigate();
 
   // ✅ FUNCIÓN ORIGINAL - Conecta con tu backend real
@@ -103,15 +112,58 @@ export default function ReservasDia() {
     setObservacionesMascota("");
   };
 
+  // ✅ VALIDACIÓN MEJORADA - Validar fechas
+  const validarFechas = () => {
+    if (!ingreso || !egreso) {
+      return { valido: false, mensaje: "Las fechas de ingreso y egreso son obligatorias" };
+    }
+    
+    const fechaInicio = new Date(ingreso);
+    const fechaFin = new Date(egreso);
+    
+    if (fechaFin <= fechaInicio) {
+      return { valido: false, mensaje: "La fecha de egreso debe ser posterior a la fecha de ingreso" };
+    }
+    
+    return { valido: true };
+  };
+
   // ✅ FUNCIÓN CORREGIDA - Usa /reservas-gestion con formato correcto
   const registrarReserva = async () => {
     // Validaciones básicas
     if (!nombre || !precio || !ingreso || !egreso || !dni || !celular) {
-      return alert("Faltan datos obligatorios: nombre, precio, fechas, DNI y celular son requeridos");
+      error("Faltan datos obligatorios: nombre, precio, fechas, DNI y celular son requeridos");
+      return;
+    }
+    
+    // Validar formato de DNI (solo números)
+    if (!/^\d{7,8}$/.test(dni)) {
+      error("El DNI debe contener solo números y tener entre 7 y 8 dígitos");
+      return;
+    }
+    
+    // Validar formato de teléfono
+    if (!/^\d{10,15}$/.test(celular.replace(/\s/g, ""))) {
+      error("El celular debe contener solo números (10-15 dígitos)");
+      return;
+    }
+    
+    // Validar precio positivo
+    if (parseFloat(precio) <= 0) {
+      error("El precio debe ser mayor a cero");
+      return;
+    }
+    
+    // Validar fechas
+    const validacionFechas = validarFechas();
+    if (!validacionFechas.valido) {
+      error(validacionFechas.mensaje);
+      return;
     }
     
     if (!validarDisponibilidad()) {
-      return alert("Esa habitación ya está ocupada en el rango de fechas ingresado.");
+      error("Esa habitación ya está ocupada en el rango de fechas ingresado");
+      return;
     }
 
     const token = localStorage.getItem(TOKEN_KEY);
@@ -120,6 +172,7 @@ export default function ReservasDia() {
     const fechaIngreso = ingreso.split('-').reverse().join('/');
     const fechaEgreso = egreso.split('-').reverse().join('/');
     
+    setCargando(true);
     try {
       const datosReserva = {
         // Campos para crear el cliente
@@ -154,7 +207,7 @@ export default function ReservasDia() {
         ? "Reserva registrada correctamente (con mascota 🐾)" 
         : "Reserva registrada correctamente";
       
-      alert(mensajeExito);
+      success(mensajeExito);
       setMostrarFormulario(false);
       limpiarFormulario();
       obtenerReservas();
@@ -162,39 +215,57 @@ export default function ReservasDia() {
       console.error("Error completo:", err);
       console.error("Respuesta del servidor:", err.response?.data);
       const errorMsg = err.response?.data?.detail || "Error al registrar reserva";
-      alert(`Error: ${errorMsg}`);
+      error(errorMsg);
+    } finally {
+      setCargando(false);
     }
   };
 
-  // ✅ FUNCIÓN ORIGINAL - Actualiza pago en tu backend real
-  const actualizarPago = async (id) => {
-    const nuevaForma = prompt("Nueva forma de pago (efectivo, tarjeta, transferencia):");
-    if (!nuevaForma) return;
+  // ✅ FUNCIÓN MEJORADA - Actualiza pago con modal
+  const abrirModalPago = (id) => {
+    setReservaPagoId(id);
+    setNuevaFormaPago("");
+    setMostrarModalPago(true);
+  };
+
+  const actualizarPago = async () => {
+    if (!nuevaFormaPago) {
+      error("Debes seleccionar una forma de pago");
+      return;
+    }
+    
     const token = localStorage.getItem(TOKEN_KEY);
     try {
-      await axios.patch(`${API_BASE_URL}/reservas/${id}/pago`, { forma_pago: nuevaForma }, {
+      await axios.patch(`${API_BASE_URL}/reservas/${reservaPagoId}/pago`, { forma_pago: nuevaFormaPago }, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      alert("Forma de pago actualizada");
+      success("Forma de pago actualizada correctamente");
+      setMostrarModalPago(false);
       obtenerReservas();
     } catch (err) {
-      alert("Error al actualizar pago");
+      error(err.response?.data?.detail || "Error al actualizar pago");
       console.error(err);
     }
   };
 
-  // ✅ FUNCIÓN ORIGINAL - Hace checkout real en tu backend
-  const realizarCheckout = async (id) => {
+  // ✅ FUNCIÓN MEJORADA - Hace checkout con confirmación
+  const abrirConfirmCheckout = (id) => {
+    setReservaCheckoutId(id);
+    setMostrarConfirmCheckout(true);
+  };
+
+  const realizarCheckout = async () => {
     const token = localStorage.getItem(TOKEN_KEY);
     try {
-      const res = await axios.patch(`${API_BASE_URL}/reservas/${id}/checkout`, {}, {
+      const res = await axios.patch(`${API_BASE_URL}/reservas/${reservaCheckoutId}/checkout`, {}, {
         headers: { Authorization: `Bearer ${token}` },
       });
       console.log("Checkout response:", res.data);
-      alert("Checkout realizado correctamente");
+      success("Checkout realizado correctamente");
+      setMostrarConfirmCheckout(false);
       obtenerReservas();
     } catch (err) {
-      alert("Error al realizar checkout");
+      error(err.response?.data?.detail || "Error al realizar checkout");
       console.error(err);
     }
   };
@@ -558,14 +629,14 @@ export default function ReservasDia() {
                         {datos.forma_pago === "pendiente" && (
                           <button
                             className="w-full bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200"
-                            onClick={() => actualizarPago(datos.id)}
+                            onClick={() => abrirModalPago(datos.id)}
                           >
                             Marcar como pagado
                           </button>
                         )}
                         <button
                           className="w-full bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 flex items-center justify-center gap-2"
-                          onClick={() => realizarCheckout(datos.id)}
+                          onClick={() => abrirConfirmCheckout(datos.id)}
                         >
                           <CheckCircle className="w-4 h-4" />
                           Checkout
@@ -595,6 +666,59 @@ export default function ReservasDia() {
           Volver atrás
         </button>
       </div>
+
+      {/* Modal de confirmación para checkout */}
+      <ConfirmModal
+        isOpen={mostrarConfirmCheckout}
+        onClose={() => setMostrarConfirmCheckout(false)}
+        onConfirm={realizarCheckout}
+        title="Confirmar Checkout"
+        message="¿Estás seguro de que deseas realizar el checkout de esta reserva?"
+        confirmText="Confirmar Checkout"
+        cancelText="Cancelar"
+        type="warning"
+      />
+
+      {/* Modal para actualizar forma de pago */}
+      <Modal
+        isOpen={mostrarModalPago}
+        onClose={() => setMostrarModalPago(false)}
+        title="Actualizar Forma de Pago"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Selecciona la forma de pago
+            </label>
+            <select
+              value={nuevaFormaPago}
+              onChange={(e) => setNuevaFormaPago(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="">Selecciona una opción</option>
+              <option value="efectivo">Efectivo</option>
+              <option value="tarjeta">Tarjeta</option>
+              <option value="transferencia">Transferencia</option>
+            </select>
+          </div>
+          <div className="flex gap-3 justify-end pt-4 border-t border-slate-200">
+            <button
+              onClick={() => setMostrarModalPago(false)}
+              className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={actualizarPago}
+              disabled={!nuevaFormaPago || cargando}
+              className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {cargando ? "Guardando..." : "Actualizar"}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
