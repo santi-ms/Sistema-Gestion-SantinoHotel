@@ -1,6 +1,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { TOKEN_KEY } from "./config";
+// Updated: 2025-12-03 - Sistema de Stock agregado
 import { 
   Calendar, 
   ShoppingCart, 
