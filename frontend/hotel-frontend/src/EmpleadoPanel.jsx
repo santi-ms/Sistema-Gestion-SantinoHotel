@@ -215,7 +215,7 @@ export default function EmpleadoPanel() {
             Accesos Rápidos
           </h3>
           
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
             <div className="text-center p-4 rounded-xl bg-orange-50 hover:bg-orange-100 transition-colors duration-200 cursor-pointer border border-orange-200 hover:shadow-md"
                  onClick={() => navigate("/reservas-dia")}>
               <Calendar className="w-6 h-6 text-orange-500 mx-auto mb-2" />
@@ -244,6 +244,12 @@ export default function EmpleadoPanel() {
                  onClick={() => navigate("/ver-reservas")}>
               <Eye className="w-6 h-6 text-amber-600 mx-auto mb-2" />
               <span className="text-sm font-semibold text-amber-700">Ver</span>
+            </div>
+            
+            <div className="text-center p-4 rounded-xl bg-cyan-50 hover:bg-cyan-100 transition-colors duration-200 cursor-pointer border border-cyan-200 hover:shadow-md"
+                 onClick={() => navigate("/stock")}>
+              <Package className="w-6 h-6 text-cyan-600 mx-auto mb-2" />
+              <span className="text-sm font-semibold text-cyan-700">Stock</span>
             </div>
           </div>
         </div>
