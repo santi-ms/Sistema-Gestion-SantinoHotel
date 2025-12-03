@@ -29,7 +29,8 @@ import {
   MapPin,
   Crown,
   TrendingUp,
-  CheckSquare
+  CheckSquare,
+  Package
 } from 'lucide-react';
 
 export default function DuenoPanel() {
@@ -165,6 +166,14 @@ export default function DuenoPanel() {
       color: "from-indigo-500 to-purple-600",
       hoverColor: "hover:from-indigo-600 hover:to-purple-700",
       path: "/actividades"
+    },
+    {
+      title: "Control de Stock",
+      description: "Gestionar inventario de bebidas y productos",
+      icon: Package,
+      color: "from-cyan-500 to-blue-600",
+      hoverColor: "hover:from-cyan-600 hover:to-blue-700",
+      path: "/stock"
     }
   ];
 

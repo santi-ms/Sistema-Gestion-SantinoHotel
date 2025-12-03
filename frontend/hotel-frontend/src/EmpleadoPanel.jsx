@@ -16,7 +16,8 @@ import {
   Menu,
   MapPin,
   Utensils,
-  CheckSquare
+  CheckSquare,
+  Package
 } from 'lucide-react';
 
 export default function EmpleadoPanel() {
@@ -88,6 +89,16 @@ export default function EmpleadoPanel() {
       path: "/actividades",
       bgColor: "bg-indigo-50",
       borderColor: "border-indigo-200"
+    },
+    {
+      title: "Control de Stock",
+      description: "Gestionar inventario de bebidas",
+      icon: Package,
+      color: "from-cyan-500 to-blue-600",
+      hoverColor: "hover:from-cyan-600 hover:to-blue-700",
+      path: "/stock",
+      bgColor: "bg-cyan-50",
+      borderColor: "border-cyan-200"
     }
   ];
 

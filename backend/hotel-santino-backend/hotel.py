@@ -122,6 +122,14 @@ class Actividad(SQLModel, table=True):
     creado_por: int  # ID del usuario que creó la actividad
     asignado_a: Optional[int] = None  # ID del usuario asignado (opcional)
 
+class Stock(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    nombre_producto: str  # Nombre del producto (ej: "Coca Cola 350ml")
+    categoria: str  # "bebidas" o "comidas"
+    cantidad: int = 0  # Cantidad en stock
+    cantidad_minima: int = 0  # Cantidad mínima antes de alertar
+    fecha_actualizacion: datetime = Field(default_factory=lambda: obtener_fecha_argentina())
+
 # ─────────── MODELOS PARA ITEMS MÚLTIPLES ───────────
 class ItemPedido(BaseModel):
     descripcion: str
@@ -436,6 +444,30 @@ def eliminar_cliente(
     return {"mensaje": "Cliente eliminado"}
 
 # ─────────── ENDPOINTS DE PEDIDOS ───────────
+# Función auxiliar para descontar stock cuando se registra un pedido
+def descontar_stock_de_pedido(items: List[ItemPedido], db: Session):
+    """Descuenta el stock cuando se registra un pedido con bebidas"""
+    for item in items:
+        # Buscar si el producto existe en stock (solo bebidas)
+        stock = db.exec(
+            select(Stock).where(
+                Stock.nombre_producto == item.descripcion,
+                Stock.categoria == "bebidas"
+            )
+        ).first()
+        
+        if stock:
+            # Descontar la cantidad vendida
+            nueva_cantidad = stock.cantidad - item.cantidad
+            if nueva_cantidad < 0:
+                nueva_cantidad = 0  # No permitir stock negativo
+            
+            stock.cantidad = nueva_cantidad
+            stock.fecha_actualizacion = obtener_fecha_argentina()
+            db.add(stock)
+    
+    db.commit()
+
 @app.post("/pedidos")
 def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     monto_total = sum(item.cantidad * item.precio for item in pedido.items)
@@ -453,6 +485,13 @@ def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obt
     db.add(nuevo_pedido)
     db.commit()
     db.refresh(nuevo_pedido)
+    
+    # Descontar stock automáticamente para bebidas
+    try:
+        descontar_stock_de_pedido(pedido.items, db)
+    except Exception as e:
+        print(f"Error al descontar stock: {e}")
+        # No fallar el pedido si hay error en el stock
     
     return {"mensaje": "Pedido registrado correctamente", "id": nuevo_pedido.id}
 
@@ -789,6 +828,111 @@ def eliminar_actividad(
     db.delete(actividad)
     db.commit()
     return {"mensaje": "Actividad eliminada correctamente"}
+
+# ─────────── ENDPOINTS DE STOCK ───────────
+class StockEntrada(BaseModel):
+    nombre_producto: str
+    categoria: str  # "bebidas" o "comidas"
+    cantidad: int
+    cantidad_minima: int = 0
+
+class StockActualizar(BaseModel):
+    cantidad: Optional[int] = None
+    cantidad_minima: Optional[int] = None
+
+@app.post("/stock")
+def crear_actualizar_stock(
+    data: StockEntrada,
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    # Buscar si ya existe stock para este producto
+    stock_existente = db.exec(
+        select(Stock).where(Stock.nombre_producto == data.nombre_producto)
+    ).first()
+    
+    if stock_existente:
+        # Actualizar stock existente
+        stock_existente.cantidad = data.cantidad
+        stock_existente.cantidad_minima = data.cantidad_minima
+        stock_existente.fecha_actualizacion = obtener_fecha_argentina()
+        db.add(stock_existente)
+        db.commit()
+        db.refresh(stock_existente)
+        return {"mensaje": "Stock actualizado correctamente", "stock": stock_existente}
+    else:
+        # Crear nuevo stock
+        nuevo_stock = Stock(
+            nombre_producto=data.nombre_producto,
+            categoria=data.categoria,
+            cantidad=data.cantidad,
+            cantidad_minima=data.cantidad_minima
+        )
+        db.add(nuevo_stock)
+        db.commit()
+        db.refresh(nuevo_stock)
+        return {"mensaje": "Stock creado correctamente", "stock": nuevo_stock}
+
+@app.get("/stock")
+def obtener_stock(
+    categoria: Optional[str] = Query(None, description="Filtrar por categoría: bebidas, comidas"),
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    query = select(Stock)
+    
+    if categoria:
+        query = query.where(Stock.categoria == categoria)
+    
+    stock = db.exec(query.order_by(Stock.nombre_producto)).all()
+    return stock
+
+@app.get("/stock/{stock_id}")
+def obtener_stock_por_id(
+    stock_id: int,
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    stock = db.get(Stock, stock_id)
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock no encontrado")
+    return stock
+
+@app.put("/stock/{stock_id}")
+def actualizar_stock(
+    stock_id: int,
+    data: StockActualizar,
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    stock = db.get(Stock, stock_id)
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock no encontrado")
+    
+    if data.cantidad is not None:
+        stock.cantidad = data.cantidad
+    if data.cantidad_minima is not None:
+        stock.cantidad_minima = data.cantidad_minima
+    
+    stock.fecha_actualizacion = obtener_fecha_argentina()
+    db.add(stock)
+    db.commit()
+    db.refresh(stock)
+    return {"mensaje": "Stock actualizado correctamente", "stock": stock}
+
+@app.delete("/stock/{stock_id}")
+def eliminar_stock(
+    stock_id: int,
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    stock = db.get(Stock, stock_id)
+    if not stock:
+        raise HTTPException(status_code=404, detail="Stock no encontrado")
+    
+    db.delete(stock)
+    db.commit()
+    return {"mensaje": "Stock eliminado correctamente"}
 
 # ─────────── ENDPOINTS DE RESERVAS ───────────
 @app.post("/reservas")

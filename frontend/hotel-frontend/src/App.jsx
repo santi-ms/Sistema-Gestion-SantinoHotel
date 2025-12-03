@@ -13,6 +13,7 @@ import RegistrarCliente from "./RegistrarCliente";
 import DashboardAnalytics from "./DashboardAnalytics";
 import ConfiguracionPrecios from "./ConfiguracionPrecios";
 import GestionarActividades from "./GestionarActividades";
+import GestionarStock from "./GestionarStock";
 
 function App() {
   return (
@@ -80,6 +81,12 @@ function App() {
       <Route path="/actividades" element={
         <RutaPrivada rol={["empleado", "dueño"]}>
           <GestionarActividades />
+        </RutaPrivada>
+      } />
+
+      <Route path="/stock" element={
+        <RutaPrivada rol={["empleado", "dueño"]}>
+          <GestionarStock />
         </RutaPrivada>
       } />
 
