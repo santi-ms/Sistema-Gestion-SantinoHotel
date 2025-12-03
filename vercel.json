@@ -1,7 +1,6 @@
 {
   "buildCommand": "cd frontend/hotel-frontend && npm install && npm run build",
   "outputDirectory": "frontend/hotel-frontend/dist",
-  "devCommand": "cd frontend/hotel-frontend && npm run dev",
   "installCommand": "cd frontend/hotel-frontend && npm install",
   "framework": "vite",
   "rewrites": [
