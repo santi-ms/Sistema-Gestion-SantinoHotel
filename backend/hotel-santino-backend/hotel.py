@@ -448,13 +448,29 @@ def eliminar_cliente(
 def descontar_stock_de_pedido(items: List[ItemPedido], db: Session):
     """Descuenta el stock cuando se registra un pedido con bebidas"""
     for item in items:
-        # Buscar si el producto existe en stock (solo bebidas)
-        stock = db.exec(
-            select(Stock).where(
-                Stock.nombre_producto == item.descripcion,
-                Stock.categoria == "bebidas"
-            )
-        ).first()
+        # Obtener todos los productos de bebidas
+        todos_stock = db.exec(
+            select(Stock).where(Stock.categoria == "bebidas")
+        ).all()
+        
+        # Buscar coincidencia (case-insensitive y flexible)
+        stock = None
+        descripcion_limpia = item.descripcion.strip().lower()
+        
+        # Primero intenta coincidencia exacta (case-insensitive)
+        for s in todos_stock:
+            if s.nombre_producto.strip().lower() == descripcion_limpia:
+                stock = s
+                break
+        
+        # Si no encuentra coincidencia exacta, busca coincidencia parcial
+        if not stock:
+            for s in todos_stock:
+                nombre_lower = s.nombre_producto.strip().lower()
+                # Coincidencia si el nombre está contenido en la descripción o viceversa
+                if descripcion_limpia in nombre_lower or nombre_lower in descripcion_limpia:
+                    stock = s
+                    break
         
         if stock:
             # Descontar la cantidad vendida
