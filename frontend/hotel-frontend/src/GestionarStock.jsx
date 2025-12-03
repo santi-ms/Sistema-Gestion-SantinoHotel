@@ -258,8 +258,15 @@ export default function GestionarStock() {
               </button>
               <button
                 onClick={() => {
+                  setForm({
+                    nombre_producto: "",
+                    categoria: "bebidas",
+                    cantidad: 0,
+                    cantidad_minima: 0
+                  });
+                  setEditandoId(null);
                   setMostrarFormulario(true);
-                  cancelarEdicion();
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium transition-colors flex items-center gap-2"
               >
