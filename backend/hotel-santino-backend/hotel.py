@@ -457,20 +457,37 @@ def descontar_stock_de_pedido(items: List[ItemPedido], db: Session):
         stock = None
         descripcion_limpia = item.descripcion.strip().lower()
         
-        # Primero intenta coincidencia exacta (case-insensitive)
+        # Estrategia de búsqueda:
+        # 1. Coincidencia exacta (case-insensitive)
+        # 2. Coincidencia parcial más específica (la que tenga más palabras en común)
+        # 3. Coincidencia parcial simple
+        
+        coincidencias = []
+        
         for s in todos_stock:
-            if s.nombre_producto.strip().lower() == descripcion_limpia:
+            nombre_lower = s.nombre_producto.strip().lower()
+            
+            # Coincidencia exacta
+            if nombre_lower == descripcion_limpia:
                 stock = s
                 break
+            
+            # Coincidencia parcial - calcular "score" de especificidad
+            if descripcion_limpia in nombre_lower or nombre_lower in descripcion_limpia:
+                # Calcular cuántas palabras coinciden
+                palabras_descripcion = set(descripcion_limpia.split())
+                palabras_nombre = set(nombre_lower.split())
+                palabras_comunes = len(palabras_descripcion.intersection(palabras_nombre))
+                
+                # Priorizar coincidencias más largas y específicas
+                score = palabras_comunes * 10 + len(nombre_lower)
+                coincidencias.append((score, s))
         
-        # Si no encuentra coincidencia exacta, busca coincidencia parcial
-        if not stock:
-            for s in todos_stock:
-                nombre_lower = s.nombre_producto.strip().lower()
-                # Coincidencia si el nombre está contenido en la descripción o viceversa
-                if descripcion_limpia in nombre_lower or nombre_lower in descripcion_limpia:
-                    stock = s
-                    break
+        # Si no hay coincidencia exacta, usar la más específica
+        if not stock and coincidencias:
+            # Ordenar por score (mayor = más específica)
+            coincidencias.sort(key=lambda x: x[0], reverse=True)
+            stock = coincidencias[0][1]
         
         if stock:
             # Descontar la cantidad vendida

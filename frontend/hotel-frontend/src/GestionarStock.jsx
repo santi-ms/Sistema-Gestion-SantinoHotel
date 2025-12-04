@@ -221,7 +221,9 @@ export default function GestionarStock() {
 
   // Obtener productos comunes de bebidas para sugerencias
   const productosBebidas = [
-    "Coca Cola 350ml",
+    "Coca Cola Vidrio",
+    "Coca Cola Lata",
+    "Coca Cola Plástico",
     "Agua Mineral 500ml",
     "Cerveza Quilmes",
     "Jugo de Naranja",
