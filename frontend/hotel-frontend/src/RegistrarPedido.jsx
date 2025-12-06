@@ -52,7 +52,10 @@ export default function RegistrarPedido() {
     setCargando(true);
     try {
       const token = localStorage.getItem(TOKEN_KEY);
-      const hoy = new Date().toISOString().split('T')[0];
+      // Obtener fecha actual en zona horaria de Argentina (UTC-3)
+      const ahora = new Date();
+      const fechaArgentina = new Date(ahora.toLocaleString("en-US", {timeZone: "America/Argentina/Buenos_Aires"}));
+      const hoy = fechaArgentina.toISOString().split('T')[0];
       const res = await axios.get(`${API_BASE_URL}/pedidos-dia?fecha=${hoy}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
