@@ -40,6 +40,19 @@ export default function RegistrarPedido() {
   const [pedidoAEliminar, setPedidoAEliminar] = useState(null);
   const { success, error: errorToast } = useToast();
 
+  // Obtener rol del usuario desde el token
+  useEffect(() => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        setUserRole(payload.rol || "empleado");
+      } catch (error) {
+        console.error("Error al decodificar token:", error);
+      }
+    }
+  }, []);
+
   // Calcular el total automáticamente
   const calcularTotal = () => {
     return form.items.reduce((total, item) => {
@@ -71,6 +84,7 @@ export default function RegistrarPedido() {
         fecha: pedido.fecha
       }));
       
+      console.log(`[RegistrarPedido] Pedidos cargados: ${pedidosFormateados.length}`, pedidosFormateados);
       setPedidosHoy(pedidosFormateados);
     } catch (err) {
       console.error("Error al cargar pedidos:", err);
@@ -170,8 +184,11 @@ export default function RegistrarPedido() {
       setEditandoId(null);
       setMostrarFormulario(false);
       
-      // Recargar pedidos del día
-      await cargarPedidosHoy();
+      // Recargar pedidos del día - esperar un momento para que el backend procese
+      setTimeout(async () => {
+        console.log("[RegistrarPedido] Recargando pedidos después de registrar...");
+        await cargarPedidosHoy();
+      }, 300);
     } catch (error) {
       console.error("Error al guardar pedido:", error);
       const errorMsg = error.response?.data?.detail || "Error al guardar el pedido";
