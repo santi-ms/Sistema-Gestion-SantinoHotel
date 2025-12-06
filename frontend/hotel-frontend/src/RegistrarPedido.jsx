@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
+import { useLocation } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
@@ -39,6 +40,7 @@ export default function RegistrarPedido() {
   const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
   const [pedidoAEliminar, setPedidoAEliminar] = useState(null);
   const { success, error: errorToast } = useToast();
+  const location = useLocation();
 
   // Obtener rol del usuario desde el token
   useEffect(() => {
@@ -52,6 +54,23 @@ export default function RegistrarPedido() {
       }
     }
   }, []);
+
+  // Cargar pedido para editar si viene desde VerPedidos
+  useEffect(() => {
+    if (location.state?.pedidoParaEditar) {
+      const pedido = location.state.pedidoParaEditar;
+      setForm({
+        items: pedido.items || [{ descripcion: "", cantidad: 1, precio: 0 }],
+        habitacion_id: pedido.habitacion_id || "",
+        externo: pedido.externo || false,
+        forma_pago: pedido.forma_pago || ""
+      });
+      setEditandoId(pedido.id);
+      setMostrarFormulario(true);
+      // Limpiar el state para que no se recargue al volver
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   // Calcular el total automáticamente
   const calcularTotal = () => {

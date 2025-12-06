@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
+import { useToast } from "./components/ToastContainer";
+import ConfirmModal from "./components/ConfirmModal";
 import { 
   Coffee, 
   DollarSign, 
@@ -18,7 +20,9 @@ import {
   BarChart3,
   PieChart,
   Users,
-  MapPin
+  MapPin,
+  Edit3,
+  Trash2
 } from "lucide-react";
 
 export default function VerPedidos() {
@@ -30,7 +34,24 @@ export default function VerPedidos() {
   const [filtroPago, setFiltroPago] = useState("todos");
   const [filtroFecha, setFiltroFecha] = useState("");
   const [filtroMes, setFiltroMes] = useState("");
+  const [userRole, setUserRole] = useState("empleado");
+  const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
+  const [pedidoAEliminar, setPedidoAEliminar] = useState(null);
+  const { success, error: errorToast } = useToast();
   const navigate = useNavigate();
+
+  // Obtener rol del usuario desde el token
+  useEffect(() => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        setUserRole(payload.rol || "empleado");
+      } catch (error) {
+        console.error("Error al decodificar token:", error);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const obtenerPedidos = async () => {
@@ -97,12 +118,14 @@ export default function VerPedidos() {
     setPedidosFiltrados(filtrados);
   }, [pedidos, filtroTexto, filtroTipo, filtroPago, filtroFecha, filtroMes]);
 
+  const esDueño = userRole === "dueño";
+
   const exportarCSV = () => {
     const csv = [
       ["ID", "Detalle", "Monto", "Habitación", "Tipo", "Forma de Pago", "Fecha"],
       ...pedidosFiltrados.map(p => [
         p.id,
-        p.detalle,
+        p.items ? p.items.map(i => `${i.descripcion} x${i.cantidad}`).join(", ") : p.detalle || "N/A",
         p.monto,
         p.habitacion_id || "N/A",
         p.externo ? "Externo" : "Interno",
@@ -117,6 +140,47 @@ export default function VerPedidos() {
     a.href = url;
     a.download = `pedidos_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
+  };
+
+  const abrirConfirmEliminar = (pedidoId) => {
+    setPedidoAEliminar(pedidoId);
+    setMostrarConfirmEliminar(true);
+  };
+
+  const eliminarPedido = async () => {
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      await axios.delete(`${API_BASE_URL}/pedidos/${pedidoAEliminar}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      success("Pedido eliminado correctamente");
+      setMostrarConfirmEliminar(false);
+      setPedidoAEliminar(null);
+      
+      // Recargar pedidos
+      const res = await axios.get(`${API_BASE_URL}/pedidos`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setPedidos(res.data);
+      setPedidosFiltrados(res.data);
+    } catch (err) {
+      errorToast(err.response?.data?.detail || "Error al eliminar pedido");
+    }
+  };
+
+  const editarPedido = (pedido) => {
+    // Redirigir a RegistrarPedido con el pedido precargado
+    navigate("/registrar-pedido", { 
+      state: { 
+        pedidoParaEditar: {
+          id: pedido.id,
+          items: pedido.items || [],
+          habitacion_id: pedido.habitacion_id,
+          externo: pedido.externo,
+          forma_pago: pedido.forma_pago
+        }
+      } 
+    });
   };
 
   const getPaymentIcon = (formaPago) => {
@@ -389,6 +453,9 @@ export default function VerPedidos() {
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Tipo</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Forma de Pago</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Fecha</th>
+                    {esDueño && (
+                      <th className="px-6 py-4 text-center text-sm font-medium text-slate-700">Acciones</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -399,7 +466,17 @@ export default function VerPedidos() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-sm text-slate-900 max-w-xs">
-                          {pedido.detalle}
+                          {pedido.items && Array.isArray(pedido.items) ? (
+                            <div className="space-y-1">
+                              {pedido.items.map((item, idx) => (
+                                <div key={idx} className="text-xs">
+                                  {item.descripcion} x{item.cantidad} - ${item.precio.toLocaleString()}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            pedido.detalle || "N/A"
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4">
@@ -449,6 +526,26 @@ export default function VerPedidos() {
                           {new Date(pedido.fecha).toLocaleTimeString('es-ES')}
                         </div>
                       </td>
+                      {esDueño && (
+                        <td className="px-6 py-4">
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => editarPedido(pedido)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Editar pedido"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => abrirConfirmEliminar(pedido.id)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Eliminar pedido"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -456,6 +553,21 @@ export default function VerPedidos() {
             </div>
           )}
         </div>
+
+        {/* Modal de confirmación para eliminar */}
+        <ConfirmModal
+          isOpen={mostrarConfirmEliminar}
+          onClose={() => {
+            setMostrarConfirmEliminar(false);
+            setPedidoAEliminar(null);
+          }}
+          onConfirm={eliminarPedido}
+          title="Eliminar Pedido"
+          message="¿Estás seguro de que deseas eliminar este pedido? Esta acción no se puede deshacer."
+          confirmText="Eliminar"
+          cancelText="Cancelar"
+          type="danger"
+        />
       </div>
     </div>
   );
