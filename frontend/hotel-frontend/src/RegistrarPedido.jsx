@@ -4,6 +4,7 @@ import { useLocation } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
+import { formatearSoloFecha, formatearSoloHora } from "./utils/fechas";
 import { 
   Coffee, 
   DollarSign, 
@@ -664,21 +665,15 @@ export default function RegistrarPedido() {
                         {esDueño ? (
                           <div>
                             <span className="text-sm text-slate-700">
-                              {new Date(pedido.fecha).toLocaleDateString('es-ES')}
+                              {formatearSoloFecha(pedido.fecha)}
                             </span>
                             <div className="text-xs text-slate-500 mt-1">
-                              {new Date(pedido.fecha).toLocaleTimeString('es-ES', {
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
+                              {formatearSoloHora(pedido.fecha)}
                             </div>
                           </div>
                         ) : (
                           <span className="text-sm text-slate-600">
-                            {new Date(pedido.fecha).toLocaleTimeString('es-ES', {
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
+                            {formatearSoloHora(pedido.fecha)}
                           </span>
                         )}
                       </td>

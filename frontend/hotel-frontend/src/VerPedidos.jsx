@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
+import { formatearSoloFecha, formatearSoloHora } from "./utils/fechas";
 import { 
   Coffee, 
   DollarSign, 
@@ -519,11 +520,11 @@ export default function VerPedidos() {
                         <div className="flex items-center gap-2">
                           <Calendar className="w-4 h-4 text-slate-500" />
                           <span className="text-sm text-slate-700">
-                            {new Date(pedido.fecha).toLocaleDateString('es-ES')}
+                            {formatearSoloFecha(pedido.fecha)}
                           </span>
                         </div>
                         <div className="text-xs text-slate-500 mt-1">
-                          {new Date(pedido.fecha).toLocaleTimeString('es-ES')}
+                          {formatearSoloHora(pedido.fecha)}
                         </div>
                       </td>
                       {esDueño && (
