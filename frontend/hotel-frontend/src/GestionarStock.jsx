@@ -18,7 +18,10 @@ import {
   Filter,
   RefreshCw,
   Minus,
-  Plus as PlusIcon
+  Plus as PlusIcon,
+  History,
+  X,
+  ArrowUpDown
 } from "lucide-react";
 
 export default function GestionarStock() {
@@ -36,7 +39,13 @@ export default function GestionarStock() {
   const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
   const [stockAEliminar, setStockAEliminar] = useState(null);
   const [filtroCategoria, setFiltroCategoria] = useState("todas");
+  const [filtroEstado, setFiltroEstado] = useState("todos"); // todos, bajo, agotado
+  const [ordenarPor, setOrdenarPor] = useState("nombre"); // nombre, cantidad, fecha
   const [busqueda, setBusqueda] = useState("");
+  const [mostrarHistorial, setMostrarHistorial] = useState(false);
+  const [historial, setHistorial] = useState([]);
+  const [productoSeleccionado, setProductoSeleccionado] = useState(null);
+  const [cargandoHistorial, setCargandoHistorial] = useState(false);
   const { success, error: errorToast, warning: warningToast } = useToast();
   const navigate = useNavigate();
 
@@ -63,7 +72,7 @@ export default function GestionarStock() {
     cargarStock();
   }, []);
 
-  // Filtrar stock
+  // Filtrar y ordenar stock
   useEffect(() => {
     let filtrado = stock;
 
@@ -79,8 +88,48 @@ export default function GestionarStock() {
       filtrado = filtrado.filter(item => item.categoria === filtroCategoria);
     }
 
+    // Filtro por estado
+    if (filtroEstado === "agotado") {
+      filtrado = filtrado.filter(item => item.cantidad <= 0);
+    } else if (filtroEstado === "bajo") {
+      filtrado = filtrado.filter(item => 
+        item.cantidad > 0 && item.cantidad <= item.cantidad_minima && item.cantidad_minima > 0
+      );
+    }
+
+    // Ordenar
+    filtrado = [...filtrado].sort((a, b) => {
+      switch (ordenarPor) {
+        case "cantidad":
+          return a.cantidad - b.cantidad;
+        case "fecha":
+          return new Date(b.fecha_actualizacion) - new Date(a.fecha_actualizacion);
+        case "nombre":
+        default:
+          return a.nombre_producto.localeCompare(b.nombre_producto);
+      }
+    });
+
     setStockFiltrado(filtrado);
-  }, [stock, busqueda, filtroCategoria]);
+  }, [stock, busqueda, filtroCategoria, filtroEstado, ordenarPor]);
+
+  // Cargar historial de un producto
+  const cargarHistorial = async (stockId, nombreProducto) => {
+    setCargandoHistorial(true);
+    setProductoSeleccionado(nombreProducto);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/stock/${stockId}/historial`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setHistorial(res.data);
+      setMostrarHistorial(true);
+    } catch (err) {
+      console.error("Error al cargar historial:", err);
+      errorToast("Error al cargar historial");
+    } finally {
+      setCargandoHistorial(false);
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -153,14 +202,17 @@ export default function GestionarStock() {
     setMostrarFormulario(false);
   };
 
-  const actualizarCantidad = async (id, nuevaCantidad) => {
+  const actualizarCantidad = async (id, nuevaCantidad, motivo = null) => {
     if (nuevaCantidad < 0) {
       errorToast("La cantidad no puede ser negativa");
       return;
     }
 
     try {
-      await axios.put(`${API_BASE_URL}/stock/${id}`, { cantidad: nuevaCantidad }, {
+      await axios.put(`${API_BASE_URL}/stock/${id}`, { 
+        cantidad: nuevaCantidad,
+        motivo: motivo || "Ajuste manual de cantidad"
+      }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       success("Cantidad actualizada correctamente");
@@ -281,7 +333,7 @@ export default function GestionarStock() {
 
         {/* Filtros */}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
               <input
@@ -301,10 +353,30 @@ export default function GestionarStock() {
               <option value="bebidas">Bebidas</option>
               <option value="comidas">Comidas</option>
             </select>
+            <select
+              value={filtroEstado}
+              onChange={(e) => setFiltroEstado(e.target.value)}
+              className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="todos">Todos los estados</option>
+              <option value="bajo">Stock bajo</option>
+              <option value="agotado">Agotados</option>
+            </select>
+            <select
+              value={ordenarPor}
+              onChange={(e) => setOrdenarPor(e.target.value)}
+              className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="nombre">Ordenar por nombre</option>
+              <option value="cantidad">Ordenar por cantidad</option>
+              <option value="fecha">Ordenar por fecha</option>
+            </select>
             <button
               onClick={() => {
                 setBusqueda("");
                 setFiltroCategoria("todas");
+                setFiltroEstado("todos");
+                setOrdenarPor("nombre");
               }}
               className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
             >
@@ -478,6 +550,13 @@ export default function GestionarStock() {
                         <td className="py-4 px-4">
                           <div className="flex items-center justify-center gap-2">
                             <button
+                              onClick={() => cargarHistorial(item.id, item.nombre_producto)}
+                              className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                              title="Ver historial"
+                            >
+                              <History className="w-4 h-4" />
+                            </button>
+                            <button
                               onClick={() => cargarParaEditar(item)}
                               className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                               title="Editar"
@@ -501,6 +580,91 @@ export default function GestionarStock() {
             </div>
           )}
         </div>
+
+        {/* Modal de Historial */}
+        {mostrarHistorial && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+              <div className="p-6 border-b border-slate-200 flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-800">Historial de Movimientos</h2>
+                  <p className="text-slate-600 mt-1">{productoSeleccionado}</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setMostrarHistorial(false);
+                    setHistorial([]);
+                    setProductoSeleccionado(null);
+                  }}
+                  className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-slate-600" />
+                </button>
+              </div>
+              <div className="overflow-y-auto p-6 flex-1">
+                {cargandoHistorial ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    <span className="ml-3 text-slate-600">Cargando historial...</span>
+                  </div>
+                ) : historial.length === 0 ? (
+                  <div className="text-center py-12">
+                    <History className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                    <p className="text-slate-600">No hay movimientos registrados</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {historial.map((mov) => {
+                      const esEntrada = mov.diferencia > 0;
+                      const esVenta = mov.tipo === "venta";
+                      return (
+                        <div
+                          key={mov.id}
+                          className={`p-4 rounded-lg border ${
+                            esEntrada
+                              ? "bg-green-50 border-green-200"
+                              : esVenta
+                              ? "bg-red-50 border-red-200"
+                              : "bg-slate-50 border-slate-200"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              {esEntrada ? (
+                                <TrendingUp className="w-5 h-5 text-green-600" />
+                              ) : (
+                                <TrendingDown className="w-5 h-5 text-red-600" />
+                              )}
+                              <div>
+                                <div className="font-semibold text-slate-800 capitalize">
+                                  {mov.tipo === "venta" ? "Venta" : mov.tipo === "entrada" ? "Entrada" : "Ajuste"}
+                                </div>
+                                <div className="text-sm text-slate-600">
+                                  {mov.cantidad_anterior} → {mov.cantidad_nueva}
+                                  {mov.diferencia !== 0 && (
+                                    <span className={`ml-2 font-medium ${esEntrada ? "text-green-600" : "text-red-600"}`}>
+                                      ({esEntrada ? "+" : ""}{mov.diferencia})
+                                    </span>
+                                  )}
+                                </div>
+                                {mov.motivo && (
+                                  <div className="text-xs text-slate-500 mt-1">{mov.motivo}</div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-sm text-slate-500">
+                              {formatearFecha(mov.fecha)}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Botón volver */}
         <button

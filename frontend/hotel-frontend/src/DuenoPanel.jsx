@@ -174,6 +174,14 @@ export default function DuenoPanel() {
       color: "from-cyan-500 to-blue-600",
       hoverColor: "hover:from-cyan-600 hover:to-blue-700",
       path: "/stock"
+    },
+    {
+      title: "Dashboard de Stock",
+      description: "Estadísticas y análisis del inventario",
+      icon: BarChart3,
+      color: "from-purple-500 to-indigo-600",
+      hoverColor: "hover:from-purple-600 hover:to-indigo-700",
+      path: "/dashboard-stock"
     }
   ];
 

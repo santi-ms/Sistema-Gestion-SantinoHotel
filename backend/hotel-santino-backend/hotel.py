@@ -130,6 +130,17 @@ class Stock(SQLModel, table=True):
     cantidad_minima: int = 0  # Cantidad mínima antes de alertar
     fecha_actualizacion: datetime = Field(default_factory=lambda: obtener_fecha_argentina())
 
+class MovimientoStock(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    stock_id: int  # ID del producto
+    tipo: str  # "entrada", "salida", "ajuste", "venta"
+    cantidad_anterior: int
+    cantidad_nueva: int
+    diferencia: int  # Positivo para entradas, negativo para salidas
+    motivo: Optional[str] = None  # Motivo del movimiento
+    usuario_id: Optional[int] = None  # ID del usuario que hizo el movimiento
+    fecha: datetime = Field(default_factory=lambda: obtener_fecha_argentina())
+
 # ─────────── MODELOS PARA ITEMS MÚLTIPLES ───────────
 class ItemPedido(BaseModel):
     descripcion: str
@@ -491,6 +502,7 @@ def descontar_stock_de_pedido(items: List[ItemPedido], db: Session):
         
         if stock:
             # Descontar la cantidad vendida
+            cantidad_anterior = stock.cantidad
             nueva_cantidad = stock.cantidad - item.cantidad
             if nueva_cantidad < 0:
                 nueva_cantidad = 0  # No permitir stock negativo
@@ -498,6 +510,18 @@ def descontar_stock_de_pedido(items: List[ItemPedido], db: Session):
             stock.cantidad = nueva_cantidad
             stock.fecha_actualizacion = obtener_fecha_argentina()
             db.add(stock)
+            db.commit()
+            
+            # Registrar movimiento de venta
+            registrar_movimiento_stock(
+                stock_id=stock.id,
+                tipo="venta",
+                cantidad_anterior=cantidad_anterior,
+                cantidad_nueva=nueva_cantidad,
+                motivo=f"Venta: {item.descripcion} x{item.cantidad}",
+                usuario_id=None,  # Se puede obtener del token si es necesario
+                db=db
+            )
     
     db.commit()
 
@@ -863,6 +887,28 @@ def eliminar_actividad(
     return {"mensaje": "Actividad eliminada correctamente"}
 
 # ─────────── ENDPOINTS DE STOCK ───────────
+def registrar_movimiento_stock(
+    stock_id: int,
+    tipo: str,  # "entrada", "salida", "ajuste", "venta"
+    cantidad_anterior: int,
+    cantidad_nueva: int,
+    motivo: Optional[str] = None,
+    usuario_id: Optional[int] = None,
+    db: Session = None
+):
+    """Registra un movimiento en el historial de stock"""
+    movimiento = MovimientoStock(
+        stock_id=stock_id,
+        tipo=tipo,
+        cantidad_anterior=cantidad_anterior,
+        cantidad_nueva=cantidad_nueva,
+        diferencia=cantidad_nueva - cantidad_anterior,
+        motivo=motivo,
+        usuario_id=usuario_id
+    )
+    db.add(movimiento)
+    db.commit()
+
 class StockEntrada(BaseModel):
     nombre_producto: str
     categoria: str  # "bebidas" o "comidas"
@@ -872,6 +918,7 @@ class StockEntrada(BaseModel):
 class StockActualizar(BaseModel):
     cantidad: Optional[int] = None
     cantidad_minima: Optional[int] = None
+    motivo: Optional[str] = None  # Motivo del ajuste
 
 @app.post("/stock")
 def crear_actualizar_stock(
@@ -879,6 +926,10 @@ def crear_actualizar_stock(
     db: Session = Depends(obtener_db),
     token: dict = Depends(verificar_token)
 ):
+    # Obtener usuario actual
+    usuario_actual = db.exec(select(Usuario).where(Usuario.email == token["sub"])).first()
+    usuario_id = usuario_actual.id if usuario_actual else None
+    
     # Buscar si ya existe stock para este producto
     stock_existente = db.exec(
         select(Stock).where(Stock.nombre_producto == data.nombre_producto)
@@ -886,12 +937,26 @@ def crear_actualizar_stock(
     
     if stock_existente:
         # Actualizar stock existente
+        cantidad_anterior = stock_existente.cantidad
         stock_existente.cantidad = data.cantidad
         stock_existente.cantidad_minima = data.cantidad_minima
         stock_existente.fecha_actualizacion = obtener_fecha_argentina()
         db.add(stock_existente)
         db.commit()
         db.refresh(stock_existente)
+        
+        # Registrar movimiento
+        if cantidad_anterior != data.cantidad:
+            registrar_movimiento_stock(
+                stock_id=stock_existente.id,
+                tipo="ajuste",
+                cantidad_anterior=cantidad_anterior,
+                cantidad_nueva=data.cantidad,
+                motivo="Actualización manual de stock",
+                usuario_id=usuario_id,
+                db=db
+            )
+        
         return {"mensaje": "Stock actualizado correctamente", "stock": stock_existente}
     else:
         # Crear nuevo stock
@@ -904,6 +969,18 @@ def crear_actualizar_stock(
         db.add(nuevo_stock)
         db.commit()
         db.refresh(nuevo_stock)
+        
+        # Registrar movimiento inicial
+        registrar_movimiento_stock(
+            stock_id=nuevo_stock.id,
+            tipo="entrada",
+            cantidad_anterior=0,
+            cantidad_nueva=data.cantidad,
+            motivo="Creación inicial de stock",
+            usuario_id=usuario_id,
+            db=db
+        )
+        
         return {"mensaje": "Stock creado correctamente", "stock": nuevo_stock}
 
 @app.get("/stock")
@@ -938,9 +1015,15 @@ def actualizar_stock(
     db: Session = Depends(obtener_db),
     token: dict = Depends(verificar_token)
 ):
+    # Obtener usuario actual
+    usuario_actual = db.exec(select(Usuario).where(Usuario.email == token["sub"])).first()
+    usuario_id = usuario_actual.id if usuario_actual else None
+    
     stock = db.get(Stock, stock_id)
     if not stock:
         raise HTTPException(status_code=404, detail="Stock no encontrado")
+    
+    cantidad_anterior = stock.cantidad
     
     if data.cantidad is not None:
         stock.cantidad = data.cantidad
@@ -951,6 +1034,19 @@ def actualizar_stock(
     db.add(stock)
     db.commit()
     db.refresh(stock)
+    
+    # Registrar movimiento si cambió la cantidad
+    if data.cantidad is not None and cantidad_anterior != data.cantidad:
+        registrar_movimiento_stock(
+            stock_id=stock_id,
+            tipo="ajuste",
+            cantidad_anterior=cantidad_anterior,
+            cantidad_nueva=data.cantidad,
+            motivo=data.motivo or "Ajuste manual de stock",
+            usuario_id=usuario_id,
+            db=db
+        )
+    
     return {"mensaje": "Stock actualizado correctamente", "stock": stock}
 
 @app.delete("/stock/{stock_id}")
@@ -966,6 +1062,137 @@ def eliminar_stock(
     db.delete(stock)
     db.commit()
     return {"mensaje": "Stock eliminado correctamente"}
+
+@app.get("/stock/{stock_id}/historial")
+def obtener_historial_stock(
+    stock_id: int,
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    """Obtiene el historial de movimientos de un producto específico"""
+    movimientos = db.exec(
+        select(MovimientoStock)
+        .where(MovimientoStock.stock_id == stock_id)
+        .order_by(MovimientoStock.fecha.desc())
+    ).all()
+    return movimientos
+
+@app.get("/stock/historial/todos")
+def obtener_todo_el_historial(
+    limite: Optional[int] = Query(50, description="Límite de resultados"),
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    """Obtiene todo el historial de movimientos de stock"""
+    movimientos = db.exec(
+        select(MovimientoStock)
+        .order_by(MovimientoStock.fecha.desc())
+        .limit(limite)
+    ).all()
+    
+    # Enriquecer con información del producto
+    resultado = []
+    for mov in movimientos:
+        stock = db.get(Stock, mov.stock_id)
+        resultado.append({
+            "id": mov.id,
+            "stock_id": mov.stock_id,
+            "nombre_producto": stock.nombre_producto if stock else "Producto eliminado",
+            "categoria": stock.categoria if stock else None,
+            "tipo": mov.tipo,
+            "cantidad_anterior": mov.cantidad_anterior,
+            "cantidad_nueva": mov.cantidad_nueva,
+            "diferencia": mov.diferencia,
+            "motivo": mov.motivo,
+            "fecha": mov.fecha
+        })
+    
+    return resultado
+
+@app.get("/stock/estadisticas")
+def obtener_estadisticas_stock(
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    """Obtiene estadísticas del stock para el dashboard"""
+    todos_stock = db.exec(select(Stock)).all()
+    
+    # Calcular estadísticas
+    total_productos = len(todos_stock)
+    productos_agotados = [s for s in todos_stock if s.cantidad <= 0]
+    productos_bajo_minimo = [s for s in todos_stock if s.cantidad > 0 and s.cantidad <= s.cantidad_minima and s.cantidad_minima > 0]
+    productos_en_stock = [s for s in todos_stock if s.cantidad > 0]
+    
+    # Productos más vendidos (últimos 30 días)
+    fecha_limite = obtener_fecha_argentina() - timedelta(days=30)
+    movimientos_ventas = db.exec(
+        select(MovimientoStock)
+        .where(
+            MovimientoStock.tipo == "venta",
+            MovimientoStock.fecha >= fecha_limite
+        )
+    ).all()
+    
+    # Agrupar por producto
+    ventas_por_producto = defaultdict(int)
+    for mov in movimientos_ventas:
+        ventas_por_producto[mov.stock_id] += abs(mov.diferencia)
+    
+    # Obtener top 5 productos más vendidos
+    top_ventas = sorted(ventas_por_producto.items(), key=lambda x: x[1], reverse=True)[:5]
+    productos_mas_vendidos = []
+    for stock_id, cantidad_vendida in top_ventas:
+        stock = db.get(Stock, stock_id)
+        if stock:
+            productos_mas_vendidos.append({
+                "nombre_producto": stock.nombre_producto,
+                "cantidad_vendida": cantidad_vendida,
+                "stock_actual": stock.cantidad
+            })
+    
+    # Estadísticas por categoría
+    bebidas = [s for s in todos_stock if s.categoria == "bebidas"]
+    comidas = [s for s in todos_stock if s.categoria == "comidas"]
+    
+    return {
+        "resumen": {
+            "total_productos": total_productos,
+            "productos_en_stock": len(productos_en_stock),
+            "productos_agotados": len(productos_agotados),
+            "productos_bajo_minimo": len(productos_bajo_minimo)
+        },
+        "productos_agotados": [
+            {
+                "id": s.id,
+                "nombre_producto": s.nombre_producto,
+                "categoria": s.categoria
+            }
+            for s in productos_agotados
+        ],
+        "productos_bajo_minimo": [
+            {
+                "id": s.id,
+                "nombre_producto": s.nombre_producto,
+                "categoria": s.categoria,
+                "cantidad": s.cantidad,
+                "cantidad_minima": s.cantidad_minima
+            }
+            for s in productos_bajo_minimo
+        ],
+        "productos_mas_vendidos": productos_mas_vendidos,
+        "por_categoria": {
+            "bebidas": {
+                "total": len(bebidas),
+                "en_stock": len([s for s in bebidas if s.cantidad > 0]),
+                "agotados": len([s for s in bebidas if s.cantidad <= 0])
+            },
+            "comidas": {
+                "total": len(comidas),
+                "en_stock": len([s for s in comidas if s.cantidad > 0]),
+                "agotados": len([s for s in comidas if s.cantidad <= 0])
+            }
+        }
+    }
 
 # ─────────── ENDPOINTS DE RESERVAS ───────────
 @app.post("/reservas")

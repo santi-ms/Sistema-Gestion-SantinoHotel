@@ -14,6 +14,7 @@ import DashboardAnalytics from "./DashboardAnalytics";
 import ConfiguracionPrecios from "./ConfiguracionPrecios";
 import GestionarActividades from "./GestionarActividades";
 import GestionarStock from "./GestionarStock";
+import DashboardStock from "./DashboardStock";
 
 function App() {
   return (
@@ -50,6 +51,12 @@ function App() {
       <Route path="/ver-pedidos" element={
         <RutaPrivada rol="dueño">
           <VerPedidos />
+        </RutaPrivada>
+      } />
+
+      <Route path="/dashboard-stock" element={
+        <RutaPrivada rol="dueño">
+          <DashboardStock />
         </RutaPrivada>
       } />
 
