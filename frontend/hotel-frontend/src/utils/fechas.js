@@ -38,19 +38,19 @@ export function formatearFechaArgentina(fecha, opciones = {}) {
   const fechaObj = convertirFechaArgentina(fecha);
   if (!fechaObj) return "N/A";
   
-  // El backend envía fechas con timezone de Argentina, pero JavaScript las interpreta
-  // como UTC. Necesitamos ajustar la hora para mostrar correctamente.
-  // Si la fecha viene del backend con timezone -03:00, JavaScript la parsea correctamente
-  // pero toLocaleString la muestra en la zona horaria del navegador.
-  // Forzamos que se muestre en hora de Argentina.
+  // El backend guarda fechas con timezone de Argentina (UTC-3)
+  // Cuando FastAPI serializa a JSON, puede enviar la fecha como ISO string
+  // JavaScript parsea correctamente si tiene timezone, pero si no, lo interpreta como UTC
+  // Necesitamos forzar que se muestre siempre en hora de Argentina
   
-  // Obtener la fecha como string en hora de Argentina
-  const fechaArgentina = fechaObj.toLocaleString('en-US', {
+  // Si la fecha viene como string ISO sin timezone o con 'Z' (UTC),
+  // necesitamos ajustarla. Si viene con timezone -03:00, está correcta.
+  
+  // Usar toLocaleString con timezone de Argentina para forzar la conversión
+  return fechaObj.toLocaleString('es-AR', {
     timeZone: 'America/Argentina/Buenos_Aires',
     ...opciones
   });
-  
-  return fechaArgentina;
 }
 
 /**
