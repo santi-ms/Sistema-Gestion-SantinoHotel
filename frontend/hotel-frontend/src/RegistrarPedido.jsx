@@ -43,6 +43,8 @@ export default function RegistrarPedido() {
   const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
   const [pedidoAEliminar, setPedidoAEliminar] = useState(null);
   const [pedidoAImprimir, setPedidoAImprimir] = useState(null);
+  const [mostrarInstruccionesImpresion, setMostrarInstruccionesImpresion] = useState(false);
+  const [pedidoPendienteImpresion, setPedidoPendienteImpresion] = useState(null);
   const { success, error: errorToast } = useToast();
   const location = useLocation();
 
@@ -308,8 +310,23 @@ export default function RegistrarPedido() {
     return <Clock className="w-4 h-4" />;
   };
 
-  const imprimirTicket = (pedido) => {
-    setPedidoAImprimir(pedido);
+  const imprimirTicket = (pedido, mostrarInstrucciones = true) => {
+    if (mostrarInstrucciones) {
+      // Mostrar modal con instrucciones primero
+      setPedidoPendienteImpresion(pedido);
+      setMostrarInstruccionesImpresion(true);
+    } else {
+      // Imprimir directamente
+      setPedidoAImprimir(pedido);
+    }
+  };
+
+  const confirmarImpresion = () => {
+    setMostrarInstruccionesImpresion(false);
+    if (pedidoPendienteImpresion) {
+      setPedidoAImprimir(pedidoPendienteImpresion);
+      setPedidoPendienteImpresion(null);
+    }
   };
 
   const imprimirDesdeFormulario = () => {
@@ -814,6 +831,49 @@ export default function RegistrarPedido() {
         cancelText="Cancelar"
         type="danger"
       />
+
+      {/* Modal de instrucciones de impresión */}
+      {mostrarInstruccionesImpresion && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md mx-4">
+            <h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <Printer className="w-6 h-6 text-green-600" />
+              Instrucciones de Impresión
+            </h3>
+            <div className="space-y-3 text-slate-700 mb-6">
+              <p className="font-semibold text-red-600">⚠️ IMPORTANTE:</p>
+              <ol className="list-decimal list-inside space-y-2 ml-2">
+                <li>En el diálogo de impresión, busca el dropdown <strong>"Impresora"</strong></li>
+                <li>Selecciona tu <strong>impresora térmica (GADNIC TP-450S)</strong></li>
+                <li><strong>NO</strong> uses "Guardar como PDF"</li>
+                <li>Haz clic en <strong>"Imprimir"</strong> (no en "Guardar")</li>
+              </ol>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
+                <p className="text-sm text-blue-700">
+                  <strong>Tip:</strong> Si no ves tu impresora, asegúrate de que esté encendida y conectada a tu computadora.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={confirmarImpresion}
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+              >
+                Entendido, Imprimir
+              </button>
+              <button
+                onClick={() => {
+                  setMostrarInstruccionesImpresion(false);
+                  setPedidoPendienteImpresion(null);
+                }}
+                className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg font-medium transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Componente de impresión térmica */}
       {pedidoAImprimir && (

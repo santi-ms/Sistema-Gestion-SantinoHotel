@@ -9,6 +9,19 @@ import { formatearFechaHora } from "../utils/fechas";
 export default function TicketTermico({ pedido, onClose }) {
   useEffect(() => {
     if (pedido) {
+      // Mostrar instrucciones antes de imprimir
+      const mostrarInstrucciones = () => {
+        const instrucciones = `
+IMPORTANTE: En el diálogo de impresión:
+1. Selecciona tu impresora térmica (GADNIC TP-450S) en el dropdown "Impresora"
+2. NO uses "Guardar como PDF"
+3. Haz clic en "Imprimir" (no en "Guardar")
+        `;
+        console.log(instrucciones);
+      };
+      
+      mostrarInstrucciones();
+      
       // Crear una ventana nueva para imprimir
       const ventanaImpresion = window.open("", "_blank", "width=400,height=600");
       
@@ -223,12 +236,18 @@ export default function TicketTermico({ pedido, onClose }) {
         // Esperar a que se cargue el contenido y luego imprimir
         ventanaImpresion.onload = () => {
           setTimeout(() => {
-            ventanaImpresion.print();
-            // Cerrar la ventana después de imprimir (opcional)
-            setTimeout(() => {
-              ventanaImpresion.close();
-            }, 500);
-          }, 250);
+            // Intentar usar el diálogo del sistema si está disponible
+            // Esto puede ayudar a que se seleccione la impresora predeterminada
+            try {
+              ventanaImpresion.print();
+            } catch (error) {
+              console.error("Error al imprimir:", error);
+              // Fallback: mostrar mensaje al usuario
+              alert("Por favor, selecciona tu impresora térmica en el diálogo de impresión y haz clic en 'Imprimir' (no en 'Guardar como PDF')");
+            }
+            // NO cerrar automáticamente para que el usuario pueda ver el diálogo
+            // El usuario cerrará la ventana después de imprimir
+          }, 500);
         };
       }
       
