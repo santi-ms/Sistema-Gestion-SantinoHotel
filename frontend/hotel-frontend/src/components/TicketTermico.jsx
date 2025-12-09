@@ -26,6 +26,51 @@ IMPORTANTE: En el diálogo de impresión:
       const ventanaImpresion = window.open("", "_blank", "width=400,height=600");
       
       if (ventanaImpresion) {
+        // Generar contenido del ticket en formato simple para impresoras térmicas
+        const generarTicketTexto = () => {
+          const fecha = formatearFechaHora(pedido.fecha);
+          const fechaHoy = new Date().toLocaleDateString('es-AR');
+          const horaHoy = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+          
+          let ticket = '';
+          ticket += '================================\n';
+          ticket += '      HOTEL SANTINO\n';
+          ticket += '   Sistema de Gestion\n';
+          ticket += '================================\n\n';
+          ticket += `Pedido #${pedido.id}\n`;
+          ticket += `${fecha}\n`;
+          if (pedido.habitacion_id) {
+            ticket += `Habitacion: ${pedido.habitacion_id}\n`;
+          }
+          ticket += `Tipo: ${pedido.externo ? 'Pedido Externo' : 'Pedido Interno'}\n`;
+          ticket += '--------------------------------\n\n';
+          ticket += 'DETALLE DEL PEDIDO\n';
+          ticket += '--------------------------------\n';
+          
+          pedido.items.forEach(item => {
+            const descripcion = item.descripcion.substring(0, 20); // Limitar longitud
+            const cantidad = item.cantidad;
+            const precioUnitario = item.precio;
+            const subtotal = cantidad * precioUnitario;
+            
+            ticket += `${cantidad}x ${descripcion.padEnd(20)} $${subtotal.toFixed(2)}\n`;
+            ticket += `    $${precioUnitario.toFixed(2)} c/u\n`;
+          });
+          
+          ticket += '--------------------------------\n';
+          ticket += `TOTAL:                    $${pedido.monto.toFixed(2)}\n`;
+          ticket += '--------------------------------\n\n';
+          ticket += `Forma de Pago: ${pedido.forma_pago ? pedido.forma_pago.toUpperCase() : 'NO ESPECIFICADA'}\n\n`;
+          ticket += '--------------------------------\n';
+          ticket += 'Gracias por su compra\n';
+          ticket += `${fechaHoy} - ${horaHoy}\n`;
+          ticket += '================================\n';
+          
+          return ticket;
+        };
+        
+        const ticketTexto = generarTicketTexto();
+        
         ventanaImpresion.document.write(`
           <!DOCTYPE html>
           <html>
@@ -34,7 +79,7 @@ IMPORTANTE: En el diálogo de impresión:
               <style>
                 @page {
                   size: 80mm auto;
-                  margin: 0;
+                  margin: 0mm;
                 }
                 
                 * {
@@ -44,189 +89,41 @@ IMPORTANTE: En el diálogo de impresión:
                 }
                 
                 body {
-                  font-family: 'Courier New', monospace;
+                  font-family: 'Courier New', 'Monaco', monospace;
                   width: 80mm;
-                  padding: 5mm;
-                  font-size: 12px;
-                  line-height: 1.4;
+                  padding: 0mm;
+                  margin: 0mm;
+                  font-size: 10pt;
+                  line-height: 1.2;
                   color: #000;
                   background: #fff;
                 }
                 
-                .ticket {
-                  width: 100%;
-                  max-width: 80mm;
-                }
-                
-                .header {
-                  text-align: center;
-                  border-bottom: 1px dashed #000;
-                  padding-bottom: 8px;
-                  margin-bottom: 8px;
-                }
-                
-                .hotel-name {
-                  font-size: 18px;
-                  font-weight: bold;
-                  margin-bottom: 4px;
-                  text-transform: uppercase;
-                }
-                
-                .hotel-subtitle {
-                  font-size: 11px;
-                  margin-bottom: 4px;
-                }
-                
-                .ticket-info {
-                  margin: 8px 0;
-                  font-size: 10px;
-                }
-                
-                .section {
-                  margin: 8px 0;
-                  padding: 4px 0;
-                }
-                
-                .section-title {
-                  font-weight: bold;
-                  font-size: 11px;
-                  margin-bottom: 4px;
-                  border-bottom: 1px solid #000;
-                  padding-bottom: 2px;
-                }
-                
-                .items {
-                  margin: 6px 0;
-                }
-                
-                .item-row {
-                  display: flex;
-                  justify-content: space-between;
-                  margin: 3px 0;
-                  font-size: 11px;
-                }
-                
-                .item-desc {
-                  flex: 1;
-                  margin-right: 8px;
-                }
-                
-                .item-qty {
-                  font-weight: bold;
-                  margin-right: 4px;
-                }
-                
-                .item-price {
-                  text-align: right;
-                  min-width: 50px;
-                }
-                
-                .subtotal-row {
-                  display: flex;
-                  justify-content: space-between;
-                  margin: 2px 0;
-                  font-size: 11px;
-                }
-                
-                .total-row {
-                  display: flex;
-                  justify-content: space-between;
-                  margin-top: 8px;
-                  padding-top: 8px;
-                  border-top: 2px solid #000;
-                  font-size: 14px;
-                  font-weight: bold;
-                }
-                
-                .payment-info {
-                  margin: 8px 0;
-                  padding: 6px;
-                  background: #f0f0f0;
-                  border: 1px dashed #000;
-                  font-size: 11px;
-                }
-                
-                .footer {
-                  text-align: center;
-                  margin-top: 12px;
-                  padding-top: 8px;
-                  border-top: 1px dashed #000;
-                  font-size: 9px;
-                }
-                
-                .divider {
-                  border-top: 1px dashed #000;
-                  margin: 8px 0;
+                pre {
+                  font-family: 'Courier New', 'Monaco', monospace;
+                  font-size: 10pt;
+                  white-space: pre-wrap;
+                  word-wrap: break-word;
+                  margin: 0;
+                  padding: 5mm;
+                  width: 80mm;
                 }
                 
                 @media print {
                   body {
+                    margin: 0;
                     padding: 0;
                   }
                   
-                  .no-print {
-                    display: none;
+                  pre {
+                    margin: 0;
+                    padding: 2mm;
                   }
                 }
               </style>
             </head>
             <body>
-              <div class="ticket">
-                <div class="header">
-                  <div class="hotel-name">HOTEL SANTINO</div>
-                  <div class="hotel-subtitle">Sistema de Gestión</div>
-                </div>
-                
-                <div class="ticket-info">
-                  <div><strong>Pedido #${pedido.id}</strong></div>
-                  <div>${formatearFechaHora(pedido.fecha)}</div>
-                  ${pedido.habitacion_id ? `<div>Habitación: ${pedido.habitacion_id}</div>` : ''}
-                  ${pedido.externo ? '<div>Tipo: Pedido Externo</div>' : '<div>Tipo: Pedido Interno</div>'}
-                </div>
-                
-                <div class="divider"></div>
-                
-                <div class="section">
-                  <div class="section-title">DETALLE DEL PEDIDO</div>
-                  <div class="items">
-                    ${pedido.items.map(item => `
-                      <div class="item-row">
-                        <div class="item-desc">
-                          <span class="item-qty">${item.cantidad}x</span>
-                          ${item.descripcion}
-                        </div>
-                        <div class="item-price">
-                          $${(item.cantidad * item.precio).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </div>
-                      </div>
-                      <div class="subtotal-row" style="padding-left: 20px; color: #666;">
-                        $${item.precio.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} c/u
-                      </div>
-                    `).join('')}
-                  </div>
-                </div>
-                
-                <div class="divider"></div>
-                
-                <div class="total-row">
-                  <div>TOTAL:</div>
-                  <div>$${pedido.monto.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                </div>
-                
-                <div class="payment-info">
-                  <div><strong>Forma de Pago:</strong> ${pedido.forma_pago ? pedido.forma_pago.toUpperCase() : 'NO ESPECIFICADA'}</div>
-                </div>
-                
-                <div class="footer">
-                  <div class="divider"></div>
-                  <div style="margin-top: 8px;">
-                    Gracias por su compra
-                  </div>
-                  <div style="margin-top: 4px; font-size: 8px;">
-                    ${new Date().toLocaleDateString('es-AR')} - ${new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                </div>
-              </div>
+              <pre>${ticketTexto}</pre>
             </body>
           </html>
         `);
@@ -236,17 +133,13 @@ IMPORTANTE: En el diálogo de impresión:
         // Esperar a que se cargue el contenido y luego imprimir
         ventanaImpresion.onload = () => {
           setTimeout(() => {
-            // Intentar usar el diálogo del sistema si está disponible
-            // Esto puede ayudar a que se seleccione la impresora predeterminada
             try {
+              // Intentar imprimir - esto abrirá el diálogo
               ventanaImpresion.print();
             } catch (error) {
               console.error("Error al imprimir:", error);
-              // Fallback: mostrar mensaje al usuario
-              alert("Por favor, selecciona tu impresora térmica en el diálogo de impresión y haz clic en 'Imprimir' (no en 'Guardar como PDF')");
             }
-            // NO cerrar automáticamente para que el usuario pueda ver el diálogo
-            // El usuario cerrará la ventana después de imprimir
+            // NO cerrar automáticamente - el usuario debe cerrar después de imprimir
           }, 500);
         };
       }

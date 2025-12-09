@@ -841,16 +841,25 @@ export default function RegistrarPedido() {
               Instrucciones de Impresión
             </h3>
             <div className="space-y-3 text-slate-700 mb-6">
-              <p className="font-semibold text-red-600">⚠️ IMPORTANTE:</p>
-              <ol className="list-decimal list-inside space-y-2 ml-2">
-                <li>En el diálogo de impresión, busca el dropdown <strong>"Impresora"</strong></li>
-                <li>Selecciona tu <strong>impresora térmica (GADNIC TP-450S)</strong></li>
-                <li><strong>NO</strong> uses "Guardar como PDF"</li>
-                <li>Haz clic en <strong>"Imprimir"</strong> (no en "Guardar")</li>
+              <p className="font-semibold text-red-600 text-lg">⚠️ PASOS IMPORTANTES:</p>
+              <div className="bg-yellow-50 border-2 border-yellow-400 rounded-lg p-4 mb-4">
+                <p className="font-bold text-yellow-800 mb-2">🔴 ATENCIÓN: El diálogo mostrará "Guardar como PDF" por defecto</p>
+                <p className="text-yellow-700">Debes cambiar esto antes de hacer clic en cualquier botón.</p>
+              </div>
+              <ol className="list-decimal list-inside space-y-3 ml-2 text-base">
+                <li className="font-semibold">Busca el dropdown <span className="bg-blue-100 px-2 py-1 rounded">"Impresora"</span> en la parte superior izquierda del diálogo</li>
+                <li className="font-semibold">Haz clic en el dropdown y selecciona tu <span className="bg-green-100 px-2 py-1 rounded">impresora térmica (GADNIC TP-450S)</span></li>
+                <li className="font-semibold text-red-600">NO dejes seleccionado "Guardar como PDF"</li>
+                <li className="font-semibold">Una vez seleccionada tu impresora, haz clic en el botón <span className="bg-purple-100 px-2 py-1 rounded">"Imprimir"</span> (NO en "Guardar")</li>
               </ol>
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
                 <p className="text-sm text-blue-700">
-                  <strong>Tip:</strong> Si no ves tu impresora, asegúrate de que esté encendida y conectada a tu computadora.
+                  <strong>💡 Tip:</strong> Si no ves tu impresora en la lista, asegúrate de que esté encendida, conectada por USB, y configurada en Windows.
+                </p>
+              </div>
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-2">
+                <p className="text-sm text-green-700">
+                  <strong>✅ Solución rápida:</strong> Configura tu impresora térmica como impresora predeterminada en Windows. Así se seleccionará automáticamente.
                 </p>
               </div>
             </div>
