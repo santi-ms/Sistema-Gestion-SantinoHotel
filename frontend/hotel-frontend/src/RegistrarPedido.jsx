@@ -152,7 +152,7 @@ export default function RegistrarPedido() {
     });
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (imprimirDespues = false) => {
     // Validar que todos los items tengan descripción
     const itemsValidos = form.items.every(item => item.descripcion.trim() !== "");
     
@@ -183,18 +183,41 @@ export default function RegistrarPedido() {
         forma_pago: form.forma_pago
       };
 
+      let pedidoRegistrado = null;
+      
       if (editandoId) {
         // Actualizar pedido existente
         await axios.put(`${API_BASE_URL}/pedidos/${editandoId}`, pedidoData, {
           headers: { Authorization: `Bearer ${token}` }
         });
         success("Pedido actualizado correctamente");
+        // Para edición, construir el pedido con los datos actualizados
+        pedidoRegistrado = {
+          id: editandoId,
+          items: form.items,
+          monto: calcularTotal(),
+          habitacion_id: form.habitacion_id ? parseInt(form.habitacion_id) : null,
+          externo: form.externo,
+          forma_pago: form.forma_pago,
+          fecha: new Date().toISOString()
+        };
       } else {
         // Crear nuevo pedido
-        await axios.post(`${API_BASE_URL}/pedidos`, pedidoData, {
+        const response = await axios.post(`${API_BASE_URL}/pedidos`, pedidoData, {
           headers: { Authorization: `Bearer ${token}` }
         });
         success("Pedido registrado correctamente");
+        
+        // Construir el pedido registrado con el ID del backend
+        pedidoRegistrado = {
+          id: response.data.id,
+          items: form.items,
+          monto: calcularTotal(),
+          habitacion_id: form.habitacion_id ? parseInt(form.habitacion_id) : null,
+          externo: form.externo,
+          forma_pago: form.forma_pago,
+          fecha: new Date().toISOString()
+        };
       }
       
       // Reset form
@@ -212,10 +235,21 @@ export default function RegistrarPedido() {
         console.log("[RegistrarPedido] Recargando pedidos después de registrar...");
         await cargarPedidosHoy();
       }, 300);
+      
+      // Si se solicitó imprimir después, hacerlo
+      if (imprimirDespues && pedidoRegistrado) {
+        setTimeout(() => {
+          imprimirTicket(pedidoRegistrado);
+        }, 500);
+      }
+      
+      // Retornar el pedido registrado para poder imprimirlo
+      return pedidoRegistrado;
     } catch (error) {
       console.error("Error al guardar pedido:", error);
       const errorMsg = error.response?.data?.detail || "Error al guardar el pedido";
       errorToast(errorMsg);
+      return null;
     } finally {
       setCargando(false);
     }
@@ -277,6 +311,32 @@ export default function RegistrarPedido() {
   const imprimirTicket = (pedido) => {
     setPedidoAImprimir(pedido);
   };
+
+  const imprimirDesdeFormulario = () => {
+    // Construir un pedido temporal desde el formulario para imprimir
+    const pedidoTemporal = {
+      id: editandoId || "TEMP",
+      items: form.items.filter(item => item.descripcion.trim() !== ""),
+      monto: calcularTotal(),
+      habitacion_id: form.habitacion_id ? parseInt(form.habitacion_id) : null,
+      externo: form.externo,
+      forma_pago: form.forma_pago || "PENDIENTE",
+      fecha: new Date().toISOString()
+    };
+    
+    if (pedidoTemporal.items.length === 0) {
+      errorToast("Debes agregar al menos un item para imprimir");
+      return;
+    }
+    
+    if (pedidoTemporal.monto <= 0) {
+      errorToast("El total debe ser mayor a cero para imprimir");
+      return;
+    }
+    
+    imprimirTicket(pedidoTemporal);
+  };
+
 
   // Calcular estadísticas
   const totalPedidos = pedidosHoy.reduce((sum, pedido) => sum + pedido.monto, 0);
@@ -499,7 +559,7 @@ export default function RegistrarPedido() {
             {/* Botones */}
             <div className="flex flex-col sm:flex-row gap-3">
               <button
-                onClick={handleSubmit}
+                onClick={() => handleSubmit(false)}
                 disabled={cargando || calcularTotal() <= 0}
                 className="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl"
               >
@@ -509,6 +569,31 @@ export default function RegistrarPedido() {
                   <Save className="w-5 h-5" />
                 )}
                 {editandoId ? "Actualizar Pedido" : "Registrar Pedido"}
+              </button>
+              
+              {!editandoId && (
+                <button
+                  onClick={() => handleSubmit(true)}
+                  disabled={cargando || calcularTotal() <= 0}
+                  className="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl"
+                >
+                  {cargando ? (
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                  ) : (
+                    <Printer className="w-5 h-5" />
+                  )}
+                  Registrar e Imprimir
+                </button>
+              )}
+              
+              <button
+                onClick={imprimirDesdeFormulario}
+                disabled={cargando || calcularTotal() <= 0}
+                className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl"
+                title="Imprimir ticket sin registrar (vista previa)"
+              >
+                <Printer className="w-5 h-5" />
+                Vista Previa / Imprimir
               </button>
               
               <button
