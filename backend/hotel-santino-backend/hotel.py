@@ -58,6 +58,18 @@ def convertir_a_argentina(fecha_utc):
         fecha_utc = fecha_utc.replace(tzinfo=timezone.utc)
     return fecha_utc.astimezone(ARGENTINA_TZ)
 
+def normalizar_fecha_argentina(fecha):
+    """Asegura que una fecha tenga timezone de Argentina"""
+    if fecha is None:
+        return None
+    if fecha.tzinfo is None:
+        # Si no tiene timezone, asumir que es de Argentina
+        return fecha.replace(tzinfo=ARGENTINA_TZ)
+    elif fecha.tzinfo != ARGENTINA_TZ:
+        # Si tiene otro timezone, convertir a Argentina
+        return fecha.astimezone(ARGENTINA_TZ)
+    return fecha
+
 # ─────────── MODELOS ACTUALIZADOS ───────────
 class Rol(str, Enum):
     dueño = "dueño"
@@ -564,6 +576,9 @@ def obtener_todos_los_pedidos_con_items(db: Session = Depends(obtener_db), token
         except:
             items = [ItemPedido(descripcion=pedido.detalle, cantidad=1, precio=pedido.monto)]
         
+        # Normalizar fecha a timezone de Argentina
+        fecha_normalizada = normalizar_fecha_argentina(pedido.fecha)
+        
         resultado.append(PedidoRespuesta(
             id=pedido.id,
             items=items,
@@ -571,7 +586,7 @@ def obtener_todos_los_pedidos_con_items(db: Session = Depends(obtener_db), token
             habitacion_id=pedido.habitacion_id,
             externo=pedido.externo,
             forma_pago=pedido.forma_pago,
-            fecha=pedido.fecha
+            fecha=fecha_normalizada
         ))
     
     return resultado
@@ -630,6 +645,9 @@ def obtener_pedidos_por_dia_con_items(
         except:
             items = [ItemPedido(descripcion=pedido.detalle, cantidad=1, precio=pedido.monto)]
         
+        # Normalizar fecha a timezone de Argentina
+        fecha_normalizada = normalizar_fecha_argentina(pedido.fecha)
+        
         resultado.append(PedidoRespuesta(
             id=pedido.id,
             items=items,
@@ -637,7 +655,7 @@ def obtener_pedidos_por_dia_con_items(
             habitacion_id=pedido.habitacion_id,
             externo=pedido.externo,
             forma_pago=pedido.forma_pago,
-            fecha=pedido.fecha
+            fecha=fecha_normalizada
         ))
     
     return resultado
