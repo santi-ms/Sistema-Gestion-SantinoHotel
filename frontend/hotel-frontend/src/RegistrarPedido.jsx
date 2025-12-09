@@ -5,6 +5,7 @@ import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import { formatearSoloFecha, formatearSoloHora } from "./utils/fechas";
+import TicketTermico from "./components/TicketTermico";
 import { 
   Coffee, 
   DollarSign, 
@@ -22,7 +23,8 @@ import {
   AlertCircle,
   TrendingUp,
   BarChart3,
-  Minus
+  Minus,
+  Printer
 } from "lucide-react";
 
 export default function RegistrarPedido() {
@@ -40,6 +42,7 @@ export default function RegistrarPedido() {
   const [mostrarFormulario, setMostrarFormulario] = useState(true);
   const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
   const [pedidoAEliminar, setPedidoAEliminar] = useState(null);
+  const [pedidoAImprimir, setPedidoAImprimir] = useState(null);
   const { success, error: errorToast } = useToast();
   const location = useLocation();
 
@@ -269,6 +272,10 @@ export default function RegistrarPedido() {
     if (formaPago?.toLowerCase().includes("efectivo")) return <DollarSign className="w-4 h-4" />;
     if (formaPago?.toLowerCase().includes("tarjeta")) return <CreditCard className="w-4 h-4" />;
     return <Clock className="w-4 h-4" />;
+  };
+
+  const imprimirTicket = (pedido) => {
+    setPedidoAImprimir(pedido);
   };
 
   // Calcular estadísticas
@@ -680,6 +687,13 @@ export default function RegistrarPedido() {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <button
+                            onClick={() => imprimirTicket(pedido)}
+                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors duration-200"
+                            title="Imprimir ticket"
+                          >
+                            <Printer className="w-4 h-4" />
+                          </button>
+                          <button
                             onClick={() => cargarParaEditar(pedido)}
                             className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors duration-200"
                             title="Editar pedido"
@@ -715,6 +729,14 @@ export default function RegistrarPedido() {
         cancelText="Cancelar"
         type="danger"
       />
+
+      {/* Componente de impresión térmica */}
+      {pedidoAImprimir && (
+        <TicketTermico
+          pedido={pedidoAImprimir}
+          onClose={() => setPedidoAImprimir(null)}
+        />
+      )}
     </div>
   );
 }
