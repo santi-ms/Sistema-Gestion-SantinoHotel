@@ -118,7 +118,7 @@ class Pedido(SQLModel, table=True):
 
 class GastoAdicional(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    habitacion_id: int
+    habitacion_id: Optional[int] = None  # Opcional: solo si el gasto es específico de una habitación
     descripcion: str
     monto: float
     fecha: datetime
@@ -703,14 +703,14 @@ def eliminar_pedido_actualizado(
 def registrar_gasto(gasto: GastoAdicional, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     # Asegurar que use fecha de Argentina
     nuevo_gasto = GastoAdicional(
-        habitacion_id=gasto.habitacion_id,
+        habitacion_id=gasto.habitacion_id if gasto.habitacion_id else None,
         descripcion=gasto.descripcion,
         monto=gasto.monto,
         fecha=obtener_fecha_argentina()
     )
     db.add(nuevo_gasto)
     db.commit()
-    return {"mensaje": "Gasto adicional registrado"}
+    return {"mensaje": "Gasto registrado correctamente"}
 
 @app.get("/gastos")
 def obtener_todos_los_gastos(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
@@ -744,7 +744,7 @@ def actualizar_gasto(
     if not gasto:
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
 
-    gasto.habitacion_id = datos.habitacion_id
+    gasto.habitacion_id = datos.habitacion_id if datos.habitacion_id else None
     gasto.descripcion = datos.descripcion
     gasto.monto = datos.monto
 

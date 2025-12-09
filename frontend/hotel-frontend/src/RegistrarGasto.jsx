@@ -22,7 +22,7 @@ import {
 
 export default function RegistrarGasto() {
   const [form, setForm] = useState({
-    habitacion_id: "",
+    habitacion_id: "",  // Opcional: solo para gastos específicos de habitación
     descripcion: "",
     monto: ""
   });
@@ -79,8 +79,8 @@ export default function RegistrarGasto() {
   };
 
   const handleSubmit = async () => {
-    if (!form.descripcion || !form.monto || !form.habitacion_id) {
-      errorToast("Todos los campos son obligatorios");
+    if (!form.descripcion || !form.monto) {
+      errorToast("La descripción y el monto son obligatorios");
       return;
     }
 
@@ -93,9 +93,9 @@ export default function RegistrarGasto() {
 
     setCargando(true);
     const payload = {
-      ...form,
-      habitacion_id: parseInt(form.habitacion_id),
-      monto: montoNum
+      descripcion: form.descripcion.trim(),
+      monto: montoNum,
+      habitacion_id: form.habitacion_id ? parseInt(form.habitacion_id) : null
     };
     
     try {
@@ -123,7 +123,7 @@ export default function RegistrarGasto() {
 
   const cargarParaEditar = (gasto) => {
     setForm({
-      habitacion_id: gasto.habitacion_id,
+      habitacion_id: gasto.habitacion_id || "",
       descripcion: gasto.descripcion,
       monto: gasto.monto
     });
@@ -180,7 +180,7 @@ export default function RegistrarGasto() {
                   {editandoId ? "Editar Gasto" : "Registrar Gasto"}
                 </h1>
                 <p className="text-slate-600">
-                  {esDueño ? "Gestiona los gastos operativos" : "Registra gastos operativos del hotel"}
+                  {esDueño ? "Gestiona compras y gastos operativos" : "Registra compras y gastos operativos del hotel"}
                 </p>
               </div>
             </div>
@@ -213,22 +213,25 @@ export default function RegistrarGasto() {
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Habitación */}
+            {/* Habitación (Opcional) */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
-                Habitación *
+                Habitación <span className="text-slate-400 text-xs">(Opcional)</span>
               </label>
               <div className="relative">
                 <Home className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input
                   type="number"
                   name="habitacion_id"
-                  placeholder="Número de habitación"
+                  placeholder="Solo si es gasto específico de habitación"
                   value={form.habitacion_id}
                   onChange={handleChange}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-12 pr-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent placeholder-slate-400"
                 />
               </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Dejar vacío para gastos generales (compras, insumos, etc.)
+              </p>
             </div>
 
             {/* Monto */}
@@ -252,13 +255,13 @@ export default function RegistrarGasto() {
             {/* Descripción */}
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-2">
-                Descripción del gasto *
+                Descripción del gasto / compra *
               </label>
               <div className="relative">
                 <FileText className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
                 <textarea
                   name="descripcion"
-                  placeholder="Ej: Reparación de aire acondicionado, limpieza profunda, compra de amenities..."
+                  placeholder="Ej: Compra de bebidas, pedido de insumos para restaurante, compra de amenities, reparación de equipos, limpieza profunda..."
                   value={form.descripcion}
                   onChange={handleChange}
                   rows="3"
@@ -272,7 +275,7 @@ export default function RegistrarGasto() {
           <div className="flex flex-col sm:flex-row gap-3 mt-6">
             <button
               onClick={handleSubmit}
-              disabled={cargando || !form.descripcion || !form.monto || !form.habitacion_id}
+              disabled={cargando || !form.descripcion || !form.monto}
               className="flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl"
             >
               {cargando ? (
@@ -378,7 +381,7 @@ export default function RegistrarGasto() {
                 <thead className="bg-slate-50">
                   <tr>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Habitación</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Descripción</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Descripción / Compra</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Monto</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">
                       {esDueño ? "Fecha" : "Hora"}
@@ -390,12 +393,16 @@ export default function RegistrarGasto() {
                   {gastosHoy.map((gasto) => (
                     <tr key={gasto.id} className="hover:bg-slate-50 transition-colors duration-200">
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <Home className="w-4 h-4 text-slate-500" />
-                          <span className="text-sm font-medium text-slate-900">
-                            Habitación {gasto.habitacion_id}
-                          </span>
-                        </div>
+                        {gasto.habitacion_id ? (
+                          <div className="flex items-center gap-2">
+                            <Home className="w-4 h-4 text-slate-500" />
+                            <span className="text-sm font-medium text-slate-900">
+                              Habitación {gasto.habitacion_id}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-slate-400 italic">Gasto general</span>
+                        )}
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-sm text-slate-900 max-w-xs">
