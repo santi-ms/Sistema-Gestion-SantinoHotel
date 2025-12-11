@@ -263,12 +263,21 @@ def verificar_token(token: str = Depends(oauth2_scheme)):
 
 # ─────────── ENDPOINT PARA ARREGLAR LA BASE DE DATOS ───────────
 @app.post("/fix-database")
-def arreglar_base_datos(db: Session = Depends(obtener_db)):
+def arreglar_base_datos(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     try:
         print("🔧 Iniciando reparación de base de datos...")
         
         # Ejecutar comandos SQL directamente para agregar columnas faltantes
         with engine.connect() as connection:
+            # Verificar si la tabla reserva existe y contar registros ANTES de modificar
+            try:
+                result = connection.execute(text("SELECT COUNT(*) FROM reserva"))
+                count_before = result.scalar()
+                print(f"📊 Reservas existentes ANTES de la migración: {count_before}")
+            except Exception as e:
+                print(f"⚠️ Error al contar reservas: {e}")
+                count_before = 0
+            
             try:
                 # Agregar columna descripcion si no existe
                 connection.execute(text("ALTER TABLE habitacion ADD COLUMN descripcion TEXT"))
@@ -289,6 +298,53 @@ def arreglar_base_datos(db: Session = Depends(obtener_db)):
                 print("✅ Columna 'precio' agregada a tabla habitacion")
             except Exception as e:
                 print(f"⚠️ Columna 'precio': {e}")
+            
+            # ✅ AGREGAR COLUMNAS NUEVAS A RESERVA DE FORMA SEGURA
+            try:
+                # Verificar cuántas reservas hay antes
+                result = connection.execute(text("SELECT COUNT(*) FROM reserva"))
+                count_before = result.scalar()
+                print(f"📊 Reservas existentes: {count_before}")
+            except Exception as e:
+                print(f"⚠️ Error al contar reservas: {e}")
+            
+            try:
+                # Agregar columna precio_lista si no existe (PostgreSQL usa REAL, SQLite también)
+                if DATABASE_URL.startswith("postgres"):
+                    connection.execute(text("ALTER TABLE reserva ADD COLUMN IF NOT EXISTS precio_lista REAL"))
+                else:
+                    connection.execute(text("ALTER TABLE reserva ADD COLUMN precio_lista REAL"))
+                print("✅ Columna 'precio_lista' agregada a tabla reserva")
+            except Exception as e:
+                # Si la columna ya existe, ignorar el error
+                if "already exists" not in str(e).lower() and "duplicate column" not in str(e).lower():
+                    print(f"⚠️ Columna 'precio_lista': {e}")
+                else:
+                    print("ℹ️ Columna 'precio_lista' ya existe")
+            
+            try:
+                # Agregar columna precio_efectivo si no existe
+                if DATABASE_URL.startswith("postgres"):
+                    connection.execute(text("ALTER TABLE reserva ADD COLUMN IF NOT EXISTS precio_efectivo REAL"))
+                else:
+                    connection.execute(text("ALTER TABLE reserva ADD COLUMN precio_efectivo REAL"))
+                print("✅ Columna 'precio_efectivo' agregada a tabla reserva")
+            except Exception as e:
+                # Si la columna ya existe, ignorar el error
+                if "already exists" not in str(e).lower() and "duplicate column" not in str(e).lower():
+                    print(f"⚠️ Columna 'precio_efectivo': {e}")
+                else:
+                    print("ℹ️ Columna 'precio_efectivo' ya existe")
+            
+            # Verificar que las reservas siguen ahí después
+            try:
+                result = connection.execute(text("SELECT COUNT(*) FROM reserva"))
+                count_after = result.scalar()
+                print(f"📊 Reservas existentes DESPUÉS: {count_after}")
+                if count_before != count_after:
+                    print(f"⚠️⚠️⚠️ ADVERTENCIA: El número de reservas cambió de {count_before} a {count_after}")
+            except Exception as e:
+                print(f"⚠️ Error al contar reservas después: {e}")
             
             connection.commit()
         
