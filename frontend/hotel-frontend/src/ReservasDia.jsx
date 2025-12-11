@@ -617,6 +617,12 @@ export default function ReservasDia() {
                           <div className="font-semibold text-slate-800">
                             ${datos.total_estadia?.toLocaleString()}
                           </div>
+                          {datos.seña && datos.seña > 0 && (
+                            <div className="flex items-center gap-1 text-amber-600 font-medium mt-1">
+                              <Clock className="w-3 h-3" />
+                              <span>Seña: ${datos.seña.toLocaleString()}</span>
+                            </div>
+                          )}
                         </div>
                         
                         <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium mt-2 ${getPaymentColor(datos.forma_pago)}`}>
