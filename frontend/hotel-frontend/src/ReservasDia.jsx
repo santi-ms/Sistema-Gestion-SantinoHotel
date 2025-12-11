@@ -20,8 +20,10 @@ import {
   Car,
   Phone,
   Users,
-  Heart
+  Heart,
+  Printer
 } from "lucide-react";
+import TicketAlojamiento from "./components/TicketAlojamiento";
 
 export default function ReservasDia() {
   const [reservas, setReservas] = useState([]);
@@ -55,6 +57,9 @@ export default function ReservasDia() {
   const [mostrarModalPago, setMostrarModalPago] = useState(false);
   const [reservaPagoId, setReservaPagoId] = useState(null);
   const [nuevaFormaPago, setNuevaFormaPago] = useState("");
+  const [reservaAImprimir, setReservaAImprimir] = useState(null);
+  const [mostrarInstruccionesImpresion, setMostrarInstruccionesImpresion] = useState(false);
+  const [reservaPendienteImpresion, setReservaPendienteImpresion] = useState(null);
   const { success, error, warning } = useToast();
   const navigate = useNavigate();
 
@@ -313,6 +318,19 @@ export default function ReservasDia() {
   const getPaymentColor = (formaPago) => {
     if (formaPago === "pendiente") return "text-amber-600 bg-amber-50";
     return "text-emerald-600 bg-emerald-50";
+  };
+
+  const imprimirTicketAlojamiento = (reserva) => {
+    setReservaPendienteImpresion(reserva);
+    setMostrarInstruccionesImpresion(true);
+  };
+
+  const confirmarImpresionAlojamiento = () => {
+    setMostrarInstruccionesImpresion(false);
+    if (reservaPendienteImpresion) {
+      setReservaAImprimir(reservaPendienteImpresion);
+      setReservaPendienteImpresion(null);
+    }
   };
 
   return (
@@ -709,6 +727,13 @@ export default function ReservasDia() {
                       </div>
                       
                       <div className="flex flex-col gap-2">
+                        <button
+                          className="w-full bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 flex items-center justify-center gap-2"
+                          onClick={() => imprimirTicketAlojamiento(datos)}
+                        >
+                          <Printer className="w-4 h-4" />
+                          Imprimir Ticket
+                        </button>
                         {datos.forma_pago === "pendiente" && (
                           <button
                             className="w-full bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200"
@@ -802,6 +827,66 @@ export default function ReservasDia() {
           </div>
         </div>
       </Modal>
+
+      {/* Modal de instrucciones de impresión para alojamiento */}
+      {mostrarInstruccionesImpresion && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md mx-4">
+            <h3 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <Printer className="w-6 h-6 text-green-600" />
+              Instrucciones de Impresión
+            </h3>
+            <div className="space-y-3 text-slate-700 mb-6">
+              <p className="font-semibold text-red-600 text-lg">⚠️ PASOS IMPORTANTES:</p>
+              <div className="bg-yellow-50 border-2 border-yellow-400 rounded-lg p-4 mb-4">
+                <p className="font-bold text-yellow-800 mb-2">🔴 ATENCIÓN: El diálogo mostrará "Guardar como PDF" por defecto</p>
+                <p className="text-yellow-700">Debes cambiar esto antes de hacer clic en cualquier botón.</p>
+              </div>
+              <ol className="list-decimal list-inside space-y-3 ml-2 text-base">
+                <li className="font-semibold">Busca el dropdown <span className="bg-blue-100 px-2 py-1 rounded">"Impresora"</span> en la parte superior izquierda del diálogo</li>
+                <li className="font-semibold">Haz clic en el dropdown y selecciona tu <span className="bg-green-100 px-2 py-1 rounded">impresora térmica (GADNIC TP-450S)</span></li>
+                <li className="font-semibold text-red-600">NO dejes seleccionado "Guardar como PDF"</li>
+                <li className="font-semibold">Una vez seleccionada tu impresora, haz clic en el botón <span className="bg-purple-100 px-2 py-1 rounded">"Imprimir"</span> (NO en "Guardar")</li>
+              </ol>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
+                <p className="text-sm text-blue-700">
+                  <strong>💡 Tip:</strong> Si no ves tu impresora en la lista, asegúrate de que esté encendida, conectada por USB, y configurada en Windows.
+                </p>
+              </div>
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-2">
+                <p className="text-sm text-green-700">
+                  <strong>✅ Solución rápida:</strong> Configura tu impresora térmica como impresora predeterminada en Windows. Así se seleccionará automáticamente.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={confirmarImpresionAlojamiento}
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+              >
+                Entendido, Imprimir
+              </button>
+              <button
+                onClick={() => {
+                  setMostrarInstruccionesImpresion(false);
+                  setReservaPendienteImpresion(null);
+                }}
+                className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg font-medium transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Componente de impresión térmica para alojamiento */}
+      {reservaAImprimir && (
+        <TicketAlojamiento
+          reserva={reservaAImprimir}
+          onClose={() => setReservaAImprimir(null)}
+        />
+      )}
     </div>
   );
 }
