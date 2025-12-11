@@ -29,7 +29,9 @@ export default function ReservasDia() {
   
   // Datos básicos de la reserva
   const [nombre, setNombre] = useState("");
-  const [precio, setPrecio] = useState("");
+  const [precio, setPrecio] = useState("");  // Mantenemos para compatibilidad
+  const [precioLista, setPrecioLista] = useState("");  // Precio de lista
+  const [precioEfectivo, setPrecioEfectivo] = useState("");  // Precio con descuento en efectivo
   const [seña, setSeña] = useState("");
   const [ingreso, setIngreso] = useState("");
   const [egreso, setEgreso] = useState("");
@@ -100,6 +102,8 @@ export default function ReservasDia() {
   const limpiarFormulario = () => {
     setNombre("");
     setPrecio("");
+    setPrecioLista("");
+    setPrecioEfectivo("");
     setSeña("");
     setIngreso("");
     setEgreso("");
@@ -148,10 +152,29 @@ export default function ReservasDia() {
       return;
     }
     
-    // Validar precio positivo
-    if (parseFloat(precio) <= 0) {
-      error("El precio debe ser mayor a cero");
-      return;
+    // Validar precios
+    // Si se llenan precio_lista y precio_efectivo, validarlos
+    // Si no, validar el precio tradicional
+    const tienePreciosDuales = precioLista && precioEfectivo;
+    if (tienePreciosDuales) {
+      if (parseFloat(precioLista) <= 0) {
+        error("El precio de lista debe ser mayor a cero");
+        return;
+      }
+      if (parseFloat(precioEfectivo) <= 0) {
+        error("El precio en efectivo debe ser mayor a cero");
+        return;
+      }
+      if (parseFloat(precioEfectivo) > parseFloat(precioLista)) {
+        error("El precio en efectivo no puede ser mayor al precio de lista");
+        return;
+      }
+    } else {
+      // Validación tradicional
+      if (!precio || parseFloat(precio) <= 0) {
+        error("El precio debe ser mayor a cero");
+        return;
+      }
     }
     
     // Validar fechas
@@ -174,6 +197,10 @@ export default function ReservasDia() {
     
     setCargando(true);
     try {
+      // Determinar qué precio usar
+      const tienePreciosDuales = precioLista && precioEfectivo;
+      const precioTotalFinal = tienePreciosDuales ? parseFloat(precioLista) : parseFloat(precio);
+      
       const datosReserva = {
         // Campos para crear el cliente
         nombre_completo: nombre,
@@ -186,9 +213,13 @@ export default function ReservasDia() {
         habitacion_id: habitacion,
         fecha_ingreso: fechaIngreso, // Formato dd/mm/aaaa
         fecha_egreso: fechaEgreso,   // Formato dd/mm/aaaa
-        precio_total: parseFloat(precio),
+        precio_total: precioTotalFinal,  // Mantenemos para compatibilidad
         seña: parseFloat(seña) || 0,
         forma_pago: formaPago,
+        
+        // Nuevos campos opcionales para dos precios
+        precio_lista: precioLista ? parseFloat(precioLista) : null,
+        precio_efectivo: precioEfectivo ? parseFloat(precioEfectivo) : null,
         
         // Campos de mascota
         mascota: mascota,
@@ -457,18 +488,49 @@ export default function ReservasDia() {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">Precio total *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Precio de Lista *
+                  </label>
                   <div className="relative">
                     <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
                     <input
                       type="number"
                       placeholder="0"
-                      value={precio}
-                      onChange={(e) => setPrecio(e.target.value)}
+                      value={precioLista}
+                      onChange={(e) => setPrecioLista(e.target.value)}
                       className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-12 pr-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-slate-400"
                     />
                   </div>
                 </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Precio Efectivo (con descuento)
+                  </label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+                    <input
+                      type="number"
+                      placeholder="Opcional - Precio con descuento"
+                      value={precioEfectivo}
+                      onChange={(e) => setPrecioEfectivo(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-12 pr-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-slate-400"
+                    />
+                  </div>
+                  {precioLista && precioEfectivo && parseFloat(precioEfectivo) < parseFloat(precioLista) && (
+                    <p className="text-xs text-emerald-600 mt-1">
+                      Descuento: ${(parseFloat(precioLista) - parseFloat(precioEfectivo)).toLocaleString()} 
+                      ({((1 - parseFloat(precioEfectivo) / parseFloat(precioLista)) * 100).toFixed(0)}%)
+                    </p>
+                  )}
+                </div>
+                
+                {/* Campo precio tradicional (oculto pero mantenido para compatibilidad) */}
+                <input
+                  type="hidden"
+                  value={precioLista || precio}
+                  onChange={(e) => setPrecio(e.target.value)}
+                />
                 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Seña</label>
@@ -614,9 +676,24 @@ export default function ReservasDia() {
                               {datos.cantidad_personas} persona{datos.cantidad_personas !== 1 ? 's' : ''}
                             </div>
                           )}
-                          <div className="font-semibold text-slate-800">
-                            ${datos.total_estadia?.toLocaleString()}
-                          </div>
+                          {/* Mostrar precios: si hay precio_lista y precio_efectivo, mostrar ambos */}
+                          {datos.precio_lista && datos.precio_efectivo ? (
+                            <div className="space-y-1">
+                              <div className="font-semibold text-slate-800">
+                                Lista: ${datos.precio_lista?.toLocaleString()}
+                              </div>
+                              <div className="font-semibold text-emerald-600">
+                                Efectivo: ${datos.precio_efectivo?.toLocaleString()}
+                              </div>
+                              <div className="text-xs text-slate-500">
+                                Ahorro: ${(datos.precio_lista - datos.precio_efectivo).toLocaleString()}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="font-semibold text-slate-800">
+                              ${datos.total_estadia?.toLocaleString()}
+                            </div>
+                          )}
                           {datos.seña && datos.seña > 0 && (
                             <div className="flex items-center gap-1 text-amber-600 font-medium mt-1">
                               <Clock className="w-3 h-3" />

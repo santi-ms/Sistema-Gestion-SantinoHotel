@@ -103,9 +103,12 @@ class Reserva(SQLModel, table=True):
     fecha_checkin: datetime
     fecha_checkout: datetime
     seña: float
-    total_estadia: float
+    total_estadia: float  # Mantenemos para compatibilidad con reservas antiguas
     forma_pago: str
     nombre_huesped: Optional[str] = None
+    # Nuevos campos opcionales para dos precios (no afectan reservas existentes)
+    precio_lista: Optional[float] = None  # Precio de lista
+    precio_efectivo: Optional[float] = None  # Precio con descuento en efectivo
 
 class Pedido(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -225,9 +228,13 @@ class ReservaGestion(BaseModel):
     habitacion_id: int
     fecha_ingreso: str  # formato: "dd/mm/aaaa"
     fecha_egreso: str   # formato: "dd/mm/aaaa"
-    precio_total: float
+    precio_total: float  # Mantenemos para compatibilidad
     seña: float
     forma_pago: str
+    
+    # Nuevos campos opcionales para dos precios
+    precio_lista: Optional[float] = None  # Precio de lista
+    precio_efectivo: Optional[float] = None  # Precio con descuento en efectivo
     
     # NUEVO: Campo para mascotas
     mascota: bool = False
@@ -1272,6 +1279,12 @@ def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obte
         
         observaciones_texto = " | ".join(observaciones) if observaciones else None
         
+        # Determinar qué precio usar (compatibilidad con reservas antiguas)
+        # Si se envían precio_lista y precio_efectivo, usarlos
+        # Si no, usar precio_total como precio_lista (compatibilidad)
+        precio_lista_final = data.precio_lista if data.precio_lista is not None else data.precio_total
+        precio_efectivo_final = data.precio_efectivo if data.precio_efectivo is not None else None
+        
         # Crear reserva
         reserva = Reserva(
             cliente_id=cliente.id,
@@ -1279,9 +1292,11 @@ def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obte
             fecha_checkin=fecha_checkin,
             fecha_checkout=fecha_checkout,
             seña=data.seña,
-            total_estadia=data.precio_total,
+            total_estadia=data.precio_total,  # Mantenemos para compatibilidad
             forma_pago=data.forma_pago,
-            nombre_huesped=data.nombre_completo
+            nombre_huesped=data.nombre_completo,
+            precio_lista=precio_lista_final,
+            precio_efectivo=precio_efectivo_final
         )
         db.add(reserva)
         db.commit()
