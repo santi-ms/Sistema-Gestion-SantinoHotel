@@ -694,24 +694,9 @@ export default function ReservasDia() {
                               {datos.cantidad_personas} persona{datos.cantidad_personas !== 1 ? 's' : ''}
                             </div>
                           )}
-                          {/* Mostrar precios: si hay precio_lista y precio_efectivo, mostrar ambos */}
-                          {datos.precio_lista && datos.precio_efectivo ? (
-                            <div className="space-y-1">
-                              <div className="font-semibold text-slate-800">
-                                Lista: ${datos.precio_lista?.toLocaleString()}
-                              </div>
-                              <div className="font-semibold text-emerald-600">
-                                Efectivo: ${datos.precio_efectivo?.toLocaleString()}
-                              </div>
-                              <div className="text-xs text-slate-500">
-                                Ahorro: ${(datos.precio_lista - datos.precio_efectivo).toLocaleString()}
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="font-semibold text-slate-800">
-                              ${datos.total_estadia?.toLocaleString()}
-                            </div>
-                          )}
+                          <div className="font-semibold text-slate-800">
+                            ${datos.total_estadia?.toLocaleString()}
+                          </div>
                           {datos.seña && datos.seña > 0 && (
                             <div className="flex items-center gap-1 text-amber-600 font-medium mt-1">
                               <Clock className="w-3 h-3" />
