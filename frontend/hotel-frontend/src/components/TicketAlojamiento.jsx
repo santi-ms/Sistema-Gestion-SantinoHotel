@@ -32,14 +32,6 @@ export default function TicketAlojamiento({ reserva, onClose }) {
           
           // Determinar precio a mostrar
           let precioMostrar = reserva.total_estadia || 0;
-          let precioLista = null;
-          let precioEfectivo = null;
-          
-          if (reserva.precio_lista && reserva.precio_efectivo) {
-            precioLista = reserva.precio_lista;
-            precioEfectivo = reserva.precio_efectivo;
-            precioMostrar = precioLista; // Mostrar precio de lista por defecto
-          }
           
           let ticket = '';
           ticket += '================================\n';
@@ -75,19 +67,7 @@ export default function TicketAlojamiento({ reserva, onClose }) {
           // Información de precios
           ticket += 'INFORMACION DE PAGO\n';
           ticket += '--------------------------------\n';
-          
-          if (precioLista && precioEfectivo) {
-            ticket += `Precio Lista: $${precioLista.toFixed(2)}\n`;
-            ticket += `Precio Efectivo: $${precioEfectivo.toFixed(2)}\n`;
-            const descuento = precioLista - precioEfectivo;
-            if (descuento > 0) {
-              ticket += `Descuento: $${descuento.toFixed(2)}\n`;
-            }
-            ticket += '--------------------------------\n';
-            ticket += `TOTAL: $${precioMostrar.toFixed(2)}\n`;
-          } else {
-            ticket += `TOTAL: $${precioMostrar.toFixed(2)}\n`;
-          }
+          ticket += `TOTAL: $${precioMostrar.toFixed(2)}\n`;
           
           if (reserva.seña && reserva.seña > 0) {
             ticket += `Sena: $${reserva.seña.toFixed(2)}\n`;
