@@ -106,6 +106,7 @@ class Reserva(SQLModel, table=True):
     total_estadia: float
     forma_pago: str
     nombre_huesped: Optional[str] = None
+    origen: Optional[str] = None  # "whatsapp", "web", "gestion", etc.
 
 class Pedido(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -236,6 +237,26 @@ class ReservaGestion(BaseModel):
     # NUEVO: Campo para mascotas
     mascota: bool = False
     observaciones_mascota: Optional[str] = None  # Para notas adicionales sobre la mascota
+
+# ─────────── MODELOS PARA ENDPOINTS DE WHATSAPP BOT ───────────
+class DisponibilidadInteligenteEntrada(BaseModel):
+    checkin: str  # formato: "YYYY-MM-DD"
+    checkout: str  # formato: "YYYY-MM-DD"
+    personas: int
+    mascota: bool = False
+
+class ReservaBotEntrada(BaseModel):
+    nombre_completo: str
+    dni: str
+    celular: str
+    patente: Optional[str] = None
+    cantidad_personas: int
+    habitacion_id: int
+    fecha_ingreso: str  # formato: "YYYY-MM-DD"
+    fecha_egreso: str   # formato: "YYYY-MM-DD"
+    mascota: bool = False
+    observaciones_mascota: Optional[str] = None
+
 @app.on_event("startup")
 def crear_tablas():
     SQLModel.metadata.create_all(engine)
@@ -332,6 +353,20 @@ def arreglar_base_datos(db: Session = Depends(obtener_db), token: dict = Depends
                     print(f"⚠️ Columna 'precio_efectivo': {e}")
                 else:
                     print("ℹ️ Columna 'precio_efectivo' ya existe")
+            
+            try:
+                # Agregar columna origen si no existe (para tracking de origen: whatsapp, web, gestion)
+                if DATABASE_URL.startswith("postgres"):
+                    connection.execute(text("ALTER TABLE reserva ADD COLUMN IF NOT EXISTS origen TEXT"))
+                else:
+                    connection.execute(text("ALTER TABLE reserva ADD COLUMN origen TEXT"))
+                print("✅ Columna 'origen' agregada a tabla reserva")
+            except Exception as e:
+                # Si la columna ya existe, ignorar el error
+                if "already exists" not in str(e).lower() and "duplicate column" not in str(e).lower():
+                    print(f"⚠️ Columna 'origen': {e}")
+                else:
+                    print("ℹ️ Columna 'origen' ya existe")
             
             # Verificar que las reservas siguen ahí después
             try:
@@ -1992,6 +2027,288 @@ def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db))
             "error": f"Error interno del servidor: {str(e)}"
         }
 
+# ─────────── ENDPOINTS PARA WHATSAPP BOT ───────────
+@app.post("/api/disponibilidad-inteligente")
+def disponibilidad_inteligente(data: DisponibilidadInteligenteEntrada, db: Session = Depends(obtener_db)):
+    """
+    Endpoint inteligente para verificar disponibilidad y encontrar la mejor habitación.
+    Filtra por capacidad, ordena por capacidad ascendente y selecciona la mejor opción.
+    """
+    try:
+        print(f"🤖 [WhatsApp Bot] Verificando disponibilidad inteligente:")
+        print(f"   - Fechas: {data.checkin} a {data.checkout}")
+        print(f"   - Personas: {data.personas}")
+        print(f"   - Mascota: {data.mascota}")
+        
+        # Convertir fechas
+        fecha_checkin = datetime.strptime(data.checkin, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        fecha_checkout = datetime.strptime(data.checkout, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        
+        # Validar fechas
+        if fecha_checkout <= fecha_checkin:
+            raise HTTPException(status_code=400, detail="La fecha de egreso debe ser posterior a la fecha de ingreso")
+        
+        # Obtener todas las habitaciones
+        todas_habitaciones = db.exec(select(Habitacion)).all()
+        
+        # Filtrar por capacidad >= personas solicitadas
+        habitaciones_adecuadas = [h for h in todas_habitaciones if h.capacidad >= data.personas]
+        
+        if not habitaciones_adecuadas:
+            return {
+                "disponible": False,
+                "mensaje": f"No hay habitaciones disponibles para {data.personas} personas",
+                "habitacion_seleccionada": None,
+                "precios": None,
+                "extras": None
+            }
+        
+        # Verificar disponibilidad en las fechas
+        habitaciones_disponibles = []
+        for habitacion in habitaciones_adecuadas:
+            reservas_solapadas = db.exec(
+                select(Reserva).where(
+                    Reserva.habitacion_id == habitacion.id,
+                    Reserva.fecha_checkin < fecha_checkout,
+                    Reserva.fecha_checkout > fecha_checkin
+                )
+            ).all()
+            
+            if not reservas_solapadas:
+                habitaciones_disponibles.append({
+                    "id": habitacion.id,
+                    "numero": habitacion.numero,
+                    "tipo": habitacion.tipo,
+                    "capacidad": habitacion.capacidad,
+                    "precio": habitacion.precio if habitacion.precio else 0,
+                    "descripcion": habitacion.descripcion
+                })
+        
+        if not habitaciones_disponibles:
+            return {
+                "disponible": False,
+                "mensaje": f"No hay habitaciones libres para las fechas solicitadas",
+                "habitacion_seleccionada": None,
+                "precios": None,
+                "extras": None
+            }
+        
+        # Ordenar por capacidad ascendente (luego por precio)
+        habitaciones_disponibles.sort(key=lambda h: (h["capacidad"], h["precio"], h["numero"]))
+        
+        # Seleccionar la mejor habitación (menor capacidad que cumpla, menor precio)
+        mejor_habitacion = habitaciones_disponibles[0]
+        
+        # Calcular precios
+        noches = (fecha_checkout - fecha_checkin).days
+        if noches <= 0:
+            noches = 1
+        
+        precio_por_noche = mejor_habitacion["precio"]
+        precio_base = precio_por_noche * noches
+        extra_mascota = 7000 * noches if data.mascota else 0
+        precio_total = precio_base + extra_mascota
+        
+        # Preparar respuesta
+        extras = {}
+        if data.mascota:
+            extras["mascota"] = {
+                "incluida": True,
+                "precio_por_noche": 7000,
+                "total": extra_mascota
+            }
+        
+        return {
+            "disponible": True,
+            "mensaje": f"Habitación {mejor_habitacion['numero']} disponible",
+            "habitacion_seleccionada": {
+                "id": mejor_habitacion["id"],
+                "numero": mejor_habitacion["numero"],
+                "tipo": mejor_habitacion["tipo"],
+                "capacidad": mejor_habitacion["capacidad"],
+                "descripcion": mejor_habitacion["descripcion"]
+            },
+            "precios": {
+                "precio_por_noche": precio_por_noche,
+                "noches": noches,
+                "precio_base": precio_base,
+                "extra_mascota": extra_mascota,
+                "precio_total": precio_total
+            },
+            "extras": extras if extras else None,
+            "fechas": {
+                "checkin": data.checkin,
+                "checkout": data.checkout
+            }
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Formato de fecha inválido: {str(e)}")
+    except Exception as e:
+        print(f"💥 Error en disponibilidad-inteligente: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error al verificar disponibilidad: {str(e)}")
+
+@app.post("/api/reservas/bot")
+def crear_reserva_bot(data: ReservaBotEntrada, db: Session = Depends(obtener_db)):
+    """
+    Crea una reserva desde WhatsApp Bot.
+    Estado inicial: PENDIENTE_SEÑA
+    Valida disponibilidad antes de crear.
+    Calcula total y seña (50%).
+    """
+    try:
+        print(f"🤖 [WhatsApp Bot] Creando reserva:")
+        print(f"   - Cliente: {data.nombre_completo}")
+        print(f"   - DNI: {data.dni}")
+        print(f"   - Habitación: {data.habitacion_id}")
+        print(f"   - Fechas: {data.fecha_ingreso} a {data.fecha_egreso}")
+        print(f"   - Mascota: {data.mascota}")
+        
+        # Convertir fechas
+        fecha_checkin = datetime.strptime(data.fecha_ingreso, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        fecha_checkout = datetime.strptime(data.fecha_egreso, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        
+        # Validar fechas
+        if fecha_checkout <= fecha_checkin:
+            raise HTTPException(status_code=400, detail="La fecha de egreso debe ser posterior a la fecha de ingreso")
+        
+        # Verificar que la habitación exista
+        habitacion = db.get(Habitacion, data.habitacion_id)
+        if not habitacion:
+            raise HTTPException(status_code=404, detail=f"Habitación {data.habitacion_id} no encontrada")
+        
+        # Validar capacidad
+        if habitacion.capacidad < data.cantidad_personas:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"La habitación {habitacion.numero} tiene capacidad para {habitacion.capacidad} personas, se solicitaron {data.cantidad_personas}"
+            )
+        
+        # ✅ VALIDAR DISPONIBILIDAD - Verificar que la habitación siga libre
+        reservas_solapadas = db.exec(
+            select(Reserva).where(
+                Reserva.habitacion_id == data.habitacion_id,
+                Reserva.fecha_checkin < fecha_checkout,
+                Reserva.fecha_checkout > fecha_checkin
+            )
+        ).all()
+        
+        if reservas_solapadas:
+            raise HTTPException(
+                status_code=409, 
+                detail=f"La habitación {habitacion.numero} ya está ocupada en las fechas solicitadas"
+            )
+        
+        # Verificar o crear cliente
+        cliente_existente = db.exec(select(Cliente).where(Cliente.dni == data.dni)).first()
+        if cliente_existente:
+            cliente = cliente_existente
+            # Actualizar datos del cliente
+            cliente.nombre = data.nombre_completo
+            cliente.celular = data.celular
+            if data.patente:
+                cliente.patente = data.patente
+            db.add(cliente)
+            db.commit()
+            print(f"✅ Cliente existente actualizado: {cliente.nombre}")
+        else:
+            cliente = Cliente(
+                nombre=data.nombre_completo,
+                dni=data.dni,
+                celular=data.celular,
+                patente=data.patente
+            )
+            db.add(cliente)
+            db.commit()
+            db.refresh(cliente)
+            print(f"✅ Nuevo cliente creado: {cliente.nombre}")
+        
+        # Calcular noches
+        noches = (fecha_checkout - fecha_checkin).days
+        if noches <= 0:
+            noches = 1
+        
+        # Calcular precios
+        precio_por_noche = habitacion.precio if habitacion.precio else 0
+        precio_base = precio_por_noche * noches
+        extra_mascota = 7000 * noches if data.mascota else 0
+        precio_total = precio_base + extra_mascota
+        
+        # Calcular seña (50% del total)
+        seña = precio_total * 0.5
+        
+        # Preparar observaciones si hay mascota
+        observaciones = []
+        if data.mascota:
+            observaciones.append("🐾 Viaja con mascota pequeña")
+            if data.observaciones_mascota:
+                observaciones.append(f"Detalles mascota: {data.observaciones_mascota}")
+        observaciones_texto = " | ".join(observaciones) if observaciones else None
+        
+        # Crear reserva con estado PENDIENTE_SEÑA
+        reserva = Reserva(
+            cliente_id=cliente.id,
+            habitacion_id=data.habitacion_id,
+            fecha_checkin=fecha_checkin,
+            fecha_checkout=fecha_checkout,
+            seña=seña,
+            total_estadia=precio_total,
+            forma_pago="PENDIENTE_SEÑA",  # Estado inicial: pendiente de seña
+            nombre_huesped=data.nombre_completo + (f" ({observaciones_texto})" if observaciones_texto else ""),
+            origen="whatsapp"  # Marcar origen
+        )
+        db.add(reserva)
+        db.commit()
+        db.refresh(reserva)
+        
+        print(f"🎉 Reserva creada desde WhatsApp Bot - ID: {reserva.id}")
+        print(f"   - Total: ${precio_total:,.0f}")
+        print(f"   - Seña requerida: ${seña:,.0f}")
+        
+        return {
+            "success": True,
+            "mensaje": "Reserva creada exitosamente. Pendiente de seña del 50%.",
+            "reserva_id": reserva.id,
+            "cliente": {
+                "id": cliente.id,
+                "nombre": cliente.nombre,
+                "dni": cliente.dni,
+                "celular": cliente.celular
+            },
+            "habitacion": {
+                "id": habitacion.id,
+                "numero": habitacion.numero,
+                "tipo": habitacion.tipo,
+                "capacidad": habitacion.capacidad
+            },
+            "fechas": {
+                "checkin": data.fecha_ingreso,
+                "checkout": data.fecha_egreso,
+                "noches": noches
+            },
+            "precios": {
+                "precio_por_noche": precio_por_noche,
+                "precio_base": precio_base,
+                "extra_mascota": extra_mascota,
+                "precio_total": precio_total,
+                "seña_requerida": seña
+            },
+            "estado": "PENDIENTE_SEÑA",
+            "origen": "whatsapp",
+            "mascota": data.mascota
+        }
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Formato de fecha inválido: {str(e)}")
+    except Exception as e:
+        print(f"💥 Error al crear reserva desde bot: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error al crear reserva: {str(e)}")
 
 # 4. ENDPOINT PARA OBTENER ESTADÍSTICAS DE OCUPACIÓN
 @app.get("/ocupacion-estadisticas")
