@@ -2051,16 +2051,53 @@ def disponibilidad_inteligente(data: DisponibilidadInteligenteEntrada, db: Sessi
         # Obtener todas las habitaciones
         todas_habitaciones = db.exec(select(Habitacion)).all()
         
+        print(f"📊 Total habitaciones en BD: {len(todas_habitaciones)}")
+        
+        if not todas_habitaciones:
+            return {
+                "disponible": False,
+                "mensaje": "No hay habitaciones configuradas en el sistema. Ejecute POST /setup-habitaciones primero.",
+                "habitacion_seleccionada": None,
+                "precios": None,
+                "extras": None,
+                "debug": {
+                    "total_habitaciones": 0,
+                    "error": "No hay habitaciones en la base de datos",
+                    "solucion": "Ejecutar POST /setup-habitaciones para configurar las habitaciones"
+                }
+            }
+        
+        # Mostrar información de debug
+        for hab in todas_habitaciones:
+            print(f"   - Hab {hab.numero}: capacidad={hab.capacidad}, precio={hab.precio}, tipo={hab.tipo}")
+        
         # Filtrar por capacidad >= personas solicitadas
-        habitaciones_adecuadas = [h for h in todas_habitaciones if h.capacidad >= data.personas]
+        # Si capacidad es None, asumir capacidad mínima de 2 (por defecto del modelo)
+        habitaciones_adecuadas = []
+        for h in todas_habitaciones:
+            capacidad_real = h.capacidad if h.capacidad is not None else 2
+            if capacidad_real >= data.personas:
+                habitaciones_adecuadas.append(h)
+                print(f"✅ Hab {h.numero} adecuada: capacidad={capacidad_real} >= {data.personas}")
+            else:
+                print(f"❌ Hab {h.numero} NO adecuada: capacidad={capacidad_real} < {data.personas}")
         
         if not habitaciones_adecuadas:
+            print(f"⚠️ No se encontraron habitaciones con capacidad >= {data.personas}")
+            # Información adicional para debug
+            capacidades_disponibles = [h.capacidad if h.capacidad is not None else 2 for h in todas_habitaciones]
             return {
                 "disponible": False,
                 "mensaje": f"No hay habitaciones disponibles para {data.personas} personas",
                 "habitacion_seleccionada": None,
                 "precios": None,
-                "extras": None
+                "extras": None,
+                "debug": {
+                    "total_habitaciones": len(todas_habitaciones),
+                    "capacidades_disponibles": sorted(set(capacidades_disponibles)),
+                    "personas_solicitadas": data.personas,
+                    "recomendacion": "Ejecute POST /setup-habitaciones si las habitaciones no tienen capacidad configurada"
+                }
             }
         
         # Verificar disponibilidad en las fechas
