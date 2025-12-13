@@ -259,7 +259,29 @@ class ReservaBotEntrada(BaseModel):
 
 @app.on_event("startup")
 def crear_tablas():
+    """
+    Crea las tablas si no existen.
+    IMPORTANTE: create_all() solo crea tablas nuevas, NO las elimina ni recrea.
+    Si una tabla ya existe, NO se modifica.
+    """
+    # Verificar estado de la base de datos antes de crear tablas
+    try:
+        with Session(engine) as session:
+            # Intentar contar reservas existentes
+            try:
+                result = session.execute(text("SELECT COUNT(*) FROM reserva"))
+                count = result.scalar()
+                print(f"📊 [Startup] Reservas existentes en BD: {count}")
+                if count > 0:
+                    print(f"⚠️ [Startup] ADVERTENCIA: Hay {count} reservas existentes. Las tablas ya existen.")
+            except Exception as e:
+                print(f"ℹ️ [Startup] Tabla reserva no existe aún o error: {e}")
+    except Exception as e:
+        print(f"⚠️ [Startup] Error verificando BD: {e}")
+    
+    # Crear tablas solo si no existen (create_all es seguro, no elimina datos)
     SQLModel.metadata.create_all(engine)
+    print("✅ [Startup] Tablas verificadas/creadas")
 
 # ─────────── UTILIDADES ───────────
 def obtener_db():
