@@ -2132,14 +2132,15 @@ def disponibilidad_inteligente(data: DisponibilidadInteligenteEntrada, db: Sessi
                 AND fecha_checkin < :fecha_checkout 
                 AND fecha_checkout > :fecha_checkin
             """)
-            reservas_solapadas = db.exec(
+            result = db.execute(
                 query_sql,
                 {
                     "habitacion_id": habitacion.id,
                     "fecha_checkout": fecha_checkout,
                     "fecha_checkin": fecha_checkin
                 }
-            ).all()
+            )
+            reservas_solapadas = result.fetchall()
             
             if not reservas_solapadas:
                 habitaciones_disponibles.append({
@@ -2261,14 +2262,15 @@ def crear_reserva_bot(data: ReservaBotEntrada, db: Session = Depends(obtener_db)
             AND fecha_checkin < :fecha_checkout 
             AND fecha_checkout > :fecha_checkin
         """)
-        reservas_solapadas = db.exec(
+        result = db.execute(
             query_sql,
             {
                 "habitacion_id": data.habitacion_id,
                 "fecha_checkout": fecha_checkout,
                 "fecha_checkin": fecha_checkin
             }
-        ).all()
+        )
+        reservas_solapadas = result.fetchall()
         
         if reservas_solapadas:
             raise HTTPException(
