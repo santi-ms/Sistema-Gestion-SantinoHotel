@@ -143,6 +143,18 @@ class Stock(SQLModel, table=True):
     cantidad_minima: int = 0  # Cantidad mínima antes de alertar
     fecha_actualizacion: datetime = Field(default_factory=lambda: obtener_fecha_argentina())
 
+class ChatSession(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    phone: str = Field(unique=True, index=True)  # Número de WhatsApp (wa_id)
+    estado: str = Field(default="INICIO")  # Estados del chatbot
+    checkin: Optional[str] = None  # Fecha checkin en formato YYYY-MM-DD
+    checkout: Optional[str] = None  # Fecha checkout en formato YYYY-MM-DD
+    personas: Optional[int] = None
+    mascota: Optional[bool] = None
+    reserva_id: Optional[int] = None  # ID de reserva si se crea
+    bot_pausado: bool = Field(default=False)
+    updated_at: datetime = Field(default_factory=lambda: obtener_fecha_argentina())
+
 class MovimientoStock(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     stock_id: int  # ID del producto
@@ -257,6 +269,15 @@ class ReservaBotEntrada(BaseModel):
     mascota: bool = False
     observaciones_mascota: Optional[str] = None
 
+# ─────────── SCHEMAS PARA BOT DE WHATSAPP ───────────
+class BotMessageIn(BaseModel):
+    from_field: str = Field(alias="from")  # Número de WhatsApp
+    text: str
+
+class BotMessageOut(BaseModel):
+    reply: Optional[str] = None
+    action: Optional[str] = None  # Acción opcional (ej: "PAUSADO", "PEDIR_CHECKIN")
+
 @app.on_event("startup")
 def crear_tablas():
     """
@@ -266,16 +287,46 @@ def crear_tablas():
     """
     # Verificar estado de la base de datos antes de crear tablas
     try:
-        with Session(engine) as session:
+        with engine.connect() as connection:
             # Intentar contar reservas existentes
             try:
-                result = session.execute(text("SELECT COUNT(*) FROM reserva"))
+                result = connection.execute(text("SELECT COUNT(*) FROM reserva"))
                 count = result.scalar()
                 print(f"📊 [Startup] Reservas existentes en BD: {count}")
-                if count > 0:
-                    print(f"⚠️ [Startup] ADVERTENCIA: Hay {count} reservas existentes. Las tablas ya existen.")
             except Exception as e:
                 print(f"ℹ️ [Startup] Tabla reserva no existe aún o error: {e}")
+            
+            # Verificar y agregar columna 'origen' si falta (crítica para funcionamiento)
+            try:
+                if DATABASE_URL.startswith("postgres"):
+                    # PostgreSQL: verificar si existe la columna
+                    check_query = text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name = 'reserva' AND column_name = 'origen'
+                    """)
+                    result = connection.execute(check_query)
+                    exists = result.fetchone() is not None
+                    
+                    if not exists:
+                        print("⚠️ [Startup] Columna 'origen' no existe, agregándola...")
+                        connection.execute(text("ALTER TABLE reserva ADD COLUMN origen TEXT"))
+                        connection.commit()
+                        print("✅ [Startup] Columna 'origen' agregada correctamente")
+                    else:
+                        print("✅ [Startup] Columna 'origen' ya existe")
+                else:
+                    # SQLite: intentar agregar (fallará si ya existe)
+                    try:
+                        connection.execute(text("ALTER TABLE reserva ADD COLUMN origen TEXT"))
+                        connection.commit()
+                        print("✅ [Startup] Columna 'origen' agregada correctamente (SQLite)")
+                    except Exception as e:
+                        if "duplicate column" not in str(e).lower():
+                            raise
+                        print("✅ [Startup] Columna 'origen' ya existe")
+            except Exception as e:
+                print(f"⚠️ [Startup] Error verificando/agregando columna 'origen': {e}")
     except Exception as e:
         print(f"⚠️ [Startup] Error verificando BD: {e}")
     
@@ -2393,6 +2444,256 @@ def crear_reserva_bot(data: ReservaBotEntrada, db: Session = Depends(obtener_db)
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error al crear reserva: {str(e)}")
+
+# ─────────── ENDPOINT PARA BOT DE WHATSAPP ───────────
+@app.post("/api/bot/handle-message", response_model=BotMessageOut)
+def handle_bot_message(
+    data: BotMessageIn,
+    db: Session = Depends(obtener_db)
+):
+    """
+    Endpoint único para manejar mensajes del bot de WhatsApp.
+    
+    Recibe mensajes desde n8n/Evolution API y devuelve la respuesta a enviar.
+    Mantiene el estado de la conversación por número de teléfono.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        phone = data.from_field
+        texto = data.text.strip()
+        
+        logger.info(f"📱 Mensaje recibido de {phone}: '{texto}'")
+        
+        # Buscar o crear sesión
+        chat_session = db.exec(
+            select(ChatSession).where(ChatSession.phone == phone)
+        ).first()
+        
+        if not chat_session:
+            chat_session = ChatSession(
+                phone=phone,
+                estado="INICIO",
+                bot_pausado=False
+            )
+            db.add(chat_session)
+            db.commit()
+            db.refresh(chat_session)
+            logger.info(f"✅ Nueva sesión creada para {phone}")
+        else:
+            logger.info(f"📋 Sesión existente para {phone}, estado: {chat_session.estado}")
+        
+        estado_anterior = chat_session.estado
+        
+        # Si está pausado o derivado a humano, no responder
+        if chat_session.bot_pausado or chat_session.estado == "DERIVADO_A_HUMANO":
+            logger.info(f"🔇 Bot pausado o derivado a humano para {phone}, no respondiendo")
+            return BotMessageOut(reply=None, action="PAUSADO")
+        
+        # Importar service
+        from app.services.bot_service import (
+            procesar_mensaje,
+            generar_respuesta_confirmacion_reserva,
+            ESTADO_INICIO,
+            ESTADO_ESPERANDO_CHECKIN,
+            ESTADO_MOSTRANDO_DISPONIBILIDAD,
+            ESTADO_ESPERANDO_CONFIRMACION,
+            ESTADO_DERIVADO_A_HUMANO
+        )
+        
+        # Procesar mensaje
+        reply, nuevo_estado, datos_adicionales = procesar_mensaje(chat_session, texto)
+        
+        # Aplicar cambios según datos adicionales
+        if datos_adicionales.get("reset_campos"):
+            chat_session.checkin = None
+            chat_session.checkout = None
+            chat_session.personas = None
+            chat_session.mascota = None
+            chat_session.reserva_id = None
+            chat_session.bot_pausado = False
+        
+        if datos_adicionales.get("reset_fechas"):
+            chat_session.checkin = None
+            chat_session.checkout = None
+        
+        if datos_adicionales.get("limpiar_reserva_id"):
+            chat_session.reserva_id = None
+        
+        if datos_adicionales.get("pausar_bot"):
+            chat_session.bot_pausado = True
+        
+        # Actualizar campos si vienen en datos_adicionales
+        if "checkin" in datos_adicionales:
+            chat_session.checkin = datos_adicionales["checkin"]
+        if "checkout" in datos_adicionales:
+            chat_session.checkout = datos_adicionales["checkout"]
+        if "personas" in datos_adicionales:
+            chat_session.personas = datos_adicionales["personas"]
+        if "mascota" in datos_adicionales:
+            chat_session.mascota = datos_adicionales["mascota"]
+        
+        chat_session.estado = nuevo_estado
+        chat_session.updated_at = obtener_fecha_argentina()
+        
+        # Si necesita consultar disponibilidad
+        if datos_adicionales.get("necesita_disponibilidad"):
+            if chat_session.checkin and chat_session.checkout and chat_session.personas is not None and chat_session.mascota is not None:
+                # Llamar endpoint interno de disponibilidad
+                from app.services.availability_service import (
+                    get_available_rooms,
+                    pick_best_room,
+                    calculate_pricing,
+                    calculate_nights
+                )
+                
+                fecha_checkin = datetime.strptime(chat_session.checkin, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+                fecha_checkout = datetime.strptime(chat_session.checkout, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+                
+                habitaciones = get_available_rooms(
+                    session=db,
+                    checkin=fecha_checkin,
+                    checkout=fecha_checkout,
+                    personas=chat_session.personas
+                )
+                
+                mejor_habitacion = pick_best_room(habitaciones, chat_session.personas)
+                
+                if mejor_habitacion:
+                    noches = calculate_nights(fecha_checkin, fecha_checkout)
+                    precios = calculate_pricing(
+                        habitacion=mejor_habitacion,
+                        noches=noches,
+                        mascota=chat_session.mascota
+                    )
+                    
+                    disponibilidad_data = {
+                        "disponible": True,
+                        "habitacion_seleccionada": {
+                            "id": mejor_habitacion.id,
+                            "numero": mejor_habitacion.numero,
+                            "tipo": mejor_habitacion.tipo,
+                            "capacidad": mejor_habitacion.capacidad
+                        },
+                        "precios": precios
+                    }
+                    
+                    # Reprocesar con datos de disponibilidad
+                    reply, nuevo_estado, datos_adicionales = procesar_mensaje(
+                        chat_session,
+                        texto,
+                        disponibilidad_data
+                    )
+                    
+                    if "habitacion_id" in datos_adicionales:
+                        # Guardar habitacion_id temporalmente - lo usaremos cuando se confirme
+                        pass
+                    
+                    chat_session.estado = nuevo_estado
+                else:
+                    disponibilidad_data = {
+                        "disponible": False,
+                        "mensaje": "No hay habitaciones disponibles para las fechas solicitadas"
+                    }
+                    
+                    reply, nuevo_estado, datos_adicionales = procesar_mensaje(
+                        chat_session,
+                        texto,
+                        disponibilidad_data
+                    )
+                    chat_session.estado = nuevo_estado
+                    if datos_adicionales.get("reset_fechas"):
+                        chat_session.checkin = None
+                        chat_session.checkout = None
+        
+        # Si necesita crear reserva
+        if datos_adicionales.get("confirmar_reserva"):
+            if chat_session.checkin and chat_session.checkout and chat_session.personas and chat_session.mascota is not None:
+                # Necesitamos habitacion_id - reconsultamos disponibilidad si no lo tenemos
+                habitacion_id = datos_adicionales.get("habitacion_id")
+                
+                if not habitacion_id:
+                    fecha_checkin = datetime.strptime(chat_session.checkin, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+                    fecha_checkout = datetime.strptime(chat_session.checkout, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+                    
+                    from app.services.availability_service import get_available_rooms, pick_best_room
+                    habitaciones = get_available_rooms(
+                        session=db,
+                        checkin=fecha_checkin,
+                        checkout=fecha_checkout,
+                        personas=chat_session.personas
+                    )
+                    mejor_habitacion = pick_best_room(habitaciones, chat_session.personas)
+                    if mejor_habitacion:
+                        habitacion_id = mejor_habitacion.id
+                
+                if habitacion_id:
+                    # Crear reserva usando lógica similar a crear_reserva_bot
+                    # Por ahora usamos datos mínimos - en producción el bot debería pedir nombre/dni
+                    nombre_temp = f"Cliente WhatsApp {phone[-4:]}"
+                    dni_temp = f"WA-{phone[-8:]}"
+                    
+                    # Crear o buscar cliente
+                    cliente_existente = db.exec(select(Cliente).where(Cliente.dni == dni_temp)).first()
+                    if cliente_existente:
+                        cliente = cliente_existente
+                    else:
+                        cliente = Cliente(
+                            nombre=nombre_temp,
+                            dni=dni_temp,
+                            celular=phone,
+                            patente=None
+                        )
+                        db.add(cliente)
+                        db.commit()
+                        db.refresh(cliente)
+                    
+                    # Crear reserva
+                    fecha_checkin = datetime.strptime(chat_session.checkin, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+                    fecha_checkout = datetime.strptime(chat_session.checkout, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+                    
+                    from app.services.availability_service import calculate_nights, calculate_pricing
+                    
+                    habitacion = db.get(Habitacion, habitacion_id)
+                    if habitacion:
+                        noches = calculate_nights(fecha_checkin, fecha_checkout)
+                        precios = calculate_pricing(habitacion, noches, chat_session.mascota)
+                        seña = precios["precio_total"] * 0.5
+                        
+                        nueva_reserva = Reserva(
+                            cliente_id=cliente.id,
+                            habitacion_id=habitacion_id,
+                            fecha_checkin=fecha_checkin,
+                            fecha_checkout=fecha_checkout,
+                            seña=seña,
+                            total_estadia=precios["precio_total"],
+                            forma_pago="PENDIENTE_SEÑA",
+                            nombre_huesped=nombre_temp,
+                            origen="whatsapp"
+                        )
+                        db.add(nueva_reserva)
+                        db.commit()
+                        db.refresh(nueva_reserva)
+                        
+                        chat_session.reserva_id = nueva_reserva.id
+                        chat_session.estado = ESTADO_DERIVADO_A_HUMANO
+                        
+                        reply = generar_respuesta_confirmacion_reserva(nueva_reserva.id, seña)
+                        logger.info(f"✅ Reserva creada: {nueva_reserva.id} para {phone}")
+        
+        # Guardar cambios
+        db.add(chat_session)
+        db.commit()
+        
+        logger.info(f"📤 Estado {estado_anterior} → {nuevo_estado} para {phone}")
+        logger.info(f"💬 Reply: {reply[:50] if reply else 'None'}...")
+        
+        return BotMessageOut(reply=reply, action=None)
+        
+    except Exception as e:
+        logger.error(f"💥 Error en handle_bot_message: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error al procesar mensaje: {str(e)}")
 
 # 4. ENDPOINT PARA OBTENER ESTADÍSTICAS DE OCUPACIÓN
 @app.get("/ocupacion-estadisticas")

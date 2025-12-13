@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  evolution:
+    image: atendai/evolution-api:latest
+    container_name: evolution-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVER_URL=http://${SERVER_IP:-localhost}:8080
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:-change-me}
+      - DATABASE_ENABLED=true
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_POSTGRES_HOST=evolution-db
+      - DATABASE_POSTGRES_PORT=5432
+      - DATABASE_POSTGRES_USER=${POSTGRES_USER:-evolution}
+      - DATABASE_POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-evolution123}
+      - DATABASE_POSTGRES_DBNAME=${POSTGRES_DBNAME:-evolution}
+      - REDIS_ENABLED=true
+      - REDIS_URI=redis://evolution-redis:6379
+    volumes:
+      - evolution_store:/evolution/store
+      - evolution_instance:/evolution/instances
+    networks:
+      - whatsapp-network
+    depends_on:
+      - evolution-db
+      - evolution-redis
+
+  evolution-db:
+    image: postgres:15-alpine
+    container_name: evolution-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-evolution}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-evolution123}
+      - POSTGRES_DB=${POSTGRES_DBNAME:-evolution}
+    volumes:
+      - evolution_db_data:/var/lib/postgresql/data
+    networks:
+      - whatsapp-network
+
+  evolution-redis:
+    image: redis:7-alpine
+    container_name: evolution-redis
+    restart: unless-stopped
+    networks:
+      - whatsapp-network
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD}
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://${SERVER_IP:-localhost}:5678
+      - GENERIC_TIMEZONE=America/Argentina/Buenos_Aires
+      - TZ=America/Argentina/Buenos_Aires
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - whatsapp-network
+
+volumes:
+  evolution_store:
+  evolution_instance:
+  evolution_db_data:
+  n8n_data:
+
+networks:
+  whatsapp-network:
+    driver: bridge
+

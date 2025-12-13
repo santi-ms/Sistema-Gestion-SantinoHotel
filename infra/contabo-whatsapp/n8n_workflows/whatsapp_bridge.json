@@ -1,0 +1,267 @@
+{
+  "name": "WhatsApp Bot Bridge - Evolution API to Backend",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "evolution-message",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-evolution",
+      "name": "Webhook - Evolution API",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "evolution-message"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"received\" } }}"
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Debug: Guardar body completo\nconst body = $input.all()[0].json;\n\n// Log completo para debugging\nconsole.log('Evolution API Body:', JSON.stringify(body, null, 2));\n\n// Mapear según estructura de Evolution API\n// Evolution API envía los eventos en diferentes formatos\n// Aquí asumimos que viene en body.data o body directamente\n\nlet fromNumber = null;\nlet textMessage = null;\n\n// Intentar extraer desde diferentes estructuras posibles de Evolution API\nif (body.data) {\n  if (body.data.key) {\n    fromNumber = body.data.key.remoteJid?.replace('@s.whatsapp.net', '');\n  }\n  if (body.data.message) {\n    // Buscar mensaje de texto\n    if (body.data.message.conversation) {\n      textMessage = body.data.message.conversation;\n    } else if (body.data.message.extendedTextMessage) {\n      textMessage = body.data.message.extendedTextMessage.text;\n    }\n  }\n}\n\n// Si no encontramos, intentar en body directamente\nif (!fromNumber && body.key) {\n  fromNumber = body.key.remoteJid?.replace('@s.whatsapp.net', '');\n}\n\nif (!textMessage && body.message) {\n  if (body.message.conversation) {\n    textMessage = body.message.conversation;\n  } else if (body.message.extendedTextMessage) {\n    textMessage = body.message.extendedTextMessage.text;\n  }\n}\n\n// Si aún no encontramos, intentar desde eventData\nif (!fromNumber && body.eventData) {\n  fromNumber = body.eventData.key?.remoteJid?.replace('@s.whatsapp.net', '');\n  textMessage = body.eventData.message?.conversation || body.eventData.message?.extendedTextMessage?.text;\n}\n\nreturn {\n  json: {\n    originalBody: body,\n    from: fromNumber,\n    text: textMessage || '',\n    hasData: !!fromNumber && !!textMessage\n  }\n};"
+      },
+      "id": "extract-data",
+      "name": "Extract Message Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-has-data",
+              "leftValue": "={{ $json.hasData }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-has-data",
+      "name": "Has Valid Data?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BOT_BACKEND_URL }}/api/bot/handle-message",
+        "authentication": "none",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "from",
+              "value": "={{ $json.from }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.text }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "call-backend",
+      "name": "Call Backend Bot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [910, 200],
+      "notes": "Llama al endpoint del backend que procesa el mensaje y devuelve la respuesta"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-reply-not-null",
+              "leftValue": "={{ $json.reply }}",
+              "rightValue": null,
+              "operator": {
+                "type": "object",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-reply",
+      "name": "Has Reply?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1130, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://{{ $env.SERVER_IP }}:8080/message/sendText/{{ $env.EVOLUTION_INSTANCE_NAME }}",
+        "authentication": "headerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.EVOLUTION_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "number",
+              "value": "={{ $('Extract Message Data').item.json.from }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $json.reply }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-evolution",
+      "name": "Send Message to Evolution",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1350, 200],
+      "notes": "Envía el mensaje de respuesta a Evolution API, que lo reenvía por WhatsApp"
+    }
+  ],
+  "connections": {
+    "Webhook - Evolution API": {
+      "main": [
+        [
+          {
+            "node": "Extract Message Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Message Data": {
+      "main": [
+        [
+          {
+            "node": "Has Valid Data?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Valid Data?": {
+      "main": [
+        [
+          {
+            "node": "Call Backend Bot",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Backend Bot": {
+      "main": [
+        [
+          {
+            "node": "Has Reply?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Reply?": {
+      "main": [
+        [
+          {
+            "node": "Send Message to Evolution",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Message to Evolution": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2025-12-12T22:30:00.000Z",
+  "versionId": "1"
+}
+
