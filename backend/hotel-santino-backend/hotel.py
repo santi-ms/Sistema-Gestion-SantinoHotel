@@ -357,13 +357,34 @@ def arreglar_base_datos(db: Session = Depends(obtener_db), token: dict = Depends
             try:
                 # Agregar columna origen si no existe (para tracking de origen: whatsapp, web, gestion)
                 if DATABASE_URL.startswith("postgres"):
-                    connection.execute(text("ALTER TABLE reserva ADD COLUMN IF NOT EXISTS origen TEXT"))
+                    # Para PostgreSQL, verificar primero si existe
+                    try:
+                        check_result = connection.execute(text("SELECT column_name FROM information_schema.columns WHERE table_name='reserva' AND column_name='origen'"))
+                        exists = check_result.fetchone() is not None
+                        if not exists:
+                            connection.execute(text("ALTER TABLE reserva ADD COLUMN origen TEXT"))
+                            connection.commit()
+                            print("✅ Columna 'origen' agregada a tabla reserva (PostgreSQL)")
+                        else:
+                            print("ℹ️ Columna 'origen' ya existe en PostgreSQL")
+                    except Exception as e:
+                        print(f"⚠️ Error verificando/existiendo columna 'origen' en PostgreSQL: {e}")
+                        # Intentar agregar de todas formas
+                        try:
+                            connection.execute(text("ALTER TABLE reserva ADD COLUMN origen TEXT"))
+                            connection.commit()
+                            print("✅ Columna 'origen' agregada a tabla reserva (PostgreSQL - sin verificación)")
+                        except Exception as e2:
+                            if "already exists" not in str(e2).lower() and "duplicate column" not in str(e2).lower():
+                                print(f"⚠️ Error al agregar columna 'origen': {e2}")
                 else:
+                    # Para SQLite
                     connection.execute(text("ALTER TABLE reserva ADD COLUMN origen TEXT"))
-                print("✅ Columna 'origen' agregada a tabla reserva")
+                    connection.commit()
+                    print("✅ Columna 'origen' agregada a tabla reserva (SQLite)")
             except Exception as e:
                 # Si la columna ya existe, ignorar el error
-                if "already exists" not in str(e).lower() and "duplicate column" not in str(e).lower():
+                if "already exists" not in str(e).lower() and "duplicate column" not in str(e).lower() and "already" not in str(e).lower():
                     print(f"⚠️ Columna 'origen': {e}")
                 else:
                     print("ℹ️ Columna 'origen' ya existe")
