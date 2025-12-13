@@ -6,3 +6,5 @@ python-jose[cryptography]
 python-multipart
 pydantic
 psycopg2-binary>=2.9
+alembic
+pytest

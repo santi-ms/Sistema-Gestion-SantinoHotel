@@ -487,3 +487,4 @@ PUT /reservas/{reserva_id}
 **Última actualización:** 2025-02-15  
 **Versión del análisis:** 1.0
 
+

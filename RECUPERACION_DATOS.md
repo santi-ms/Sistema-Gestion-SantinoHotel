@@ -67,3 +67,4 @@ SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';
 - ✅ Uso de ALTER TABLE en lugar de recrear tablas
 - ⚠️ **RECOMENDACIÓN**: Configurar backups automáticos diarios en Railway
 
+

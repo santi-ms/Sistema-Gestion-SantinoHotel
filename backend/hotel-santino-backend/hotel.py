@@ -1591,60 +1591,98 @@ def actualizar_estado_sena(
 @app.post("/setup-habitaciones")
 def configurar_habitaciones_completas(db: Session = Depends(obtener_db)):
     """
-    Configura todas las 15 habitaciones del Complejo Santino con sus precios y capacidades reales
+    Configura todas las 15 habitaciones del Complejo Santino (idempotente).
+    
+    - Crea habitaciones faltantes (1..15)
+    - Actualiza capacidad si está NULL o incorrecta
+    - Actualiza precio si está NULL o incorrecto
+    - No duplica por número
+    - Seguro de ejecutar múltiples veces
+    
+    Returns:
+        Resumen: creadas, actualizadas, intactas
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         # Configuración real de habitaciones del Complejo Santino
+        # Basada en las reglas de negocio: capacidades según número
         habitaciones_config = [
-            # Habitaciones Estándar para 5 personas
+            # Habitaciones Estándar para 5 personas (1-4)
             {"numero": 1, "tipo": "Estándar", "capacidad": 5, "precio": 90000},
             {"numero": 2, "tipo": "Estándar", "capacidad": 5, "precio": 90000},
             {"numero": 3, "tipo": "Estándar", "capacidad": 5, "precio": 90000},
             {"numero": 4, "tipo": "Estándar", "capacidad": 5, "precio": 90000},
             
-            # Habitación Estándar para 4 personas
+            # Habitación Estándar para 4 personas (5)
             {"numero": 5, "tipo": "Estándar", "capacidad": 4, "precio": 80000},
             
-            # Habitaciones Estándar para 1-2 personas (precio para 2 personas, mínimo 1)
-            {"numero": 6, "tipo": "Estándar", "capacidad": 2, "precio": 50000},  # $40k para 1 persona, $50k para 2
-            {"numero": 11, "tipo": "Estándar", "capacidad": 2, "precio": 50000}, # $40k para 1 persona, $50k para 2
+            # Habitaciones Estándar para 2 personas (6, 11)
+            {"numero": 6, "tipo": "Estándar", "capacidad": 2, "precio": 50000},
+            {"numero": 11, "tipo": "Estándar", "capacidad": 2, "precio": 50000},
             
-            # Habitación Estándar para 6 personas
+            # Habitación Estándar para 6 personas (7)
             {"numero": 7, "tipo": "Estándar", "capacidad": 6, "precio": 100000},
             
-            # Habitaciones Estándar para 3 personas
+            # Habitaciones Estándar para 3 personas (8, 9)
             {"numero": 8, "tipo": "Estándar", "capacidad": 3, "precio": 65000},
             {"numero": 9, "tipo": "Estándar", "capacidad": 3, "precio": 65000},
             
-            # Habitación Estándar para 7 personas
+            # Habitación Estándar para 7 personas (10)
             {"numero": 10, "tipo": "Estándar", "capacidad": 7, "precio": 110000},
             
-            # Habitaciones Confort para 4 personas
+            # Habitaciones Confort para 4 personas (12-15)
             {"numero": 12, "tipo": "Confort", "capacidad": 4, "precio": 90000},
             {"numero": 13, "tipo": "Confort", "capacidad": 4, "precio": 90000},
             {"numero": 14, "tipo": "Confort", "capacidad": 4, "precio": 90000},
             {"numero": 15, "tipo": "Confort", "capacidad": 4, "precio": 90000},
         ]
         
+        creadas = []
+        actualizadas = []
+        intactas = []
+        
         for config in habitaciones_config:
-            # Buscar si la habitación ya existe
+            # Buscar habitación existente por número (único)
             habitacion_existente = db.exec(
                 select(Habitacion).where(Habitacion.numero == config["numero"])
             ).first()
             
             descripcion = f"Habitación {config['tipo']} para {config['capacidad']} personas"
             
-            # Agregar info especial para hab. 6 y 11
+            # Info especial para hab. 6 y 11
             if config["numero"] in [6, 11]:
                 descripcion += " (1 persona: $40,000 | 2 personas: $50,000)"
             
             if habitacion_existente:
-                # Actualizar habitación existente
-                habitacion_existente.tipo = config["tipo"]
-                habitacion_existente.capacidad = config["capacidad"]
-                habitacion_existente.precio = config["precio"]
+                # Verificar si necesita actualización
+                necesita_actualizacion = False
+                
+                # Actualizar capacidad si es NULL o incorrecta
+                if habitacion_existente.capacidad is None or habitacion_existente.capacidad != config["capacidad"]:
+                    habitacion_existente.capacidad = config["capacidad"]
+                    necesita_actualizacion = True
+                
+                # Actualizar precio si es NULL o incorrecto
+                if habitacion_existente.precio is None or habitacion_existente.precio != config["precio"]:
+                    habitacion_existente.precio = config["precio"]
+                    necesita_actualizacion = True
+                
+                # Actualizar tipo si es diferente
+                if habitacion_existente.tipo != config["tipo"]:
+                    habitacion_existente.tipo = config["tipo"]
+                    necesita_actualizacion = True
+                
+                # Actualizar descripción siempre (puede haber cambiado)
                 habitacion_existente.descripcion = descripcion
-                db.add(habitacion_existente)
+                
+                if necesita_actualizacion:
+                    db.add(habitacion_existente)
+                    actualizadas.append(config["numero"])
+                    logger.info(f"Habitación {config['numero']} actualizada: capacidad={config['capacidad']}, precio={config['precio']}")
+                else:
+                    intactas.append(config["numero"])
             else:
                 # Crear nueva habitación
                 nueva_habitacion = Habitacion(
@@ -1655,27 +1693,39 @@ def configurar_habitaciones_completas(db: Session = Depends(obtener_db)):
                     descripcion=descripcion
                 )
                 db.add(nueva_habitacion)
+                creadas.append(config["numero"])
+                logger.info(f"Habitación {config['numero']} creada: capacidad={config['capacidad']}, precio={config['precio']}")
         
         db.commit()
+        logger.info(f"Setup habitaciones completado: {len(creadas)} creadas, {len(actualizadas)} actualizadas, {len(intactas)} intactas")
         
         return {
             "success": True,
-            "mensaje": "✅ Complejo Santino - 15 habitaciones configuradas correctamente",
-            "habitaciones_configuradas": len(habitaciones_config),
-            "detalles": {
-                "estandar_5_personas": "Hab. 1-4: $90,000",
-                "estandar_4_personas": "Hab. 5: $80,000", 
-                "estandar_1_2_personas": "Hab. 6,11: $40k-$50k",
-                "estandar_6_personas": "Hab. 7: $100,000",
-                "estandar_3_personas": "Hab. 8,9: $65,000",
-                "estandar_7_personas": "Hab. 10: $110,000",
-                "confort_4_personas": "Hab. 12-15: $90,000"
+            "mensaje": f"✅ Complejo Santino - 15 habitaciones configuradas correctamente",
+            "resumen": {
+                "creadas": len(creadas),
+                "actualizadas": len(actualizadas),
+                "intactas": len(intactas),
+                "total": len(habitaciones_config)
             },
-            "nota": "Precios en efectivo/transferencia: descuento de $10,000 en la mayoría"
+            "detalle": {
+                "creadas": creadas,
+                "actualizadas": actualizadas,
+                "intactas": intactas
+            },
+            "detalles": {
+                "estandar_5_personas": "Hab. 1-4: $90,000 (capacidad 5)",
+                "estandar_4_personas": "Hab. 5: $80,000 (capacidad 4)", 
+                "estandar_2_personas": "Hab. 6,11: $50,000 (capacidad 2)",
+                "estandar_6_personas": "Hab. 7: $100,000 (capacidad 6)",
+                "estandar_3_personas": "Hab. 8,9: $65,000 (capacidad 3)",
+                "estandar_7_personas": "Hab. 10: $110,000 (capacidad 7)",
+                "confort_4_personas": "Hab. 12-15: $90,000 (capacidad 4)"
+            }
         }
         
     except Exception as e:
-        print(f"Error al configurar habitaciones: {e}")
+        logger.error(f"Error al configurar habitaciones: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
 # 2. ENDPOINT PARA VERIFICAR DISPONIBILIDAD
@@ -2075,13 +2125,14 @@ def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db))
 def disponibilidad_inteligente(data: DisponibilidadInteligenteEntrada, db: Session = Depends(obtener_db)):
     """
     Endpoint inteligente para verificar disponibilidad y encontrar la mejor habitación.
-    Filtra por capacidad, ordena por capacidad ascendente y selecciona la mejor opción.
+    
+    Usa el service de disponibilidad que encapsula toda la lógica de negocio.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
-        print(f"🤖 [WhatsApp Bot] Verificando disponibilidad inteligente:")
-        print(f"   - Fechas: {data.checkin} a {data.checkout}")
-        print(f"   - Personas: {data.personas}")
-        print(f"   - Mascota: {data.mascota}")
+        logger.info(f"Verificando disponibilidad: checkin={data.checkin}, checkout={data.checkout}, personas={data.personas}, mascota={data.mascota}")
         
         # Convertir fechas
         fecha_checkin = datetime.strptime(data.checkin, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
@@ -2091,141 +2142,74 @@ def disponibilidad_inteligente(data: DisponibilidadInteligenteEntrada, db: Sessi
         if fecha_checkout <= fecha_checkin:
             raise HTTPException(status_code=400, detail="La fecha de egreso debe ser posterior a la fecha de ingreso")
         
-        # Obtener todas las habitaciones
-        todas_habitaciones = db.exec(select(Habitacion)).all()
+        # Importar service (aquí para evitar imports circulares)
+        from app.services.availability_service import (
+            get_available_rooms,
+            pick_best_room,
+            calculate_pricing,
+            calculate_nights
+        )
         
-        print(f"📊 Total habitaciones en BD: {len(todas_habitaciones)}")
+        # Obtener habitaciones disponibles usando el service
+        habitaciones_disponibles = get_available_rooms(
+            session=db,
+            checkin=fecha_checkin,
+            checkout=fecha_checkout,
+            personas=data.personas
+        )
         
-        if not todas_habitaciones:
+        logger.info(f"Habitaciones candidatas encontradas: {len(habitaciones_disponibles)}")
+        
+        # Seleccionar la mejor habitación
+        mejor_habitacion = pick_best_room(habitaciones_disponibles, data.personas)
+        
+        if not mejor_habitacion:
+            logger.warning(f"No hay habitaciones disponibles para {data.personas} personas en fechas {data.checkin} a {data.checkout}")
             return {
                 "disponible": False,
-                "mensaje": "No hay habitaciones configuradas en el sistema. Ejecute POST /setup-habitaciones primero.",
-                "habitacion_seleccionada": None,
-                "precios": None,
-                "extras": None,
-                "debug": {
-                    "total_habitaciones": 0,
-                    "error": "No hay habitaciones en la base de datos",
-                    "solucion": "Ejecutar POST /setup-habitaciones para configurar las habitaciones"
-                }
-            }
-        
-        # Mostrar información de debug
-        for hab in todas_habitaciones:
-            print(f"   - Hab {hab.numero}: capacidad={hab.capacidad}, precio={hab.precio}, tipo={hab.tipo}")
-        
-        # Filtrar por capacidad >= personas solicitadas
-        # Si capacidad es None, asumir capacidad mínima de 2 (por defecto del modelo)
-        habitaciones_adecuadas = []
-        for h in todas_habitaciones:
-            capacidad_real = h.capacidad if h.capacidad is not None else 2
-            if capacidad_real >= data.personas:
-                habitaciones_adecuadas.append(h)
-                print(f"✅ Hab {h.numero} adecuada: capacidad={capacidad_real} >= {data.personas}")
-            else:
-                print(f"❌ Hab {h.numero} NO adecuada: capacidad={capacidad_real} < {data.personas}")
-        
-        if not habitaciones_adecuadas:
-            print(f"⚠️ No se encontraron habitaciones con capacidad >= {data.personas}")
-            # Información adicional para debug
-            capacidades_disponibles = [h.capacidad if h.capacidad is not None else 2 for h in todas_habitaciones]
-            return {
-                "disponible": False,
-                "mensaje": f"No hay habitaciones disponibles para {data.personas} personas",
-                "habitacion_seleccionada": None,
-                "precios": None,
-                "extras": None,
-                "debug": {
-                    "total_habitaciones": len(todas_habitaciones),
-                    "capacidades_disponibles": sorted(set(capacidades_disponibles)),
-                    "personas_solicitadas": data.personas,
-                    "recomendacion": "Ejecute POST /setup-habitaciones si las habitaciones no tienen capacidad configurada"
-                }
-            }
-        
-        # Verificar disponibilidad en las fechas
-        # Usar SQL directo para evitar problemas con columna 'origen' que puede no existir
-        habitaciones_disponibles = []
-        for habitacion in habitaciones_adecuadas:
-            # Usar SQL directo para verificar disponibilidad sin depender del modelo completo
-            query_sql = text("""
-                SELECT id FROM reserva 
-                WHERE habitacion_id = :habitacion_id 
-                AND fecha_checkin < :fecha_checkout 
-                AND fecha_checkout > :fecha_checkin
-            """)
-            result = db.execute(
-                query_sql,
-                {
-                    "habitacion_id": habitacion.id,
-                    "fecha_checkout": fecha_checkout,
-                    "fecha_checkin": fecha_checkin
-                }
-            )
-            reservas_solapadas = result.fetchall()
-            
-            if not reservas_solapadas:
-                habitaciones_disponibles.append({
-                    "id": habitacion.id,
-                    "numero": habitacion.numero,
-                    "tipo": habitacion.tipo,
-                    "capacidad": habitacion.capacidad,
-                    "precio": habitacion.precio if habitacion.precio else 0,
-                    "descripcion": habitacion.descripcion
-                })
-        
-        if not habitaciones_disponibles:
-            return {
-                "disponible": False,
-                "mensaje": f"No hay habitaciones libres para las fechas solicitadas",
+                "mensaje": f"No hay habitaciones disponibles para {data.personas} personas en las fechas solicitadas",
                 "habitacion_seleccionada": None,
                 "precios": None,
                 "extras": None
             }
         
-        # Ordenar por capacidad ascendente (luego por precio)
-        habitaciones_disponibles.sort(key=lambda h: (h["capacidad"], h["precio"], h["numero"]))
+        logger.info(f"Mejor habitación seleccionada: Hab {mejor_habitacion.numero} (capacidad={mejor_habitacion.capacidad})")
         
-        # Seleccionar la mejor habitación (menor capacidad que cumpla, menor precio)
-        mejor_habitacion = habitaciones_disponibles[0]
+        # Calcular noches
+        noches = calculate_nights(fecha_checkin, fecha_checkout)
         
-        # Calcular precios
-        noches = (fecha_checkout - fecha_checkin).days
-        if noches <= 0:
-            noches = 1
+        # Calcular precios usando el service
+        precios = calculate_pricing(
+            habitacion=mejor_habitacion,
+            noches=noches,
+            mascota=data.mascota
+        )
         
-        precio_por_noche = mejor_habitacion["precio"]
-        precio_base = precio_por_noche * noches
-        extra_mascota = 7000 * noches if data.mascota else 0
-        precio_total = precio_base + extra_mascota
-        
-        # Preparar respuesta
-        extras = {}
+        # Preparar extras
+        extras = None
         if data.mascota:
-            extras["mascota"] = {
-                "incluida": True,
-                "precio_por_noche": 7000,
-                "total": extra_mascota
+            extras = {
+                "mascota": {
+                    "incluida": True,
+                    "precio_por_noche": 7000,
+                    "total": precios["extra_mascota"]
+                }
             }
+        
+        logger.info(f"Disponibilidad verificada: Hab {mejor_habitacion.numero} disponible, precio_total={precios['precio_total']}")
         
         return {
             "disponible": True,
-            "mensaje": f"Habitación {mejor_habitacion['numero']} disponible",
+            "mensaje": f"Habitación {mejor_habitacion.numero} disponible",
             "habitacion_seleccionada": {
-                "id": mejor_habitacion["id"],
-                "numero": mejor_habitacion["numero"],
-                "tipo": mejor_habitacion["tipo"],
-                "capacidad": mejor_habitacion["capacidad"],
-                "descripcion": mejor_habitacion["descripcion"]
+                "id": mejor_habitacion.id,
+                "numero": mejor_habitacion.numero,
+                "tipo": mejor_habitacion.tipo,
+                "capacidad": mejor_habitacion.capacidad,
+                "descripcion": mejor_habitacion.descripcion
             },
-            "precios": {
-                "precio_por_noche": precio_por_noche,
-                "noches": noches,
-                "precio_base": precio_base,
-                "extra_mascota": extra_mascota,
-                "precio_total": precio_total
-            },
-            "extras": extras if extras else None,
+            "precios": precios,
+            "extras": extras,
             "fechas": {
                 "checkin": data.checkin,
                 "checkout": data.checkout
@@ -2233,11 +2217,12 @@ def disponibilidad_inteligente(data: DisponibilidadInteligenteEntrada, db: Sessi
         }
         
     except ValueError as e:
+        logger.error(f"Error de formato de fecha: {str(e)}")
         raise HTTPException(status_code=400, detail=f"Formato de fecha inválido: {str(e)}")
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"💥 Error en disponibilidad-inteligente: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error en disponibilidad-inteligente: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error al verificar disponibilidad: {str(e)}")
 
 @app.post("/api/reservas/bot")
