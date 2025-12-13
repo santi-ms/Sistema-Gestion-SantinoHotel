@@ -2122,14 +2122,23 @@ def disponibilidad_inteligente(data: DisponibilidadInteligenteEntrada, db: Sessi
             }
         
         # Verificar disponibilidad en las fechas
+        # Usar SQL directo para evitar problemas con columna 'origen' que puede no existir
         habitaciones_disponibles = []
         for habitacion in habitaciones_adecuadas:
+            # Usar SQL directo para verificar disponibilidad sin depender del modelo completo
+            query_sql = text("""
+                SELECT id FROM reserva 
+                WHERE habitacion_id = :habitacion_id 
+                AND fecha_checkin < :fecha_checkout 
+                AND fecha_checkout > :fecha_checkin
+            """)
             reservas_solapadas = db.exec(
-                select(Reserva).where(
-                    Reserva.habitacion_id == habitacion.id,
-                    Reserva.fecha_checkin < fecha_checkout,
-                    Reserva.fecha_checkout > fecha_checkin
-                )
+                query_sql,
+                {
+                    "habitacion_id": habitacion.id,
+                    "fecha_checkout": fecha_checkout,
+                    "fecha_checkin": fecha_checkin
+                }
             ).all()
             
             if not reservas_solapadas:
@@ -2245,12 +2254,20 @@ def crear_reserva_bot(data: ReservaBotEntrada, db: Session = Depends(obtener_db)
             )
         
         # ✅ VALIDAR DISPONIBILIDAD - Verificar que la habitación siga libre
+        # Usar SQL directo para evitar problemas con columna 'origen' que puede no existir
+        query_sql = text("""
+            SELECT id FROM reserva 
+            WHERE habitacion_id = :habitacion_id 
+            AND fecha_checkin < :fecha_checkout 
+            AND fecha_checkout > :fecha_checkin
+        """)
         reservas_solapadas = db.exec(
-            select(Reserva).where(
-                Reserva.habitacion_id == data.habitacion_id,
-                Reserva.fecha_checkin < fecha_checkout,
-                Reserva.fecha_checkout > fecha_checkin
-            )
+            query_sql,
+            {
+                "habitacion_id": data.habitacion_id,
+                "fecha_checkout": fecha_checkout,
+                "fecha_checkin": fecha_checkin
+            }
         ).all()
         
         if reservas_solapadas:
