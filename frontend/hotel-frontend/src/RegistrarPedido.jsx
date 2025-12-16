@@ -47,6 +47,12 @@ export default function RegistrarPedido() {
   const [pedidoPendienteImpresion, setPedidoPendienteImpresion] = useState(null);
   const { success, error: errorToast } = useToast();
   const location = useLocation();
+  
+  // Estado para autocompletado de stock
+  const [productosStock, setProductosStock] = useState([]);
+  const [sugerenciasAbiertas, setSugerenciasAbiertas] = useState({}); // { index: true/false }
+  const [sugerenciasFiltradas, setSugerenciasFiltradas] = useState({}); // { index: [productos] }
+  const [indiceSeleccionado, setIndiceSeleccionado] = useState({}); // { index: selectedIndex }
 
   // Obtener rol del usuario desde el token
   useEffect(() => {
@@ -121,7 +127,22 @@ export default function RegistrarPedido() {
 
   useEffect(() => {
     cargarPedidosHoy();
+    cargarProductosStock();
   }, []);
+
+  // Cargar productos de stock (solo bebidas)
+  const cargarProductosStock = async () => {
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const res = await axios.get(`${API_BASE_URL}/stock?categoria=bebidas`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setProductosStock(res.data || []);
+    } catch (err) {
+      console.error("Error al cargar productos de stock:", err);
+      // No mostrar error al usuario, simplemente no habrá autocompletado
+    }
+  };
 
   const handleItemChange = (index, field, value) => {
     const nuevosItems = [...form.items];
@@ -130,6 +151,62 @@ export default function RegistrarPedido() {
       [field]: field === 'cantidad' || field === 'precio' ? parseFloat(value) || 0 : value
     };
     setForm({ ...form, items: nuevosItems });
+    
+    // Si cambió la descripción, actualizar sugerencias
+    if (field === 'descripcion') {
+      filtrarSugerencias(index, value);
+    }
+  };
+
+  // Filtrar sugerencias basado en el texto ingresado
+  const filtrarSugerencias = (index, texto) => {
+    if (!texto || texto.trim() === '') {
+      setSugerenciasFiltradas(prev => ({ ...prev, [index]: [] }));
+      setSugerenciasAbiertas(prev => ({ ...prev, [index]: false }));
+      return;
+    }
+
+    const textoLower = texto.toLowerCase().trim();
+    const filtrados = productosStock.filter(producto => 
+      producto.nombre_producto?.toLowerCase().includes(textoLower)
+    ).slice(0, 8); // Máximo 8 sugerencias
+
+    setSugerenciasFiltradas(prev => ({ ...prev, [index]: filtrados }));
+    setSugerenciasAbiertas(prev => ({ ...prev, [index]: filtrados.length > 0 }));
+    setIndiceSeleccionado(prev => ({ ...prev, [index]: -1 }));
+  };
+
+  // Seleccionar un producto del autocompletado
+  const seleccionarProducto = (index, producto) => {
+    const nuevosItems = [...form.items];
+    nuevosItems[index] = {
+      ...nuevosItems[index],
+      descripcion: producto.nombre_producto
+    };
+    setForm({ ...form, items: nuevosItems });
+    setSugerenciasAbiertas(prev => ({ ...prev, [index]: false }));
+    setSugerenciasFiltradas(prev => ({ ...prev, [index]: [] }));
+  };
+
+  // Manejar teclado en el input de descripción
+  const handleKeyDownDescripcion = (e, index) => {
+    const sugerencias = sugerenciasFiltradas[index] || [];
+    const seleccionado = indiceSeleccionado[index] || -1;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const nuevoSeleccionado = seleccionado < sugerencias.length - 1 ? seleccionado + 1 : seleccionado;
+      setIndiceSeleccionado(prev => ({ ...prev, [index]: nuevoSeleccionado }));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const nuevoSeleccionado = seleccionado > 0 ? seleccionado - 1 : -1;
+      setIndiceSeleccionado(prev => ({ ...prev, [index]: nuevoSeleccionado }));
+    } else if (e.key === 'Enter' && seleccionado >= 0 && sugerencias[seleccionado]) {
+      e.preventDefault();
+      seleccionarProducto(index, sugerencias[seleccionado]);
+    } else if (e.key === 'Escape') {
+      setSugerenciasAbiertas(prev => ({ ...prev, [index]: false }));
+    }
   };
 
   const agregarItem = () => {
@@ -435,18 +512,67 @@ export default function RegistrarPedido() {
                 {form.items.map((item, index) => (
                   <div key={index} className="bg-slate-50 rounded-xl p-4 border border-slate-200">
                     <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
-                      {/* Descripción */}
-                      <div className="md:col-span-5">
+                      {/* Descripción con Autocompletado */}
+                      <div className="md:col-span-5 relative">
                         <label className="block text-sm font-medium text-slate-700 mb-1">
                           Descripción *
+                          {productosStock.length > 0 && (
+                            <span className="text-xs text-slate-500 ml-2 font-normal">
+                              (autocompletado desde stock)
+                            </span>
+                          )}
                         </label>
-                        <input
-                          type="text"
-                          placeholder="Ej: Hamburguesa completa"
-                          value={item.descripcion}
-                          onChange={(e) => handleItemChange(index, 'descripcion', e.target.value)}
-                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent placeholder-slate-400"
-                        />
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder="Ej: Hamburguesa completa o buscar bebida..."
+                            value={item.descripcion}
+                            onChange={(e) => handleItemChange(index, 'descripcion', e.target.value)}
+                            onKeyDown={(e) => handleKeyDownDescripcion(e, index)}
+                            onFocus={() => {
+                              if (item.descripcion) {
+                                filtrarSugerencias(index, item.descripcion);
+                              }
+                            }}
+                            onBlur={() => {
+                              // Cerrar sugerencias después de un pequeño delay para permitir click
+                              setTimeout(() => {
+                                setSugerenciasAbiertas(prev => ({ ...prev, [index]: false }));
+                              }, 200);
+                            }}
+                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent placeholder-slate-400"
+                          />
+                          
+                          {/* Dropdown de sugerencias */}
+                          {sugerenciasAbiertas[index] && (sugerenciasFiltradas[index] || []).length > 0 && (
+                            <div className="absolute z-50 w-full mt-1 bg-white border border-slate-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                              {(sugerenciasFiltradas[index] || []).map((producto, sugIndex) => (
+                                <div
+                                  key={producto.id}
+                                  onClick={() => seleccionarProducto(index, producto)}
+                                  className={`px-4 py-2 cursor-pointer hover:bg-purple-50 transition-colors ${
+                                    (indiceSeleccionado[index] || -1) === sugIndex ? 'bg-purple-100' : ''
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-medium text-slate-800">
+                                      {producto.nombre_producto}
+                                    </span>
+                                    <span className={`text-xs px-2 py-1 rounded-full ${
+                                      (producto.cantidad || 0) > 10 
+                                        ? 'bg-green-100 text-green-700' 
+                                        : (producto.cantidad || 0) > 0
+                                        ? 'bg-yellow-100 text-yellow-700'
+                                        : 'bg-red-100 text-red-700'
+                                    }`}>
+                                      Stock: {producto.cantidad || 0}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
 
                       {/* Cantidad */}
