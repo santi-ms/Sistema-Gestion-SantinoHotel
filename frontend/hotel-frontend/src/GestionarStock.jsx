@@ -46,6 +46,8 @@ export default function GestionarStock() {
   const [historial, setHistorial] = useState([]);
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
+  const [logsMovimientos, setLogsMovimientos] = useState([]);
+  const [cargandoLogs, setCargandoLogs] = useState(false);
   const { success, error: errorToast, warning: warningToast } = useToast();
   const navigate = useNavigate();
 
@@ -70,7 +72,24 @@ export default function GestionarStock() {
 
   useEffect(() => {
     cargarStock();
+    cargarLogsMovimientos();
   }, []);
+
+  // Cargar todos los movimientos de stock (logs)
+  const cargarLogsMovimientos = async () => {
+    setCargandoLogs(true);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/stock/historial/todos?limite=100`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setLogsMovimientos(res.data || []);
+    } catch (err) {
+      console.error("Error al cargar logs de movimientos:", err);
+      // No mostrar error, simplemente no habrá logs
+    } finally {
+      setCargandoLogs(false);
+    }
+  };
 
   // Filtrar y ordenar stock
   useEffect(() => {
@@ -172,6 +191,7 @@ export default function GestionarStock() {
       });
       setMostrarFormulario(false);
       cargarStock();
+      cargarLogsMovimientos(); // Actualizar logs después de crear/actualizar stock
     } catch (err) {
       errorToast(err.response?.data?.detail || "Error al guardar stock");
     } finally {
@@ -217,6 +237,7 @@ export default function GestionarStock() {
       });
       success("Cantidad actualizada correctamente");
       cargarStock();
+      cargarLogsMovimientos(); // Actualizar logs después de modificar stock
     } catch (err) {
       errorToast("Error al actualizar cantidad");
     }
@@ -244,6 +265,7 @@ export default function GestionarStock() {
       success("Stock eliminado correctamente");
       setMostrarConfirmEliminar(false);
       cargarStock();
+      cargarLogsMovimientos(); // Actualizar logs después de eliminar stock
     } catch (err) {
       errorToast("Error al eliminar stock");
     }
@@ -665,6 +687,111 @@ export default function GestionarStock() {
             </div>
           </div>
         )}
+
+        {/* Sección de Logs de Movimientos */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mt-8 border border-slate-200">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="bg-purple-600 p-2 rounded-lg">
+                <History className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-slate-800">Logs de Movimientos</h2>
+                <p className="text-sm text-slate-600">Historial completo de todos los movimientos de stock</p>
+              </div>
+            </div>
+            <button
+              onClick={cargarLogsMovimientos}
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Actualizar
+            </button>
+          </div>
+
+          {cargandoLogs ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+              <span className="ml-3 text-slate-600">Cargando logs...</span>
+            </div>
+          ) : logsMovimientos.length === 0 ? (
+            <div className="text-center py-12">
+              <History className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+              <p className="text-slate-600">No hay movimientos registrados</p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-[600px] overflow-y-auto">
+              {logsMovimientos.map((mov) => {
+                const esEntrada = mov.diferencia > 0;
+                const esVenta = mov.tipo === "venta";
+                const esAjuste = mov.tipo === "ajuste";
+                
+                // Extraer número de pedido del motivo si existe
+                const motivoMatch = mov.motivo?.match(/pedido #(\d+)/i);
+                const numeroPedido = motivoMatch ? motivoMatch[1] : null;
+                
+                return (
+                  <div
+                    key={mov.id}
+                    className={`p-4 rounded-lg border ${
+                      esVenta
+                        ? "bg-red-50 border-red-200"
+                        : esEntrada
+                        ? "bg-green-50 border-green-200"
+                        : "bg-blue-50 border-blue-200"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-3 flex-1">
+                        {esVenta ? (
+                          <TrendingDown className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+                        ) : esEntrada ? (
+                          <TrendingUp className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
+                        ) : (
+                          <ArrowUpDown className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-semibold text-slate-800 capitalize">
+                              {esVenta ? "Venta" : esAjuste ? "Ajuste Manual" : "Entrada"}
+                            </span>
+                            {numeroPedido && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium">
+                                Pedido #{numeroPedido}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-sm font-medium text-slate-700 mb-1">
+                            {mov.nombre_producto}
+                            {mov.categoria && (
+                              <span className="ml-2 text-xs text-slate-500">({mov.categoria})</span>
+                            )}
+                          </div>
+                          <div className="text-sm text-slate-600 mb-1">
+                            <span className="font-medium">Cantidad:</span> {mov.cantidad_anterior} → {mov.cantidad_nueva}
+                            {mov.diferencia !== 0 && (
+                              <span className={`ml-2 font-semibold ${esEntrada ? "text-green-600" : "text-red-600"}`}>
+                                ({esEntrada ? "+" : ""}{mov.diferencia})
+                              </span>
+                            )}
+                          </div>
+                          {mov.motivo && (
+                            <div className="text-xs text-slate-500 mt-1">
+                              {mov.motivo}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-xs text-slate-500 whitespace-nowrap">
+                        {formatearFecha(mov.fecha)}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         {/* Botón volver */}
         <button

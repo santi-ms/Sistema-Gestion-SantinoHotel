@@ -657,50 +657,46 @@ def eliminar_cliente(
 
 # ─────────── ENDPOINTS DE PEDIDOS ───────────
 # Función auxiliar para descontar stock cuando se registra un pedido
-def descontar_stock_de_pedido(items: List[ItemPedido], db: Session):
-    """Descuenta el stock cuando se registra un pedido con bebidas"""
+def descontar_stock_de_pedido(items: List[ItemPedido], db: Session, pedido_id: Optional[int] = None):
+    """Descuenta el stock cuando se registra un pedido con bebidas.
+    Solo descuenta si hay una coincidencia clara y exacta con productos en stock.
+    Si el producto no está en stock (ej: comidas), no se descuenta nada.
+    """
     for item in items:
         # Obtener todos los productos de bebidas
         todos_stock = db.exec(
             select(Stock).where(Stock.categoria == "bebidas")
         ).all()
         
-        # Buscar coincidencia (case-insensitive y flexible)
+        # Buscar coincidencia (solo exacta o muy específica para evitar falsos positivos)
         stock = None
         descripcion_limpia = item.descripcion.strip().lower()
         
-        # Estrategia de búsqueda:
-        # 1. Coincidencia exacta (case-insensitive)
-        # 2. Coincidencia parcial más específica (la que tenga más palabras en común)
-        # 3. Coincidencia parcial simple
-        
-        coincidencias = []
+        # Estrategia de búsqueda más estricta:
+        # 1. Coincidencia exacta (case-insensitive) - PRIORITARIA
+        # 2. Coincidencia donde el nombre del stock está completamente contenido en la descripción
+        #    (ej: descripción "Coca Cola 350ml" contiene "Coca Cola 350ml" del stock)
+        # 3. NO hacer matching parcial flexible para evitar descontar comidas u otros productos
         
         for s in todos_stock:
             nombre_lower = s.nombre_producto.strip().lower()
             
-            # Coincidencia exacta
+            # Coincidencia exacta (case-insensitive) - MÁS SEGURA
             if nombre_lower == descripcion_limpia:
                 stock = s
                 break
             
-            # Coincidencia parcial - calcular "score" de especificidad
-            if descripcion_limpia in nombre_lower or nombre_lower in descripcion_limpia:
-                # Calcular cuántas palabras coinciden
-                palabras_descripcion = set(descripcion_limpia.split())
-                palabras_nombre = set(nombre_lower.split())
-                palabras_comunes = len(palabras_descripcion.intersection(palabras_nombre))
-                
-                # Priorizar coincidencias más largas y específicas
-                score = palabras_comunes * 10 + len(nombre_lower)
-                coincidencias.append((score, s))
+            # Coincidencia donde el nombre del stock está completamente contenido en la descripción
+            # Esto permite casos como "Coca Cola 350ml" en descripción "Coca Cola 350ml - Fría"
+            # Pero requiere que el nombre completo del stock esté presente
+            if nombre_lower in descripcion_limpia:
+                # Verificar que no sea una coincidencia accidental muy corta
+                # (ej: evitar que "Coca" coincida con "Coca Cola")
+                if len(nombre_lower) >= 5:  # Solo nombres de al menos 5 caracteres
+                    stock = s
+                    break
         
-        # Si no hay coincidencia exacta, usar la más específica
-        if not stock and coincidencias:
-            # Ordenar por score (mayor = más específica)
-            coincidencias.sort(key=lambda x: x[0], reverse=True)
-            stock = coincidencias[0][1]
-        
+        # Solo descontar si encontramos una coincidencia clara
         if stock:
             # Descontar la cantidad vendida
             cantidad_anterior = stock.cantidad
@@ -714,15 +710,17 @@ def descontar_stock_de_pedido(items: List[ItemPedido], db: Session):
             db.commit()
             
             # Registrar movimiento de venta
+            motivo_venta = f"Venta desde pedido #{pedido_id}: {item.descripcion} x{item.cantidad}" if pedido_id else f"Venta: {item.descripcion} x{item.cantidad}"
             registrar_movimiento_stock(
                 stock_id=stock.id,
                 tipo="venta",
                 cantidad_anterior=cantidad_anterior,
                 cantidad_nueva=nueva_cantidad,
-                motivo=f"Venta: {item.descripcion} x{item.cantidad}",
+                motivo=motivo_venta,
                 usuario_id=None,  # Se puede obtener del token si es necesario
                 db=db
             )
+        # Si no hay coincidencia, no se descuenta nada (comidas u otros productos no en stock)
     
     db.commit()
 
@@ -746,7 +744,7 @@ def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obt
     
     # Descontar stock automáticamente para bebidas
     try:
-        descontar_stock_de_pedido(pedido.items, db)
+        descontar_stock_de_pedido(pedido.items, db, pedido_id=nuevo_pedido.id)
     except Exception as e:
         print(f"Error al descontar stock: {e}")
         # No fallar el pedido si hay error en el stock
