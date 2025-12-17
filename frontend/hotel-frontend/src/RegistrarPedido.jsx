@@ -4,7 +4,7 @@ import { useLocation } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
-import { formatearSoloFecha, formatearSoloHora } from "./utils/fechas";
+import { formatearSoloFecha, formatearSoloHora, obtenerHoyArgentinaISO } from "./utils/fechas";
 import TicketTermico from "./components/TicketTermico";
 import { 
   Coffee, 
@@ -99,10 +99,8 @@ export default function RegistrarPedido() {
     setCargando(true);
     try {
       const token = localStorage.getItem(TOKEN_KEY);
-      // Obtener fecha actual en zona horaria de Argentina (UTC-3)
-      const ahora = new Date();
-      const fechaArgentina = new Date(ahora.toLocaleString("en-US", {timeZone: "America/Argentina/Buenos_Aires"}));
-      const hoy = fechaArgentina.toISOString().split('T')[0];
+      // Obtener fecha "hoy" en Argentina sin depender de toISOString (evita corrimientos por UTC)
+      const hoy = obtenerHoyArgentinaISO();
       const res = await axios.get(`${API_BASE_URL}/pedidos-dia?fecha=${hoy}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -359,6 +357,14 @@ export default function RegistrarPedido() {
       // Si el backend responde estado, úsalo para feedback
       const estado = resp?.data?.estado;
       success(`Pedido #${pedidoACobrar.id} cobrado (${formaPagoCobro})${estado ? ` - ${estado}` : ""}`);
+
+      // ✅ Actualización optimista: reflejar PAGADO aunque el refetch falle por fecha/zona horaria
+      setPedidosHoy(prev => prev.map(p =>
+        p.id === pedidoACobrar.id
+          ? { ...p, estado: "PAGADO", forma_pago: formaPagoCobro, pagado_at: resp?.data?.pagado_at || p.pagado_at }
+          : p
+      ));
+
       setMostrarModalCobrar(false);
       setPedidoACobrar(null);
       await cargarPedidosHoy();

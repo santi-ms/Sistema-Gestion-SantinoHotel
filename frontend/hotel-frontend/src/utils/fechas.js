@@ -54,6 +54,25 @@ export function formatearFechaArgentina(fecha, opciones = {}) {
 }
 
 /**
+ * Devuelve YYYY-MM-DD para "hoy" en zona horaria de Argentina (sin depender de toISOString()).
+ */
+export function obtenerHoyArgentinaISO() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+
+  const get = (type) => parts.find(p => p.type === type)?.value;
+  const y = get('year');
+  const m = get('month');
+  const d = get('day');
+  if (!y || !m || !d) return new Date().toISOString().slice(0, 10);
+  return `${y}-${m}-${d}`;
+}
+
+/**
  * Formatea solo la fecha (sin hora) en zona horaria de Argentina
  */
 export function formatearSoloFecha(fecha) {
