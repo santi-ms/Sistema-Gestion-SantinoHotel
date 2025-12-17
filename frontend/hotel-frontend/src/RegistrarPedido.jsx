@@ -283,7 +283,8 @@ export default function RegistrarPedido() {
           habitacion_id: form.habitacion_id ? parseInt(form.habitacion_id) : null,
           externo: form.externo,
           forma_pago: form.forma_pago,
-          fecha: new Date().toISOString()
+          // Evitar UTC: mantener la fecha que ya tiene el pedido (si existe) o usar hora local
+          fecha: pedido.fecha || new Date().toISOString()
         };
       } else {
         // Crear nuevo pedido
@@ -300,7 +301,9 @@ export default function RegistrarPedido() {
           habitacion_id: form.habitacion_id ? parseInt(form.habitacion_id) : null,
           externo: form.externo,
           forma_pago: form.forma_pago,
-          fecha: new Date().toISOString()
+          estado: response.data.estado,
+          forma_pago: response.data.forma_pago,
+          fecha: response.data.fecha || new Date().toISOString()
         };
       }
       
@@ -464,6 +467,7 @@ const getEstadoBadge = (pedido) => {
       habitacion_id: form.habitacion_id ? parseInt(form.habitacion_id) : null,
       externo: form.externo,
       forma_pago: form.forma_pago || "PENDIENTE",
+      // En vista previa usamos hora local del dispositivo
       fecha: new Date().toISOString()
     };
     

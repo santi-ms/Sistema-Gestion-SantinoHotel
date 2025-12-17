@@ -793,7 +793,13 @@ def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obt
         print(f"Error al descontar stock: {e}")
         # No fallar el pedido si hay error en el stock
     
-    return {"mensaje": "Pedido registrado correctamente", "id": nuevo_pedido.id, "estado": nuevo_pedido.estado}
+    return {
+        "mensaje": "Pedido registrado correctamente",
+        "id": nuevo_pedido.id,
+        "estado": nuevo_pedido.estado,
+        "forma_pago": nuevo_pedido.forma_pago,
+        "fecha": nuevo_pedido.fecha.isoformat()
+    }
 
 @app.get("/pedidos", response_model=List[PedidoRespuesta])
 def obtener_todos_los_pedidos_con_items(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
