@@ -45,6 +45,9 @@ export default function RegistrarPedido() {
   const [pedidoAImprimir, setPedidoAImprimir] = useState(null);
   const [mostrarInstruccionesImpresion, setMostrarInstruccionesImpresion] = useState(false);
   const [pedidoPendienteImpresion, setPedidoPendienteImpresion] = useState(null);
+  const [mostrarModalCobrar, setMostrarModalCobrar] = useState(false);
+  const [pedidoACobrar, setPedidoACobrar] = useState(null);
+  const [formaPagoCobro, setFormaPagoCobro] = useState("efectivo");
   const { success, error: errorToast } = useToast();
   const location = useLocation();
   
@@ -231,7 +234,7 @@ export default function RegistrarPedido() {
     });
   };
 
-  const handleSubmit = async (imprimirDespues = false) => {
+  const handleSubmit = async (imprimirDespues = false, guardarPendiente = false) => {
     // Validar que todos los items tengan descripción
     const itemsValidos = form.items.every(item => item.descripcion.trim() !== "");
     
@@ -246,7 +249,8 @@ export default function RegistrarPedido() {
       return;
     }
 
-    if (!form.forma_pago) {
+    // Si se guarda pendiente, no exigir forma de pago
+    if (!guardarPendiente && !form.forma_pago) {
       errorToast("Debes seleccionar una forma de pago");
       return;
     }
@@ -259,7 +263,8 @@ export default function RegistrarPedido() {
         items: form.items,
         habitacion_id: form.habitacion_id ? parseInt(form.habitacion_id) : null,
         externo: form.externo,
-        forma_pago: form.forma_pago
+        forma_pago: guardarPendiente ? null : form.forma_pago,
+        estado: guardarPendiente ? "PENDIENTE" : "PAGADO"
       };
 
       let pedidoRegistrado = null;
@@ -285,7 +290,7 @@ export default function RegistrarPedido() {
         const response = await axios.post(`${API_BASE_URL}/pedidos`, pedidoData, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        success("Pedido registrado correctamente");
+        success(guardarPendiente ? "Pedido guardado como pendiente" : "Pedido registrado correctamente");
         
         // Construir el pedido registrado con el ID del backend
         pedidoRegistrado = {
@@ -331,6 +336,31 @@ export default function RegistrarPedido() {
       return null;
     } finally {
       setCargando(false);
+    }
+  };
+
+  const abrirCobro = (pedido) => {
+    setPedidoACobrar(pedido);
+    setFormaPagoCobro("efectivo");
+    setMostrarModalCobrar(true);
+  };
+
+  const confirmarCobro = async () => {
+    if (!pedidoACobrar) return;
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      await axios.patch(`${API_BASE_URL}/pedidos/${pedidoACobrar.id}/pagar`, {
+        forma_pago: formaPagoCobro
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      success(`Pedido #${pedidoACobrar.id} cobrado (${formaPagoCobro})`);
+      setMostrarModalCobrar(false);
+      setPedidoACobrar(null);
+      await cargarPedidosHoy();
+    } catch (err) {
+      console.error("Error al cobrar pedido:", err);
+      errorToast("Error al cobrar el pedido");
     }
   };
 
@@ -386,6 +416,14 @@ export default function RegistrarPedido() {
     if (formaPago?.toLowerCase().includes("tarjeta")) return <CreditCard className="w-4 h-4" />;
     return <Clock className="w-4 h-4" />;
   };
+
+const getEstadoBadge = (pedido) => {
+  const estado = (pedido?.estado || "").toUpperCase();
+  if (estado === "PAGADO") {
+    return <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Pagado</span>;
+  }
+  return <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Pendiente</span>;
+};
 
   const imprimirTicket = (pedido, mostrarInstrucciones = true) => {
     if (mostrarInstrucciones) {
@@ -702,7 +740,7 @@ export default function RegistrarPedido() {
             {/* Botones */}
             <div className="flex flex-col sm:flex-row gap-3">
               <button
-                onClick={() => handleSubmit(false)}
+                onClick={() => handleSubmit(false, false)}
                 disabled={cargando || calcularTotal() <= 0}
                 className="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl"
               >
@@ -716,7 +754,7 @@ export default function RegistrarPedido() {
               
               {!editandoId && (
                 <button
-                  onClick={() => handleSubmit(true)}
+                  onClick={() => handleSubmit(true, false)}
                   disabled={cargando || calcularTotal() <= 0}
                   className="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl"
                 >
@@ -726,6 +764,18 @@ export default function RegistrarPedido() {
                     <Printer className="w-5 h-5" />
                   )}
                   Registrar e Imprimir
+                </button>
+              )}
+
+              {!editandoId && (
+                <button
+                  onClick={() => handleSubmit(false, true)}
+                  disabled={cargando || calcularTotal() <= 0}
+                  className="flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl"
+                  title="Guarda el pedido sin cobrar (queda pendiente)"
+                >
+                  <Clock className="w-5 h-5" />
+                  Guardar Pendiente
                 </button>
               )}
               
@@ -836,6 +886,7 @@ export default function RegistrarPedido() {
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Total</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Habitación</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Forma de Pago</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Estado</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Tipo</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">
                       {esDueño ? "Fecha" : "Hora"}
@@ -879,9 +930,12 @@ export default function RegistrarPedido() {
                         <div className="flex items-center gap-2">
                           {getPaymentIcon(pedido.forma_pago)}
                           <span className="text-sm text-slate-700 capitalize">
-                            {pedido.forma_pago || "No especificado"}
+                            {pedido.forma_pago || "Pendiente"}
                           </span>
                         </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        {getEstadoBadge(pedido)}
                       </td>
                       <td className="px-6 py-4">
                         {pedido.externo ? (
@@ -914,6 +968,15 @@ export default function RegistrarPedido() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
+                          {(pedido.estado || "").toUpperCase() !== "PAGADO" && (
+                            <button
+                              onClick={() => abrirCobro(pedido)}
+                              className="p-2 text-amber-700 hover:bg-amber-50 rounded-lg transition-colors duration-200"
+                              title="Cobrar pedido"
+                            >
+                              <DollarSign className="w-4 h-4" />
+                            </button>
+                          )}
                           <button
                             onClick={() => imprimirTicket(pedido)}
                             className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors duration-200"
@@ -957,6 +1020,50 @@ export default function RegistrarPedido() {
         cancelText="Cancelar"
         type="danger"
       />
+
+      {/* Modal Cobrar Pedido */}
+      {mostrarModalCobrar && pedidoACobrar && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full">
+            <h3 className="text-xl font-bold text-slate-800 mb-2">
+              Cobrar pedido #{pedidoACobrar.id}
+            </h3>
+            <p className="text-slate-600 mb-4">
+              Total: <span className="font-semibold text-green-700">${pedidoACobrar.monto?.toLocaleString?.() ?? pedidoACobrar.monto}</span>
+            </p>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Forma de pago
+            </label>
+            <select
+              value={formaPagoCobro}
+              onChange={(e) => setFormaPagoCobro(e.target.value)}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent mb-5"
+            >
+              <option value="efectivo">Efectivo</option>
+              <option value="tarjeta">Tarjeta</option>
+              <option value="transferencia">Transferencia</option>
+              <option value="pendiente">Pendiente</option>
+            </select>
+            <div className="flex gap-3">
+              <button
+                onClick={confirmarCobro}
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+              >
+                Confirmar cobro
+              </button>
+              <button
+                onClick={() => {
+                  setMostrarModalCobrar(false);
+                  setPedidoACobrar(null);
+                }}
+                className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg font-medium transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de instrucciones de impresión */}
       {mostrarInstruccionesImpresion && (

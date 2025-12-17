@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends, status, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import SQLModel, Field, Session, select, create_engine, text
+from sqlalchemy import func
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta, timezone
@@ -114,7 +115,9 @@ class Pedido(SQLModel, table=True):
     monto: float
     habitacion_id: Optional[int] = None
     externo: bool = False
-    forma_pago: str
+    forma_pago: Optional[str] = None  # Se define al cobrar (si está pendiente puede ser None)
+    estado: str = "PENDIENTE"  # PENDIENTE | PAGADO | CANCELADO
+    pagado_at: Optional[datetime] = None
     fecha: datetime = Field(default_factory=lambda: obtener_fecha_argentina())
 
 class GastoAdicional(SQLModel, table=True):
@@ -176,7 +179,9 @@ class PedidoConItems(BaseModel):
     items: List[ItemPedido]
     habitacion_id: Optional[int] = None
     externo: bool = False
-    forma_pago: str
+    # Si el pedido se guarda como pendiente, forma_pago puede ser None/"" y estado se setea a PENDIENTE
+    forma_pago: Optional[str] = None
+    estado: Optional[str] = None  # PENDIENTE | PAGADO
 
 class PedidoRespuesta(BaseModel):
     id: int
@@ -184,8 +189,13 @@ class PedidoRespuesta(BaseModel):
     monto: float
     habitacion_id: Optional[int]
     externo: bool
-    forma_pago: str
+    forma_pago: Optional[str] = None
+    estado: Optional[str] = None
+    pagado_at: Optional[datetime] = None
     fecha: datetime
+
+class PedidoCobrarEntrada(BaseModel):
+    forma_pago: str  # efectivo | tarjeta | transferencia | etc.
 
 # ─────────── MODELOS PARA RESERVAS ───────────
 class ReservaEntrada(BaseModel):
@@ -473,6 +483,29 @@ def arreglar_base_datos(db: Session = Depends(obtener_db), token: dict = Depends
                 print(f"⚠️ Error al contar reservas después: {e}")
             
             connection.commit()
+
+            # ✅ AGREGAR COLUMNAS NUEVAS A PEDIDO (estado, pagado_at)
+            try:
+                if DATABASE_URL.startswith("postgres"):
+                    connection.execute(text("ALTER TABLE pedido ADD COLUMN IF NOT EXISTS estado TEXT DEFAULT 'PENDIENTE'"))
+                    connection.execute(text("ALTER TABLE pedido ADD COLUMN IF NOT EXISTS pagado_at TIMESTAMP"))
+                    connection.commit()
+                    print("✅ Columnas 'estado' y 'pagado_at' agregadas a tabla pedido (PostgreSQL)")
+                else:
+                    try:
+                        connection.execute(text("ALTER TABLE pedido ADD COLUMN estado TEXT DEFAULT 'PENDIENTE'"))
+                        print("✅ Columna 'estado' agregada a tabla pedido (SQLite)")
+                    except Exception as e:
+                        print(f"ℹ️ Columna 'estado': {e}")
+
+                    try:
+                        connection.execute(text("ALTER TABLE pedido ADD COLUMN pagado_at DATETIME"))
+                        print("✅ Columna 'pagado_at' agregada a tabla pedido (SQLite)")
+                    except Exception as e:
+                        print(f"ℹ️ Columna 'pagado_at': {e}")
+                    connection.commit()
+            except Exception as e:
+                print(f"⚠️ Error agregando columnas en pedido: {e}")
         
         # Crear habitaciones de ejemplo si no existen
         habitacion_estandar = db.exec(select(Habitacion).where(Habitacion.tipo == "Estándar")).first()
@@ -728,13 +761,24 @@ def descontar_stock_de_pedido(items: List[ItemPedido], db: Session, pedido_id: O
 def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     monto_total = sum(item.cantidad * item.precio for item in pedido.items)
     items_json = json.dumps([item.dict() for item in pedido.items])
+
+    estado_inicial = (pedido.estado or "").strip().upper() if pedido.estado else None
+    if estado_inicial not in (None, "", "PENDIENTE", "PAGADO"):
+        raise HTTPException(status_code=400, detail="Estado inválido. Use PENDIENTE o PAGADO")
+    if estado_inicial in (None, ""):
+        # Si no se envía estado, inferir por forma_pago
+        estado_inicial = "PAGADO" if (pedido.forma_pago and str(pedido.forma_pago).strip()) else "PENDIENTE"
+    if estado_inicial == "PAGADO" and not (pedido.forma_pago and str(pedido.forma_pago).strip()):
+        raise HTTPException(status_code=400, detail="Para estado PAGADO debe indicar forma_pago")
     
     nuevo_pedido = Pedido(
         detalle=items_json,
         monto=monto_total,
         habitacion_id=pedido.habitacion_id,
         externo=pedido.externo,
-        forma_pago=pedido.forma_pago,
+        forma_pago=(pedido.forma_pago.strip() if pedido.forma_pago else None),
+        estado=estado_inicial,
+        pagado_at=(obtener_fecha_argentina() if estado_inicial == "PAGADO" else None),
         fecha=obtener_fecha_argentina()
     )
     
@@ -749,7 +793,7 @@ def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obt
         print(f"Error al descontar stock: {e}")
         # No fallar el pedido si hay error en el stock
     
-    return {"mensaje": "Pedido registrado correctamente", "id": nuevo_pedido.id}
+    return {"mensaje": "Pedido registrado correctamente", "id": nuevo_pedido.id, "estado": nuevo_pedido.estado}
 
 @app.get("/pedidos", response_model=List[PedidoRespuesta])
 def obtener_todos_los_pedidos_con_items(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
@@ -773,6 +817,8 @@ def obtener_todos_los_pedidos_con_items(db: Session = Depends(obtener_db), token
             habitacion_id=pedido.habitacion_id,
             externo=pedido.externo,
             forma_pago=pedido.forma_pago,
+            estado=getattr(pedido, "estado", None),
+            pagado_at=getattr(pedido, "pagado_at", None),
             fecha=fecha_normalizada
         ))
     
@@ -780,14 +826,9 @@ def obtener_todos_los_pedidos_con_items(db: Session = Depends(obtener_db), token
 
 @app.get("/pedidos/hoy")
 def obtener_pedidos_hoy(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
-    # Usar fecha actual de Argentina
+    # Filtrar por día calendario para evitar problemas de timezone/naive vs aware
     hoy_argentina = obtener_fecha_argentina().date()
-    inicio_dia = datetime.combine(hoy_argentina, datetime.min.time()).replace(tzinfo=ARGENTINA_TZ)
-    fin_dia = datetime.combine(hoy_argentina, datetime.max.time()).replace(tzinfo=ARGENTINA_TZ)
-    
-    pedidos = db.exec(
-        select(Pedido).where(Pedido.fecha >= inicio_dia, Pedido.fecha <= fin_dia)
-    ).all()
+    pedidos = db.exec(select(Pedido).where(func.date(Pedido.fecha) == hoy_argentina)).all()
     
     resultado = []
     for pedido in pedidos:
@@ -804,6 +845,8 @@ def obtener_pedidos_hoy(db: Session = Depends(obtener_db), token: dict = Depends
             "habitacion_id": pedido.habitacion_id,
             "externo": pedido.externo,
             "forma_pago": pedido.forma_pago,
+            "estado": getattr(pedido, "estado", None),
+            "pagado_at": getattr(pedido, "pagado_at", None).isoformat() if getattr(pedido, "pagado_at", None) else None,
             "fecha": pedido.fecha.isoformat()
         })
     
@@ -816,12 +859,12 @@ def obtener_pedidos_por_dia_con_items(
     token: dict = Depends(verificar_token)
 ):
     try:
-        fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
     except:
         raise HTTPException(status_code=400, detail="Formato de fecha inválido")
 
     pedidos = db.exec(
-        select(Pedido).where(Pedido.fecha >= fecha_obj, Pedido.fecha < fecha_obj + timedelta(days=1))
+        select(Pedido).where(func.date(Pedido.fecha) == fecha_obj)
     ).all()
     
     resultado = []
@@ -842,6 +885,8 @@ def obtener_pedidos_por_dia_con_items(
             habitacion_id=pedido.habitacion_id,
             externo=pedido.externo,
             forma_pago=pedido.forma_pago,
+            estado=getattr(pedido, "estado", None),
+            pagado_at=getattr(pedido, "pagado_at", None),
             fecha=fecha_normalizada
         ))
     
@@ -865,11 +910,53 @@ def actualizar_pedido_con_items(
     pedido.monto = monto_total
     pedido.habitacion_id = datos.habitacion_id
     pedido.externo = datos.externo
-    pedido.forma_pago = datos.forma_pago
+    # Si viene forma_pago, actualizamos. Si no viene, mantenemos lo existente.
+    if datos.forma_pago is not None:
+        pedido.forma_pago = datos.forma_pago.strip() if str(datos.forma_pago).strip() else None
+    # Estado: si viene explícito, validar y setear; si no, conservar.
+    if datos.estado is not None:
+        estado = str(datos.estado).strip().upper()
+        if estado not in ("PENDIENTE", "PAGADO", "CANCELADO"):
+            raise HTTPException(status_code=400, detail="Estado inválido. Use PENDIENTE, PAGADO o CANCELADO")
+        pedido.estado = estado
+        if estado == "PAGADO" and pedido.pagado_at is None:
+            pedido.pagado_at = obtener_fecha_argentina()
+        if estado != "PAGADO":
+            pedido.pagado_at = None
 
     db.add(pedido)
     db.commit()
     return {"mensaje": "Pedido actualizado correctamente"}
+
+
+@app.patch("/pedidos/{pedido_id}/pagar")
+def pagar_pedido(
+    pedido_id: int,
+    data: PedidoCobrarEntrada,
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    pedido = db.get(Pedido, pedido_id)
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+
+    if not data.forma_pago or not data.forma_pago.strip():
+        raise HTTPException(status_code=400, detail="Debe indicar forma_pago")
+
+    pedido.forma_pago = data.forma_pago.strip()
+    pedido.estado = "PAGADO"
+    pedido.pagado_at = obtener_fecha_argentina()
+
+    db.add(pedido)
+    db.commit()
+    db.refresh(pedido)
+    return {
+        "mensaje": "Pedido marcado como pagado",
+        "id": pedido.id,
+        "estado": pedido.estado,
+        "forma_pago": pedido.forma_pago,
+        "pagado_at": pedido.pagado_at
+    }
 
 @app.delete("/pedidos/{pedido_id}")
 def eliminar_pedido_actualizado(
