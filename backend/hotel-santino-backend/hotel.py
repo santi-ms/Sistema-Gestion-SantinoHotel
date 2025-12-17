@@ -1518,6 +1518,28 @@ def obtener_estadisticas_stock(
 # ─────────── ENDPOINTS DE RESERVAS ───────────
 @app.post("/reservas")
 def crear_reserva_simple(data: ReservaEntrada, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+    # ✅ VALIDAR DISPONIBILIDAD DE LA HABITACIÓN ANTES DE CREAR LA RESERVA
+    reservas_solapadas = db.exec(
+        select(Reserva).where(
+            Reserva.habitacion_id == data.habitacion_id,
+            Reserva.fecha_checkin < data.fecha_checkout,  # Reserva empieza antes del checkout
+            Reserva.fecha_checkout > data.fecha_checkin   # Reserva termina después del checkin
+        )
+    ).all()
+    
+    if reservas_solapadas:
+        # Obtener información de la habitación para el mensaje
+        habitacion = db.get(Habitacion, data.habitacion_id)
+        numero_hab = habitacion.numero if habitacion else data.habitacion_id
+        
+        # Construir mensaje con detalles de las reservas conflictivas
+        conflictos = []
+        for r in reservas_solapadas:
+            conflictos.append(f"Reserva #{r.id} ({r.nombre_huesped or 'Sin nombre'}) del {r.fecha_checkin.date()} al {r.fecha_checkout.date()}")
+        
+        mensaje_error = f"❌ La habitación #{numero_hab} ya está ocupada en esas fechas. Conflictos: {'; '.join(conflictos)}"
+        raise HTTPException(status_code=400, detail=mensaje_error)
+    
     reserva = Reserva(
         habitacion_id=data.habitacion_id,
         fecha_checkin=data.fecha_checkin,
@@ -1541,6 +1563,29 @@ def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obte
         # Convertir fechas formato dd/mm/aaaa a datetime
         fecha_checkin = datetime.strptime(data.fecha_ingreso, "%d/%m/%Y").replace(tzinfo=ARGENTINA_TZ)
         fecha_checkout = datetime.strptime(data.fecha_egreso, "%d/%m/%Y").replace(tzinfo=ARGENTINA_TZ)
+        
+        # ✅ VALIDAR DISPONIBILIDAD DE LA HABITACIÓN ANTES DE CREAR LA RESERVA
+        reservas_solapadas = db.exec(
+            select(Reserva).where(
+                Reserva.habitacion_id == data.habitacion_id,
+                Reserva.fecha_checkin < fecha_checkout,  # Reserva empieza antes del checkout
+                Reserva.fecha_checkout > fecha_checkin   # Reserva termina después del checkin
+            )
+        ).all()
+        
+        if reservas_solapadas:
+            # Obtener información de la habitación para el mensaje
+            habitacion = db.get(Habitacion, data.habitacion_id)
+            numero_hab = habitacion.numero if habitacion else data.habitacion_id
+            
+            # Construir mensaje con detalles de las reservas conflictivas
+            conflictos = []
+            for r in reservas_solapadas:
+                conflictos.append(f"Reserva #{r.id} ({r.nombre_huesped or 'Sin nombre'}) del {r.fecha_checkin.date()} al {r.fecha_checkout.date()}")
+            
+            mensaje_error = f"❌ La habitación #{numero_hab} ya está ocupada en esas fechas. Conflictos: {'; '.join(conflictos)}"
+            print(f"⚠️ {mensaje_error}")
+            raise HTTPException(status_code=400, detail=mensaje_error)
         
         # Verificar si el cliente ya existe
         cliente_existente = db.exec(select(Cliente).where(Cliente.dni == data.dni)).first()
@@ -1636,6 +1681,32 @@ def actualizar_reserva_completa(
     reserva = db.get(Reserva, reserva_id)
     if not reserva:
         raise HTTPException(status_code=404, detail="Reserva no encontrada")
+    
+    # Determinar habitación y fechas finales (pueden cambiar)
+    habitacion_id_final = data.habitacion_id if data.habitacion_id is not None else reserva.habitacion_id
+    fecha_checkin_final = data.fecha_checkin if data.fecha_checkin is not None else reserva.fecha_checkin
+    fecha_checkout_final = data.fecha_checkout if data.fecha_checkout is not None else reserva.fecha_checkout
+    
+    # ✅ VALIDAR DISPONIBILIDAD si cambió habitación o fechas (excluyendo la reserva actual)
+    reservas_solapadas = db.exec(
+        select(Reserva).where(
+            Reserva.id != reserva_id,  # Excluir la reserva que estamos editando
+            Reserva.habitacion_id == habitacion_id_final,
+            Reserva.fecha_checkin < fecha_checkout_final,
+            Reserva.fecha_checkout > fecha_checkin_final
+        )
+    ).all()
+    
+    if reservas_solapadas:
+        habitacion = db.get(Habitacion, habitacion_id_final)
+        numero_hab = habitacion.numero if habitacion else habitacion_id_final
+        
+        conflictos = []
+        for r in reservas_solapadas:
+            conflictos.append(f"Reserva #{r.id} ({r.nombre_huesped or 'Sin nombre'}) del {r.fecha_checkin.date()} al {r.fecha_checkout.date()}")
+        
+        mensaje_error = f"❌ La habitación #{numero_hab} ya está ocupada en esas fechas. Conflictos: {'; '.join(conflictos)}"
+        raise HTTPException(status_code=400, detail=mensaje_error)
     
     # Actualizar solo los campos que se enviaron
     if data.habitacion_id is not None:
