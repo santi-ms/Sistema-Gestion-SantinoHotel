@@ -175,14 +175,21 @@ export default function GestionarStock() {
         nombre_producto: form.nombre_producto.trim(),
         categoria: form.categoria,
         cantidad: form.cantidad,
-        cantidad_minima: form.cantidad_minima
+        cantidad_minima: form.cantidad_minima,
+        motivo: editandoId ? `Edición de producto desde Control de Stock` : undefined
       };
 
-      await axios.post(`${API_BASE_URL}/stock`, payload, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      success("Stock actualizado correctamente");
+      if (editandoId) {
+        await axios.put(`${API_BASE_URL}/stock/${editandoId}`, payload, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        success("Producto actualizado correctamente");
+      } else {
+        await axios.post(`${API_BASE_URL}/stock`, payload, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        success("Stock actualizado correctamente");
+      }
       setForm({
         nombre_producto: "",
         categoria: "bebidas",
@@ -190,6 +197,7 @@ export default function GestionarStock() {
         cantidad_minima: 0
       });
       setMostrarFormulario(false);
+      setEditandoId(null);
       cargarStock();
       cargarLogsMovimientos(); // Actualizar logs después de crear/actualizar stock
     } catch (err) {

@@ -1214,6 +1214,8 @@ class StockEntrada(BaseModel):
     cantidad_minima: int = 0
 
 class StockActualizar(BaseModel):
+    nombre_producto: Optional[str] = None
+    categoria: Optional[str] = None
     cantidad: Optional[int] = None
     cantidad_minima: Optional[int] = None
     motivo: Optional[str] = None  # Motivo del ajuste
@@ -1322,7 +1324,13 @@ def actualizar_stock(
         raise HTTPException(status_code=404, detail="Stock no encontrado")
     
     cantidad_anterior = stock.cantidad
+    nombre_anterior = stock.nombre_producto
+    categoria_anterior = stock.categoria
     
+    if data.nombre_producto is not None:
+        stock.nombre_producto = data.nombre_producto.strip()
+    if data.categoria is not None:
+        stock.categoria = data.categoria.strip()
     if data.cantidad is not None:
         stock.cantidad = data.cantidad
     if data.cantidad_minima is not None:
@@ -1333,14 +1341,29 @@ def actualizar_stock(
     db.commit()
     db.refresh(stock)
     
-    # Registrar movimiento si cambió la cantidad
-    if data.cantidad is not None and cantidad_anterior != data.cantidad:
+    # Registrar movimiento si cambió cantidad o si se editó nombre/categoría
+    cambio_cantidad = data.cantidad is not None and cantidad_anterior != data.cantidad
+    cambio_identidad = (data.nombre_producto is not None and nombre_anterior != stock.nombre_producto) or (
+        data.categoria is not None and categoria_anterior != stock.categoria
+    )
+
+    if cambio_cantidad or cambio_identidad:
+        partes = []
+        if cambio_identidad:
+            if nombre_anterior != stock.nombre_producto:
+                partes.append(f"Renombre: '{nombre_anterior}' → '{stock.nombre_producto}'")
+            if categoria_anterior != stock.categoria:
+                partes.append(f"Categoría: '{categoria_anterior}' → '{stock.categoria}'")
+        if cambio_cantidad:
+            partes.append(f"Cantidad: {cantidad_anterior} → {stock.cantidad}")
+
+        motivo = data.motivo or " | ".join(partes) or "Edición manual de stock"
         registrar_movimiento_stock(
             stock_id=stock_id,
             tipo="ajuste",
             cantidad_anterior=cantidad_anterior,
-            cantidad_nueva=data.cantidad,
-            motivo=data.motivo or "Ajuste manual de stock",
+            cantidad_nueva=stock.cantidad,
+            motivo=motivo,
             usuario_id=usuario_id,
             db=db
         )
