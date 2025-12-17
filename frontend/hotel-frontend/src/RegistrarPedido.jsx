@@ -115,6 +115,8 @@ export default function RegistrarPedido() {
         habitacion_id: pedido.habitacion_id,
         externo: pedido.externo,
         forma_pago: pedido.forma_pago,
+        estado: pedido.estado,      // ✅ importante para mostrar Pendiente/Pagado
+        pagado_at: pedido.pagado_at, // ✅ opcional (por si querés mostrar hora de cobro)
         fecha: pedido.fecha
       }));
       
