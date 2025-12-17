@@ -351,18 +351,21 @@ export default function RegistrarPedido() {
     if (!pedidoACobrar) return;
     try {
       const token = localStorage.getItem(TOKEN_KEY);
-      await axios.patch(`${API_BASE_URL}/pedidos/${pedidoACobrar.id}/pagar`, {
+      const resp = await axios.patch(`${API_BASE_URL}/pedidos/${pedidoACobrar.id}/pagar`, {
         forma_pago: formaPagoCobro
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      success(`Pedido #${pedidoACobrar.id} cobrado (${formaPagoCobro})`);
+      // Si el backend responde estado, úsalo para feedback
+      const estado = resp?.data?.estado;
+      success(`Pedido #${pedidoACobrar.id} cobrado (${formaPagoCobro})${estado ? ` - ${estado}` : ""}`);
       setMostrarModalCobrar(false);
       setPedidoACobrar(null);
       await cargarPedidosHoy();
     } catch (err) {
       console.error("Error al cobrar pedido:", err);
-      errorToast("Error al cobrar el pedido");
+      const detail = err?.response?.data?.detail || err?.response?.data?.error || err?.message;
+      errorToast(detail ? `Error al cobrar: ${detail}` : "Error al cobrar el pedido");
     }
   };
 

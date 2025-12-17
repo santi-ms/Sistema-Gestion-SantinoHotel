@@ -68,6 +68,17 @@ export function formatearSoloFecha(fecha) {
  * Formatea solo la hora en zona horaria de Argentina
  */
 export function formatearSoloHora(fecha, incluirSegundos = false) {
+  // Si la fecha viene como ISO string, extraer HH:MM directamente.
+  // Esto evita desfasajes cuando el runtime/OS no respeta bien `timeZone` en Intl.
+  if (typeof fecha === "string") {
+    const match = fecha.match(/T(\d{2}):(\d{2}):(\d{2})/);
+    if (match) {
+      const hhmm = `${match[1]}:${match[2]}`;
+      if (!incluirSegundos) return hhmm;
+      return `${hhmm}:${match[3]}`;
+    }
+  }
+
   return formatearFechaArgentina(fecha, {
     hour: '2-digit',
     minute: '2-digit',
