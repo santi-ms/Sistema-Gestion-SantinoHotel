@@ -51,7 +51,9 @@ ARGENTINA_TZ = timezone(timedelta(hours=-3))
 
 def obtener_fecha_argentina():
     """Obtiene la fecha y hora actual en zona horaria de Argentina"""
-    return datetime.now(ARGENTINA_TZ)
+    # Usar UTC como base y convertir a Argentina para evitar problemas cuando el servidor está en otra zona horaria
+    ahora_utc = datetime.now(timezone.utc)
+    return ahora_utc.astimezone(ARGENTINA_TZ)
 
 def convertir_a_argentina(fecha_utc):
     """Convierte una fecha UTC a zona horaria de Argentina"""
