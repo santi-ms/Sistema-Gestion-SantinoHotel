@@ -85,61 +85,51 @@ export function formatearSoloFecha(fecha) {
 
 /**
  * Formatea solo la hora en zona horaria de Argentina
+ * SOLUCIÓN SIMPLE: Extrae HH:MM directamente del string ISO
  */
 export function formatearSoloHora(fecha, incluirSegundos = false) {
   if (!fecha) return "N/A";
   
-  // Si la fecha viene como ISO string
+  // Si es string ISO, extraer hora directamente (ej: "2025-12-18T19:33:00-03:00" → "19:33")
   if (typeof fecha === "string") {
-    // Extraer hora directamente del string ISO para evitar problemas de timezone
-    // Formato esperado: "2025-12-18T19:09:53.656134-03:00" o "2025-12-18T19:09:53"
-    const matchHora = fecha.match(/T(\d{2}):(\d{2}):(\d{2})/);
-    if (matchHora) {
-      const hora = matchHora[1];
-      const minuto = matchHora[2];
-      const segundo = matchHora[3];
+    const match = fecha.match(/T(\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (match) {
+      const hora = match[1];
+      const minuto = match[2];
+      const segundo = match[3] || "00";
       
-      // Si tiene timezone -03:00, la hora ya está en hora de Argentina, mostrarla tal cual
+      // Si el string tiene "-03:00", significa que la hora YA ESTÁ en hora de Argentina
+      // Solo mostrar la hora tal cual está en el string
       if (fecha.includes('-03:00')) {
         return incluirSegundos ? `${hora}:${minuto}:${segundo}` : `${hora}:${minuto}`;
       }
       
-      // Si tiene timezone +00:00 o Z (UTC), restar 3 horas para convertir a Argentina
-      if (fecha.includes('+00:00') || fecha.endsWith('Z') || (!fecha.match(/[+-]\d{2}:\d{2}$/) && !fecha.includes('-'))) {
-        let horaNum = parseInt(hora);
-        let minutoNum = parseInt(minuto);
-        
-        // Restar 3 horas (UTC a Argentina UTC-3)
-        horaNum -= 3;
-        if (horaNum < 0) {
-          horaNum += 24; // Si pasa de medianoche, ajustar
-        }
-        
-        const horaStr = horaNum.toString().padStart(2, '0');
-        return incluirSegundos ? `${horaStr}:${minuto}:${segundo}` : `${horaStr}:${minuto}`;
-      }
-      
-      // Si tiene otro timezone, usar conversión con Date
-      const fechaObj = new Date(fecha);
-      if (!isNaN(fechaObj.getTime())) {
-        return fechaObj.toLocaleString('es-AR', {
-          timeZone: 'America/Argentina/Buenos_Aires',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: incluirSegundos ? '2-digit' : undefined,
-          hour12: false
-        });
-      }
+      // Si viene sin timezone o con Z (UTC), el backend ya debería haberlo corregido
+      // Pero por seguridad, si no tiene -03:00, asumir que viene en UTC y restar 3 horas
+      let horaNum = parseInt(hora);
+      horaNum = horaNum >= 3 ? horaNum - 3 : horaNum + 21; // Restar 3 horas
+      const horaStr = horaNum.toString().padStart(2, '0');
+      return incluirSegundos ? `${horaStr}:${minuto}:${segundo}` : `${horaStr}:${minuto}`;
     }
   }
 
-  // Si es un objeto Date u otro formato, usar la función general
-  return formatearFechaArgentina(fecha, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: incluirSegundos ? '2-digit' : undefined,
-    hour12: false
-  });
+  // Fallback: usar Date y formatear
+  try {
+    const fechaObj = typeof fecha === "string" ? new Date(fecha) : fecha;
+    if (fechaObj && !isNaN(fechaObj.getTime())) {
+      return fechaObj.toLocaleString('es-AR', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: incluirSegundos ? '2-digit' : undefined,
+        hour12: false
+      });
+    }
+  } catch (e) {
+    console.error("Error formateando hora:", e);
+  }
+  
+  return "N/A";
 }
 
 /**
