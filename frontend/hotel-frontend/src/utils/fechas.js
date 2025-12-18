@@ -87,21 +87,44 @@ export function formatearSoloFecha(fecha) {
  * Formatea solo la hora en zona horaria de Argentina
  */
 export function formatearSoloHora(fecha, incluirSegundos = false) {
-  // Si la fecha viene como ISO string, extraer HH:MM directamente.
-  // Esto evita desfasajes cuando el runtime/OS no respeta bien `timeZone` en Intl.
+  if (!fecha) return "N/A";
+  
+  // Si la fecha viene como ISO string
   if (typeof fecha === "string") {
-    const match = fecha.match(/T(\d{2}):(\d{2}):(\d{2})/);
-    if (match) {
-      const hhmm = `${match[1]}:${match[2]}`;
-      if (!incluirSegundos) return hhmm;
-      return `${hhmm}:${match[3]}`;
+    let fechaObj;
+    
+    // Si tiene timezone explícito (-03:00, +00:00, etc.), new Date() lo parsea correctamente
+    if (fecha.match(/[+-]\d{2}:\d{2}$/)) {
+      fechaObj = new Date(fecha);
+    } else if (fecha.endsWith('Z')) {
+      // Tiene 'Z' = UTC, parsear y convertir a hora de Argentina
+      fechaObj = new Date(fecha);
+    } else {
+      // Sin timezone: asumir que es hora local del servidor (puede ser UTC si el servidor está en UTC)
+      // Si el backend guarda en UTC pero el servidor está en UTC, necesitamos interpretarlo como UTC
+      // Para seguridad, si no tiene timezone y no termina en Z, tratarlo como UTC
+      fechaObj = new Date(fecha + 'Z'); // Agregar Z para forzar interpretación como UTC
+    }
+    
+    // Si es una fecha válida, formatear usando toLocaleString con timezone de Argentina
+    // Esto convierte correctamente de cualquier timezone a hora de Argentina
+    if (!isNaN(fechaObj.getTime())) {
+      return fechaObj.toLocaleString('es-AR', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: incluirSegundos ? '2-digit' : undefined,
+        hour12: false
+      });
     }
   }
 
+  // Si es un objeto Date u otro formato, usar la función general
   return formatearFechaArgentina(fecha, {
     hour: '2-digit',
     minute: '2-digit',
-    second: incluirSegundos ? '2-digit' : undefined
+    second: incluirSegundos ? '2-digit' : undefined,
+    hour12: false
   });
 }
 
