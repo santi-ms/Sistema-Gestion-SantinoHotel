@@ -85,45 +85,43 @@ export function formatearSoloFecha(fecha) {
 
 /**
  * Formatea solo la hora en zona horaria de Argentina
- * SOLUCIÓN SIMPLE: Extrae HH:MM directamente del string ISO
+ * CORRECCIÓN: Si el backend guarda mal (UTC como si fuera AR), restar 3 horas siempre
  */
 export function formatearSoloHora(fecha, incluirSegundos = false) {
   if (!fecha) return "N/A";
   
-  // Si es string ISO, extraer hora directamente (ej: "2025-12-18T19:33:00-03:00" → "19:33")
+  // Extraer hora del string ISO
   if (typeof fecha === "string") {
     const match = fecha.match(/T(\d{2}):(\d{2})(?::(\d{2}))?/);
     if (match) {
-      const hora = match[1];
+      let horaNum = parseInt(match[1]);
       const minuto = match[2];
       const segundo = match[3] || "00";
       
-      // Si el string tiene "-03:00", significa que la hora YA ESTÁ en hora de Argentina
-      // Solo mostrar la hora tal cual está en el string
-      if (fecha.includes('-03:00')) {
-        return incluirSegundos ? `${hora}:${minuto}:${segundo}` : `${hora}:${minuto}`;
-      }
-      
-      // Si viene sin timezone o con Z (UTC), el backend ya debería haberlo corregido
-      // Pero por seguridad, si no tiene -03:00, asumir que viene en UTC y restar 3 horas
-      let horaNum = parseInt(hora);
-      horaNum = horaNum >= 3 ? horaNum - 3 : horaNum + 21; // Restar 3 horas
+      // SIEMPRE restar 3 horas porque el backend está guardando UTC como si fuera Argentina
+      // Esto es un fix temporal hasta que el backend se despliegue con la corrección
+      horaNum = horaNum >= 3 ? horaNum - 3 : horaNum + 21;
       const horaStr = horaNum.toString().padStart(2, '0');
+      
       return incluirSegundos ? `${horaStr}:${minuto}:${segundo}` : `${horaStr}:${minuto}`;
     }
   }
 
-  // Fallback: usar Date y formatear
+  // Fallback
   try {
     const fechaObj = typeof fecha === "string" ? new Date(fecha) : fecha;
     if (fechaObj && !isNaN(fechaObj.getTime())) {
-      return fechaObj.toLocaleString('es-AR', {
-        timeZone: 'America/Argentina/Buenos_Aires',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: incluirSegundos ? '2-digit' : undefined,
-        hour12: false
-      });
+      // Restar 3 horas manualmente
+      const horaUTC = fechaObj.getUTCHours();
+      const minutoUTC = fechaObj.getUTCMinutes();
+      const segundoUTC = fechaObj.getUTCSeconds();
+      
+      let horaAR = horaUTC >= 3 ? horaUTC - 3 : horaUTC + 21;
+      const horaStr = horaAR.toString().padStart(2, '0');
+      const minutoStr = minutoUTC.toString().padStart(2, '0');
+      const segundoStr = segundoUTC.toString().padStart(2, '0');
+      
+      return incluirSegundos ? `${horaStr}:${minutoStr}:${segundoStr}` : `${horaStr}:${minutoStr}`;
     }
   } catch (e) {
     console.error("Error formateando hora:", e);
