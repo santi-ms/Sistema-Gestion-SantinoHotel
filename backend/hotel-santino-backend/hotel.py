@@ -3208,8 +3208,26 @@ def detalle_diario_analytics(
         
         # Procesar pedidos
         for pedido in pedidos:
-            # Usar solo la fecha (sin hora) para agrupar por día
-            fecha_str = pedido.fecha.strftime("%Y-%m-%d")
+            # Normalizar fecha a zona horaria de Argentina y extraer solo la fecha (sin hora)
+            fecha_normalizada = normalizar_fecha_argentina(pedido.fecha)
+            if fecha_normalizada:
+                # Extraer la fecha en formato YYYY-MM-DD usando la fecha normalizada
+                fecha_str = fecha_normalizada.strftime("%Y-%m-%d")
+            else:
+                # Fallback: si no se puede normalizar, usar la fecha directamente
+                # pero asegurarse de que esté en zona horaria de Argentina
+                if pedido.fecha.tzinfo is None:
+                    # Si no tiene timezone, asumir que está en UTC y convertir
+                    fecha_utc = pedido.fecha.replace(tzinfo=timezone.utc)
+                    fecha_argentina = fecha_utc.astimezone(ARGENTINA_TZ)
+                elif pedido.fecha.tzinfo != ARGENTINA_TZ:
+                    # Si tiene otro timezone, convertir a Argentina
+                    fecha_argentina = pedido.fecha.astimezone(ARGENTINA_TZ)
+                else:
+                    # Ya está en zona horaria de Argentina
+                    fecha_argentina = pedido.fecha
+                fecha_str = fecha_argentina.strftime("%Y-%m-%d")
+            
             datos_por_dia[fecha_str]["fecha"] = fecha_str
             
             # Solo contar pedidos pagados
