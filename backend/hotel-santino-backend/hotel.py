@@ -3140,6 +3140,143 @@ def analisis_formas_pago(db: Session = Depends(obtener_db), token: dict = Depend
     
     return sorted(resultado, key=lambda x: x["monto"], reverse=True)
 
+@app.get("/analytics/detalle-diario")
+def detalle_diario_analytics(
+    fecha_inicio: str = Query(..., description="Fecha inicio (YYYY-MM-DD)"),
+    fecha_fin: str = Query(..., description="Fecha fin (YYYY-MM-DD)"),
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    """
+    Devuelve información detallada día por día de reservas y pedidos.
+    Incluye: dinero de reservas, habitaciones ocupadas, formas de pago, y lo mismo para pedidos.
+    """
+    try:
+        # Parsear fechas
+        fecha_inicio_dt = datetime.strptime(fecha_inicio, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        fecha_fin_dt = datetime.strptime(fecha_fin, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        fecha_fin_dt = fecha_fin_dt.replace(hour=23, minute=59, second=59)
+        
+        # Obtener reservas en el rango
+        reservas = db.exec(
+            select(Reserva).where(
+                Reserva.fecha_checkin >= fecha_inicio_dt,
+                Reserva.fecha_checkin <= fecha_fin_dt
+            )
+        ).all()
+        
+        # Obtener pedidos en el rango
+        pedidos = db.exec(
+            select(Pedido).where(
+                Pedido.fecha >= fecha_inicio_dt,
+                Pedido.fecha <= fecha_fin_dt
+            )
+        ).all()
+        
+        # Estructura para almacenar datos por día
+        datos_por_dia = defaultdict(lambda: {
+            "fecha": "",
+            "reservas": {
+                "monto_total": 0,
+                "cantidad": 0,
+                "habitaciones_ocupadas": set(),  # Usar set para evitar duplicados
+                "formas_pago": defaultdict(float)  # forma_pago -> monto
+            },
+            "pedidos": {
+                "monto_total": 0,
+                "cantidad": 0,
+                "formas_pago": defaultdict(float)  # forma_pago -> monto
+            }
+        })
+        
+        # Procesar reservas
+        for reserva in reservas:
+            fecha_str = reserva.fecha_checkin.strftime("%Y-%m-%d")
+            datos_por_dia[fecha_str]["fecha"] = fecha_str
+            
+            # Monto total de reservas
+            datos_por_dia[fecha_str]["reservas"]["monto_total"] += reserva.total_estadia
+            datos_por_dia[fecha_str]["reservas"]["cantidad"] += 1
+            
+            # Habitaciones ocupadas (agregar todas las habitaciones de las reservas de ese día)
+            if reserva.habitacion_id:
+                datos_por_dia[fecha_str]["reservas"]["habitaciones_ocupadas"].add(reserva.habitacion_id)
+            
+            # Formas de pago
+            forma_pago = reserva.forma_pago or "No especificado"
+            datos_por_dia[fecha_str]["reservas"]["formas_pago"][forma_pago] += reserva.total_estadia
+        
+        # Procesar pedidos
+        for pedido in pedidos:
+            # Usar solo la fecha (sin hora) para agrupar por día
+            fecha_str = pedido.fecha.strftime("%Y-%m-%d")
+            datos_por_dia[fecha_str]["fecha"] = fecha_str
+            
+            # Solo contar pedidos pagados
+            if pedido.estado == "PAGADO":
+                datos_por_dia[fecha_str]["pedidos"]["monto_total"] += pedido.monto
+                datos_por_dia[fecha_str]["pedidos"]["cantidad"] += 1
+                
+                # Formas de pago
+                forma_pago = pedido.forma_pago or "No especificado"
+                datos_por_dia[fecha_str]["pedidos"]["formas_pago"][forma_pago] += pedido.monto
+        
+        # Convertir a lista y formatear
+        resultado = []
+        fecha_actual = fecha_inicio_dt
+        while fecha_actual <= fecha_fin_dt:
+            fecha_str = fecha_actual.strftime("%Y-%m-%d")
+            datos = datos_por_dia[fecha_str]
+            
+            # Convertir set de habitaciones a lista y contar
+            habitaciones_ocupadas_list = list(datos["reservas"]["habitaciones_ocupadas"])
+            
+            # Convertir defaultdict de formas de pago a lista
+            formas_pago_reservas = [
+                {"forma_pago": forma, "monto": monto}
+                for forma, monto in datos["reservas"]["formas_pago"].items()
+            ]
+            formas_pago_pedidos = [
+                {"forma_pago": forma, "monto": monto}
+                for forma, monto in datos["pedidos"]["formas_pago"].items()
+            ]
+            
+            resultado.append({
+                "fecha": fecha_str,
+                "reservas": {
+                    "monto_total": datos["reservas"]["monto_total"],
+                    "cantidad": datos["reservas"]["cantidad"],
+                    "habitaciones_ocupadas": len(habitaciones_ocupadas_list),
+                    "habitaciones_ids": habitaciones_ocupadas_list,
+                    "formas_pago": sorted(formas_pago_reservas, key=lambda x: x["monto"], reverse=True)
+                },
+                "pedidos": {
+                    "monto_total": datos["pedidos"]["monto_total"],
+                    "cantidad": datos["pedidos"]["cantidad"],
+                    "formas_pago": sorted(formas_pago_pedidos, key=lambda x: x["monto"], reverse=True)
+                },
+                "total_dia": datos["reservas"]["monto_total"] + datos["pedidos"]["monto_total"]
+            })
+            
+            fecha_actual += timedelta(days=1)
+        
+        return {
+            "fecha_inicio": fecha_inicio,
+            "fecha_fin": fecha_fin,
+            "dias": resultado,
+            "resumen": {
+                "total_reservas": sum(d["reservas"]["cantidad"] for d in resultado),
+                "total_pedidos": sum(d["pedidos"]["cantidad"] for d in resultado),
+                "total_ingresos_reservas": sum(d["reservas"]["monto_total"] for d in resultado),
+                "total_ingresos_pedidos": sum(d["pedidos"]["monto_total"] for d in resultado),
+                "total_ingresos": sum(d["total_dia"] for d in resultado)
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Formato de fecha inválido: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al procesar datos: {str(e)}")
+
 # ─────────── ENDPOINT ROOT ───────────
 @app.get("/")
 def root():

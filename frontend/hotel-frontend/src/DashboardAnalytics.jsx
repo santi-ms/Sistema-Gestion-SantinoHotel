@@ -36,8 +36,16 @@ export default function DashboardAnalytics() {
   const [ingresosData, setIngresosData] = useState([]);
   const [ocupacionData, setOcupacionData] = useState([]);
   const [formasPagoData, setFormasPagoData] = useState([]);
+  const [detalleDiario, setDetalleDiario] = useState(null);
   const [cargando, setCargando] = useState(true);
+  const [cargandoDetalle, setCargandoDetalle] = useState(false);
   const [periodoIngresos, setPeriodoIngresos] = useState(30);
+  
+  // Filtros de fecha para detalle diario
+  const [tipoFiltro, setTipoFiltro] = useState('mes'); // 'dia', 'semana', 'mes'
+  const [fechaInicio, setFechaInicio] = useState('');
+  const [fechaFin, setFechaFin] = useState('');
+  
   const navigate = useNavigate();
 
   const token = localStorage.getItem(TOKEN_KEY);
@@ -55,6 +63,27 @@ export default function DashboardAnalytics() {
   useEffect(() => {
     cargarIngresosData();
   }, [periodoIngresos]);
+
+  useEffect(() => {
+    // Inicializar fechas al cargar
+    const hoy = new Date();
+    const año = hoy.getFullYear();
+    const mes = String(hoy.getMonth() + 1).padStart(2, '0');
+    const dia = String(hoy.getDate()).padStart(2, '0');
+    
+    if (!fechaInicio) {
+      // Por defecto, mostrar el mes actual
+      const inicioMes = `${año}-${mes}-01`;
+      setFechaInicio(inicioMes);
+      setFechaFin(`${año}-${mes}-${dia}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (fechaInicio && fechaFin) {
+      cargarDetalleDiario();
+    }
+  }, [fechaInicio, fechaFin]);
 
   const cargarDatosAnalytics = async () => {
     setCargando(true);
@@ -101,6 +130,55 @@ export default function DashboardAnalytics() {
       setIngresosData(res.data);
     } catch (error) {
       console.error('Error al cargar ingresos:', error);
+    }
+  };
+
+  const cargarDetalleDiario = async () => {
+    if (!fechaInicio || !fechaFin) return;
+    
+    setCargandoDetalle(true);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/analytics/detalle-diario`, {
+        params: {
+          fecha_inicio: fechaInicio,
+          fecha_fin: fechaFin
+        },
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setDetalleDiario(res.data);
+    } catch (error) {
+      console.error('Error al cargar detalle diario:', error);
+    } finally {
+      setCargandoDetalle(false);
+    }
+  };
+
+  const aplicarFiltroRapido = (tipo) => {
+    const hoy = new Date();
+    const año = hoy.getFullYear();
+    const mes = String(hoy.getMonth() + 1).padStart(2, '0');
+    const dia = String(hoy.getDate()).padStart(2, '0');
+    
+    setTipoFiltro(tipo);
+    
+    if (tipo === 'dia') {
+      const fechaHoy = `${año}-${mes}-${dia}`;
+      setFechaInicio(fechaHoy);
+      setFechaFin(fechaHoy);
+    } else if (tipo === 'semana') {
+      // Últimos 7 días
+      const hace7Dias = new Date(hoy);
+      hace7Dias.setDate(hoy.getDate() - 6);
+      const fechaInicioSem = `${hace7Dias.getFullYear()}-${String(hace7Dias.getMonth() + 1).padStart(2, '0')}-${String(hace7Dias.getDate()).padStart(2, '0')}`;
+      const fechaFinSem = `${año}-${mes}-${dia}`;
+      setFechaInicio(fechaInicioSem);
+      setFechaFin(fechaFinSem);
+    } else if (tipo === 'mes') {
+      // Mes actual
+      const inicioMes = `${año}-${mes}-01`;
+      const finMes = `${año}-${mes}-${dia}`;
+      setFechaInicio(inicioMes);
+      setFechaFin(finMes);
     }
   };
 
@@ -461,6 +539,203 @@ export default function DashboardAnalytics() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+
+        {/* Detalle Diario - Nueva Sección */}
+        <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden mb-8">
+          <div className="p-6 border-b border-slate-200">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <h3 className="text-xl font-semibold text-slate-800 flex items-center gap-2">
+                <Calendar className="w-6 h-6 text-indigo-600" />
+                Detalle Diario de Reservas y Pedidos
+              </h3>
+              
+              {/* Filtros de fecha */}
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Botones rápidos */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => aplicarFiltroRapido('dia')}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      tipoFiltro === 'dia' 
+                        ? 'bg-indigo-600 text-white' 
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    Hoy
+                  </button>
+                  <button
+                    onClick={() => aplicarFiltroRapido('semana')}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      tipoFiltro === 'semana' 
+                        ? 'bg-indigo-600 text-white' 
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    7 días
+                  </button>
+                  <button
+                    onClick={() => aplicarFiltroRapido('mes')}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      tipoFiltro === 'mes' 
+                        ? 'bg-indigo-600 text-white' 
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    Mes
+                  </button>
+                </div>
+                
+                {/* Selectores de fecha personalizados */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={fechaInicio}
+                    onChange={(e) => setFechaInicio(e.target.value)}
+                    className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <span className="text-slate-500">a</span>
+                  <input
+                    type="date"
+                    value={fechaFin}
+                    onChange={(e) => setFechaFin(e.target.value)}
+                    className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Resumen del período */}
+          {detalleDiario?.resumen && (
+            <div className="p-4 bg-indigo-50 border-b border-slate-200">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+                <div>
+                  <p className="text-slate-600">Total Reservas</p>
+                  <p className="text-lg font-bold text-slate-800">{detalleDiario.resumen.total_reservas}</p>
+                </div>
+                <div>
+                  <p className="text-slate-600">Total Pedidos</p>
+                  <p className="text-lg font-bold text-slate-800">{detalleDiario.resumen.total_pedidos}</p>
+                </div>
+                <div>
+                  <p className="text-slate-600">Ingresos Reservas</p>
+                  <p className="text-lg font-bold text-green-600">{formatearMoneda(detalleDiario.resumen.total_ingresos_reservas)}</p>
+                </div>
+                <div>
+                  <p className="text-slate-600">Ingresos Pedidos</p>
+                  <p className="text-lg font-bold text-green-600">{formatearMoneda(detalleDiario.resumen.total_ingresos_pedidos)}</p>
+                </div>
+                <div>
+                  <p className="text-slate-600">Total Ingresos</p>
+                  <p className="text-lg font-bold text-indigo-600">{formatearMoneda(detalleDiario.resumen.total_ingresos)}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tabla detallada día por día */}
+          <div className="overflow-x-auto">
+            {cargandoDetalle ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                <span className="ml-3 text-slate-600">Cargando detalle diario...</span>
+              </div>
+            ) : detalleDiario?.dias && detalleDiario.dias.length > 0 ? (
+              <table className="w-full">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Fecha</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Reservas</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Hab. Ocupadas</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Pago Reservas</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Pedidos</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Pago Pedidos</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Total Día</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-slate-200">
+                  {detalleDiario.dias.map((dia, index) => (
+                    <tr key={dia.fecha} className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="text-sm font-medium text-slate-900">
+                          {new Date(dia.fecha + 'T00:00:00').toLocaleDateString('es-AR', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            weekday: 'short'
+                          })}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm">
+                          <div className="font-medium text-slate-900">{formatearMoneda(dia.reservas.monto_total)}</div>
+                          <div className="text-slate-500">{dia.reservas.cantidad} reserva{dia.reservas.cantidad !== 1 ? 's' : ''}</div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm">
+                          <div className="font-medium text-slate-900">{dia.reservas.habitaciones_ocupadas}</div>
+                          {dia.reservas.habitaciones_ids.length > 0 && (
+                            <div className="text-xs text-slate-500">
+                              Hab: {dia.reservas.habitaciones_ids.join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm space-y-1">
+                          {dia.reservas.formas_pago.length > 0 ? (
+                            dia.reservas.formas_pago.map((fp, i) => (
+                              <div key={i} className="flex items-center gap-2">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
+                                  {fp.forma_pago}
+                                </span>
+                                <span className="text-slate-600">{formatearMoneda(fp.monto)}</span>
+                              </div>
+                            ))
+                          ) : (
+                            <span className="text-slate-400 text-xs">-</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm">
+                          <div className="font-medium text-slate-900">{formatearMoneda(dia.pedidos.monto_total)}</div>
+                          <div className="text-slate-500">{dia.pedidos.cantidad} pedido{dia.pedidos.cantidad !== 1 ? 's' : ''}</div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm space-y-1">
+                          {dia.pedidos.formas_pago.length > 0 ? (
+                            dia.pedidos.formas_pago.map((fp, i) => (
+                              <div key={i} className="flex items-center gap-2">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                                  {fp.forma_pago}
+                                </span>
+                                <span className="text-slate-600">{formatearMoneda(fp.monto)}</span>
+                              </div>
+                            ))
+                          ) : (
+                            <span className="text-slate-400 text-xs">-</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm font-bold text-indigo-600">
+                          {formatearMoneda(dia.total_dia)}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="text-center py-12">
+                <p className="text-slate-500">No hay datos para el período seleccionado</p>
+              </div>
+            )}
           </div>
         </div>
 
