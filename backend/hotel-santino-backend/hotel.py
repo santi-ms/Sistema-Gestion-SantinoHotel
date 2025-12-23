@@ -837,9 +837,17 @@ def obtener_todos_los_pedidos_con_items(db: Session = Depends(obtener_db), token
 
 @app.get("/pedidos/hoy")
 def obtener_pedidos_hoy(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
-    # Filtrar por día calendario para evitar problemas de timezone/naive vs aware
+    # Obtener todos los pedidos y filtrar por día en Python usando timezone de Argentina
+    # Esto evita problemas de timezone en la consulta SQL
     hoy_argentina = obtener_fecha_argentina().date()
-    pedidos = db.exec(select(Pedido).where(func.date(Pedido.fecha) == hoy_argentina)).all()
+    todos_pedidos = db.exec(select(Pedido)).all()
+    
+    # Filtrar pedidos que corresponden al día actual en zona horaria de Argentina
+    pedidos = []
+    for pedido in todos_pedidos:
+        fecha_normalizada = normalizar_fecha_argentina(pedido.fecha)
+        if fecha_normalizada and fecha_normalizada.date() == hoy_argentina:
+            pedidos.append(pedido)
     
     resultado = []
     for pedido in pedidos:
@@ -874,9 +882,26 @@ def obtener_pedidos_por_dia_con_items(
     except:
         raise HTTPException(status_code=400, detail="Formato de fecha inválido")
 
-    pedidos = db.exec(
-        select(Pedido).where(func.date(Pedido.fecha) == fecha_obj)
-    ).all()
+    # Para PostgreSQL, usar AT TIME ZONE para convertir a Argentina antes de extraer la fecha
+    if DATABASE_URL.startswith("postgres"):
+        pedidos = db.exec(
+            select(Pedido).where(
+                func.date(
+                    func.timezone('America/Argentina/Buenos_Aires', Pedido.fecha)
+                ) == fecha_obj
+            )
+        ).all()
+    else:
+    # Obtener todos los pedidos y filtrar por día en Python usando timezone de Argentina
+    # Esto evita problemas de timezone en la consulta SQL
+    todos_pedidos = db.exec(select(Pedido)).all()
+    
+    # Filtrar pedidos que corresponden a la fecha solicitada en zona horaria de Argentina
+    pedidos = []
+    for pedido in todos_pedidos:
+        fecha_normalizada = normalizar_fecha_argentina(pedido.fecha)
+        if fecha_normalizada and fecha_normalizada.date() == fecha_obj:
+            pedidos.append(pedido)
     
     resultado = []
     for pedido in pedidos:
