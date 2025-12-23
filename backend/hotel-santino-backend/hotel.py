@@ -795,12 +795,15 @@ def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obt
         print(f"Error al descontar stock: {e}")
         # No fallar el pedido si hay error en el stock
     
+    # Normalizar fecha a zona horaria de Argentina antes de serializar
+    fecha_normalizada = normalizar_fecha_argentina(nuevo_pedido.fecha)
+    
     return {
         "mensaje": "Pedido registrado correctamente",
         "id": nuevo_pedido.id,
         "estado": nuevo_pedido.estado,
         "forma_pago": nuevo_pedido.forma_pago,
-        "fecha": nuevo_pedido.fecha.isoformat()
+        "fecha": fecha_normalizada.isoformat() if fecha_normalizada else nuevo_pedido.fecha.isoformat()
     }
 
 @app.get("/pedidos", response_model=List[PedidoRespuesta])
@@ -855,7 +858,7 @@ def obtener_pedidos_hoy(db: Session = Depends(obtener_db), token: dict = Depends
             "forma_pago": pedido.forma_pago,
             "estado": getattr(pedido, "estado", None),
             "pagado_at": getattr(pedido, "pagado_at", None).isoformat() if getattr(pedido, "pagado_at", None) else None,
-            "fecha": pedido.fecha.isoformat()
+            "fecha": normalizar_fecha_argentina(pedido.fecha).isoformat() if normalizar_fecha_argentina(pedido.fecha) else pedido.fecha.isoformat()
         })
     
     return resultado

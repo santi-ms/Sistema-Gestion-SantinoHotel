@@ -74,44 +74,64 @@ export function obtenerHoyArgentinaISO() {
 
 /**
  * Formatea solo la fecha (sin hora) en zona horaria de Argentina
- * CORRECCIÓN: Extrae la fecha directamente del string ISO para evitar problemas de timezone
+ * SOLUCIÓN: Extraer fecha directamente del string ISO y usar Date local para evitar timezone issues
  */
 export function formatearSoloFecha(fecha) {
   if (!fecha) return "N/A";
   
-  // Si es string ISO, extraer fecha directamente (ej: "2025-12-22T21:04:00-03:00" → "22/12/2025")
+  // Si es string ISO, extraer fecha directamente
   if (typeof fecha === "string") {
     const match = fecha.match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (match) {
-      // Si tiene timezone -03:00, la fecha ya está en hora de Argentina, mostrarla tal cual
-      if (fecha.includes('-03:00')) {
-        const año = match[1];
-        const mes = match[2];
-        const dia = match[3];
+      const año = match[1];
+      const mes = match[2];
+      const dia = match[3];
+      
+      // Extraer también la hora para verificar si es temprano y podría estar en día anterior
+      const matchHora = fecha.match(/T(\d{2}):(\d{2})/);
+      
+      // Si tiene timezone -03:00, la fecha está en hora de Argentina
+      // PERO JavaScript puede estar parseándola como UTC, causando que aparezca 1 día adelantado
+      if (fecha.includes('-03:00') || fecha.includes('+03:00')) {
+        // Usar la fecha directamente del string (ya está correcta)
         return `${dia}/${mes}/${año}`;
       }
       
-      // Si viene sin timezone o con Z (UTC), puede estar en UTC
-      // En ese caso, necesitamos verificar si al convertir a Argentina cambia el día
-      const fechaObj = new Date(fecha);
-      if (!isNaN(fechaObj.getTime())) {
-        // Usar toLocaleString con timezone de Argentina
-        return fechaObj.toLocaleDateString('es-AR', {
+      // Si viene sin timezone o con Z, puede estar en UTC
+      // Crear Date en UTC y luego convertir a hora local de Argentina
+      if (fecha.includes('Z') || !fecha.match(/[+-]\d{2}:\d{2}$/)) {
+        // Parsear como UTC
+        const fechaUTC = new Date(fecha + (fecha.includes('Z') ? '' : 'Z'));
+        // Convertir a hora de Argentina (UTC-3) usando toLocaleDateString
+        return fechaUTC.toLocaleDateString('es-AR', {
           timeZone: 'America/Argentina/Buenos_Aires',
           year: 'numeric',
           month: '2-digit',
           day: '2-digit'
         });
       }
+      
+      // Si tiene otro timezone, extraer directamente
+      return `${dia}/${mes}/${año}`;
     }
   }
 
-  // Fallback: usar formatearFechaArgentina
-  return formatearFechaArgentina(fecha, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  });
+  // Fallback: convertir a Date y formatear
+  try {
+    const fechaObj = typeof fecha === "string" ? new Date(fecha) : fecha;
+    if (fechaObj && !isNaN(fechaObj.getTime())) {
+      return fechaObj.toLocaleDateString('es-AR', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      });
+    }
+  } catch (e) {
+    console.error("Error formateando fecha:", e);
+  }
+  
+  return "N/A";
 }
 
 /**
