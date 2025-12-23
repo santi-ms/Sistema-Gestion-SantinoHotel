@@ -837,17 +837,18 @@ def obtener_todos_los_pedidos_con_items(db: Session = Depends(obtener_db), token
 
 @app.get("/pedidos/hoy")
 def obtener_pedidos_hoy(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
-    # Obtener todos los pedidos y filtrar por día en Python usando timezone de Argentina
-    # Esto evita problemas de timezone en la consulta SQL
-    hoy_argentina = obtener_fecha_argentina().date()
-    todos_pedidos = db.exec(select(Pedido)).all()
+    # Obtener rango de fechas para el día de hoy en zona horaria de Argentina
+    hoy_argentina = obtener_fecha_argentina()
+    inicio_dia = hoy_argentina.replace(hour=0, minute=0, second=0, microsecond=0)
+    fin_dia = hoy_argentina.replace(hour=23, minute=59, second=59, microsecond=999999)
     
-    # Filtrar pedidos que corresponden al día actual en zona horaria de Argentina
-    pedidos = []
-    for pedido in todos_pedidos:
-        fecha_normalizada = normalizar_fecha_argentina(pedido.fecha)
-        if fecha_normalizada and fecha_normalizada.date() == hoy_argentina:
-            pedidos.append(pedido)
+    # Filtrar pedidos en el rango del día
+    pedidos = db.exec(
+        select(Pedido).where(
+            Pedido.fecha >= inicio_dia,
+            Pedido.fecha <= fin_dia
+        )
+    ).all()
     
     resultado = []
     for pedido in pedidos:
@@ -878,30 +879,21 @@ def obtener_pedidos_por_dia_con_items(
     token: dict = Depends(verificar_token)
 ):
     try:
-        fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").date()
+        fecha_obj = datetime.strptime(fecha, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
     except:
         raise HTTPException(status_code=400, detail="Formato de fecha inválido")
-
-    # Para PostgreSQL, usar AT TIME ZONE para convertir a Argentina antes de extraer la fecha
-    if DATABASE_URL.startswith("postgres"):
-        pedidos = db.exec(
-            select(Pedido).where(
-                func.date(
-                    func.timezone('America/Argentina/Buenos_Aires', Pedido.fecha)
-                ) == fecha_obj
-            )
-        ).all()
-    else:
-    # Obtener todos los pedidos y filtrar por día en Python usando timezone de Argentina
-    # Esto evita problemas de timezone en la consulta SQL
-    todos_pedidos = db.exec(select(Pedido)).all()
     
-    # Filtrar pedidos que corresponden a la fecha solicitada en zona horaria de Argentina
-    pedidos = []
-    for pedido in todos_pedidos:
-        fecha_normalizada = normalizar_fecha_argentina(pedido.fecha)
-        if fecha_normalizada and fecha_normalizada.date() == fecha_obj:
-            pedidos.append(pedido)
+    # Calcular inicio y fin del día en zona horaria de Argentina
+    inicio_dia = fecha_obj.replace(hour=0, minute=0, second=0, microsecond=0)
+    fin_dia = fecha_obj.replace(hour=23, minute=59, second=59, microsecond=999999)
+    
+    # Filtrar pedidos en el rango del día
+    pedidos = db.exec(
+        select(Pedido).where(
+            Pedido.fecha >= inicio_dia,
+            Pedido.fecha <= fin_dia
+        )
+    ).all()
     
     resultado = []
     for pedido in pedidos:
