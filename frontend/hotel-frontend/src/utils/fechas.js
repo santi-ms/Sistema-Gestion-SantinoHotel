@@ -74,8 +74,39 @@ export function obtenerHoyArgentinaISO() {
 
 /**
  * Formatea solo la fecha (sin hora) en zona horaria de Argentina
+ * CORRECCIÓN: Extrae la fecha directamente del string ISO para evitar problemas de timezone
  */
 export function formatearSoloFecha(fecha) {
+  if (!fecha) return "N/A";
+  
+  // Si es string ISO, extraer fecha directamente (ej: "2025-12-22T21:04:00-03:00" → "22/12/2025")
+  if (typeof fecha === "string") {
+    const match = fecha.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      // Si tiene timezone -03:00, la fecha ya está en hora de Argentina, mostrarla tal cual
+      if (fecha.includes('-03:00')) {
+        const año = match[1];
+        const mes = match[2];
+        const dia = match[3];
+        return `${dia}/${mes}/${año}`;
+      }
+      
+      // Si viene sin timezone o con Z (UTC), puede estar en UTC
+      // En ese caso, necesitamos verificar si al convertir a Argentina cambia el día
+      const fechaObj = new Date(fecha);
+      if (!isNaN(fechaObj.getTime())) {
+        // Usar toLocaleString con timezone de Argentina
+        return fechaObj.toLocaleDateString('es-AR', {
+          timeZone: 'America/Argentina/Buenos_Aires',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        });
+      }
+    }
+  }
+
+  // Fallback: usar formatearFechaArgentina
   return formatearFechaArgentina(fecha, {
     year: 'numeric',
     month: '2-digit',
