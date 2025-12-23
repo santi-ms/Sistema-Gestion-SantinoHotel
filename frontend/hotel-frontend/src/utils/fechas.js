@@ -136,7 +136,7 @@ export function formatearSoloFecha(fecha) {
 
 /**
  * Formatea solo la hora en zona horaria de Argentina
- * CORRECCIÓN: Si el backend guarda mal (UTC como si fuera AR), restar 3 horas siempre
+ * CORRECCIÓN: Si el backend envía con timezone -03:00, la hora ya está correcta
  */
 export function formatearSoloHora(fecha, incluirSegundos = false) {
   if (!fecha) return "N/A";
@@ -145,12 +145,18 @@ export function formatearSoloHora(fecha, incluirSegundos = false) {
   if (typeof fecha === "string") {
     const match = fecha.match(/T(\d{2}):(\d{2})(?::(\d{2}))?/);
     if (match) {
-      let horaNum = parseInt(match[1]);
+      const hora = match[1];
       const minuto = match[2];
       const segundo = match[3] || "00";
       
-      // SIEMPRE restar 3 horas porque el backend está guardando UTC como si fuera Argentina
-      // Esto es un fix temporal hasta que el backend se despliegue con la corrección
+      // Si tiene timezone -03:00, la hora ya está en hora de Argentina, mostrarla tal cual
+      if (fecha.includes('-03:00')) {
+        return incluirSegundos ? `${hora}:${minuto}:${segundo}` : `${hora}:${minuto}`;
+      }
+      
+      // Si viene sin timezone o con Z (UTC), el backend debería haberlo corregido
+      // Pero por seguridad, si no tiene -03:00, asumir que viene en UTC y restar 3 horas
+      let horaNum = parseInt(hora);
       horaNum = horaNum >= 3 ? horaNum - 3 : horaNum + 21;
       const horaStr = horaNum.toString().padStart(2, '0');
       
@@ -158,21 +164,29 @@ export function formatearSoloHora(fecha, incluirSegundos = false) {
     }
   }
 
-  // Fallback
+  // Fallback: usar Date y formatear
   try {
     const fechaObj = typeof fecha === "string" ? new Date(fecha) : fecha;
     if (fechaObj && !isNaN(fechaObj.getTime())) {
-      // Restar 3 horas manualmente
-      const horaUTC = fechaObj.getUTCHours();
-      const minutoUTC = fechaObj.getUTCMinutes();
-      const segundoUTC = fechaObj.getUTCSeconds();
+      // Si el string original tenía -03:00, la hora ya está correcta
+      if (typeof fecha === "string" && fecha.includes('-03:00')) {
+        const match = fecha.match(/T(\d{2}):(\d{2})(?::(\d{2}))?/);
+        if (match) {
+          const hora = match[1];
+          const minuto = match[2];
+          const segundo = match[3] || "00";
+          return incluirSegundos ? `${hora}:${minuto}:${segundo}` : `${hora}:${minuto}`;
+        }
+      }
       
-      let horaAR = horaUTC >= 3 ? horaUTC - 3 : horaUTC + 21;
-      const horaStr = horaAR.toString().padStart(2, '0');
-      const minutoStr = minutoUTC.toString().padStart(2, '0');
-      const segundoStr = segundoUTC.toString().padStart(2, '0');
-      
-      return incluirSegundos ? `${horaStr}:${minutoStr}:${segundoStr}` : `${horaStr}:${minutoStr}`;
+      // Si no tiene timezone o es UTC, convertir
+      return fechaObj.toLocaleString('es-AR', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: incluirSegundos ? '2-digit' : undefined,
+        hour12: false
+      });
     }
   } catch (e) {
     console.error("Error formateando hora:", e);
