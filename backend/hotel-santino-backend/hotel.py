@@ -1868,33 +1868,33 @@ def configurar_habitaciones_completas(db: Session = Depends(obtener_db)):
         # Basada en las reglas de negocio: capacidades según número
         habitaciones_config = [
             # Habitaciones Estándar para 5 personas (1-4)
-            {"numero": 1, "tipo": "Estándar", "capacidad": 5, "precio": 90000},
-            {"numero": 2, "tipo": "Estándar", "capacidad": 5, "precio": 90000},
-            {"numero": 3, "tipo": "Estándar", "capacidad": 5, "precio": 90000},
-            {"numero": 4, "tipo": "Estándar", "capacidad": 5, "precio": 90000},
+            {"numero": 1, "tipo": "Estándar", "capacidad": 5, "precio": 110000},
+            {"numero": 2, "tipo": "Estándar", "capacidad": 5, "precio": 110000},
+            {"numero": 3, "tipo": "Estándar", "capacidad": 5, "precio": 110000},
+            {"numero": 4, "tipo": "Estándar", "capacidad": 5, "precio": 110000},
             
             # Habitación Estándar para 3 personas (5)
-            {"numero": 5, "tipo": "Estándar", "capacidad": 3, "precio": 80000},
+            {"numero": 5, "tipo": "Estándar", "capacidad": 3, "precio": 85000},
             
             # Habitaciones Estándar para 2 personas (6, 11)
-            {"numero": 6, "tipo": "Estándar", "capacidad": 2, "precio": 50000},
-            {"numero": 11, "tipo": "Estándar", "capacidad": 2, "precio": 50000},
+            {"numero": 6, "tipo": "Estándar", "capacidad": 2, "precio": 70000},
+            {"numero": 11, "tipo": "Estándar", "capacidad": 2, "precio": 70000},
             
             # Habitación Estándar para 6 personas (7)
-            {"numero": 7, "tipo": "Estándar", "capacidad": 6, "precio": 100000},
+            {"numero": 7, "tipo": "Estándar", "capacidad": 6, "precio": 125000},
             
             # Habitaciones Estándar para 3 personas (8, 9)
-            {"numero": 8, "tipo": "Estándar", "capacidad": 3, "precio": 65000},
-            {"numero": 9, "tipo": "Estándar", "capacidad": 3, "precio": 65000},
+            {"numero": 8, "tipo": "Estándar", "capacidad": 3, "precio": 85000},
+            {"numero": 9, "tipo": "Estándar", "capacidad": 3, "precio": 85000},
             
             # Habitación Estándar para 7 personas (10)
-            {"numero": 10, "tipo": "Estándar", "capacidad": 7, "precio": 110000},
+            {"numero": 10, "tipo": "Estándar", "capacidad": 7, "precio": 140000},
             
             # Habitaciones Confort para 4 personas (12-15)
-            {"numero": 12, "tipo": "Confort", "capacidad": 4, "precio": 90000},
-            {"numero": 13, "tipo": "Confort", "capacidad": 4, "precio": 90000},
-            {"numero": 14, "tipo": "Confort", "capacidad": 4, "precio": 90000},
-            {"numero": 15, "tipo": "Confort", "capacidad": 4, "precio": 90000},
+            {"numero": 12, "tipo": "Confort", "capacidad": 4, "precio": 100000},
+            {"numero": 13, "tipo": "Confort", "capacidad": 4, "precio": 100000},
+            {"numero": 14, "tipo": "Confort", "capacidad": 4, "precio": 100000},
+            {"numero": 15, "tipo": "Confort", "capacidad": 4, "precio": 100000},
         ]
         
         creadas = []
@@ -1972,12 +1972,12 @@ def configurar_habitaciones_completas(db: Session = Depends(obtener_db)):
                 "intactas": intactas
             },
             "detalles": {
-                "estandar_5_personas": "Hab. 1-4: $90,000 (capacidad 5)",
-                "estandar_3_personas": "Hab. 5,8,9: $80,000/$65,000 (capacidad 3)", 
-                "estandar_2_personas": "Hab. 6,11: $50,000 (capacidad 2)",
-                "estandar_6_personas": "Hab. 7: $100,000 (capacidad 6)",
-                "estandar_7_personas": "Hab. 10: $110,000 (capacidad 7)",
-                "confort_4_personas": "Hab. 12-15: $90,000 (capacidad 4)"
+                "estandar_5_personas": "Hab. 1-4: $110,000 (capacidad 5)",
+                "estandar_3_personas": "Hab. 5,8,9: $85,000 (capacidad 3)", 
+                "estandar_2_personas": "Hab. 6,11: $70,000 (capacidad 2)",
+                "estandar_6_personas": "Hab. 7: $125,000 (capacidad 6)",
+                "estandar_7_personas": "Hab. 10: $140,000 (capacidad 7)",
+                "confort_4_personas": "Hab. 12-15: $100,000 (capacidad 4)"
             }
         }
         
