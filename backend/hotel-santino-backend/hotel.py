@@ -1873,8 +1873,8 @@ def configurar_habitaciones_completas(db: Session = Depends(obtener_db)):
             {"numero": 3, "tipo": "Estándar", "capacidad": 5, "precio": 90000},
             {"numero": 4, "tipo": "Estándar", "capacidad": 5, "precio": 90000},
             
-            # Habitación Estándar para 4 personas (5)
-            {"numero": 5, "tipo": "Estándar", "capacidad": 4, "precio": 80000},
+            # Habitación Estándar para 3 personas (5)
+            {"numero": 5, "tipo": "Estándar", "capacidad": 3, "precio": 80000},
             
             # Habitaciones Estándar para 2 personas (6, 11)
             {"numero": 6, "tipo": "Estándar", "capacidad": 2, "precio": 50000},
@@ -1973,10 +1973,9 @@ def configurar_habitaciones_completas(db: Session = Depends(obtener_db)):
             },
             "detalles": {
                 "estandar_5_personas": "Hab. 1-4: $90,000 (capacidad 5)",
-                "estandar_4_personas": "Hab. 5: $80,000 (capacidad 4)", 
+                "estandar_3_personas": "Hab. 5,8,9: $80,000/$65,000 (capacidad 3)", 
                 "estandar_2_personas": "Hab. 6,11: $50,000 (capacidad 2)",
                 "estandar_6_personas": "Hab. 7: $100,000 (capacidad 6)",
-                "estandar_3_personas": "Hab. 8,9: $65,000 (capacidad 3)",
                 "estandar_7_personas": "Hab. 10: $110,000 (capacidad 7)",
                 "confort_4_personas": "Hab. 12-15: $90,000 (capacidad 4)"
             }
