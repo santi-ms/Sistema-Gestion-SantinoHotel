@@ -17,8 +17,11 @@ import {
   AlertCircle,
   CalendarDays,
   MapPin,
-  DollarSign
+  DollarSign,
+  Trash2,
+  X
 } from "lucide-react";
+import ConfirmModal from "./components/ConfirmModal";
 
 export default function VerReservas() {
   const [reservas, setReservas] = useState([]);
@@ -27,7 +30,23 @@ export default function VerReservas() {
   const [filtroTexto, setFiltroTexto] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("todas");
   const [filtroFecha, setFiltroFecha] = useState("");
+  const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
+  const [reservaEliminarId, setReservaEliminarId] = useState(null);
+  const [usuarioRol, setUsuarioRol] = useState(null);
   const navigate = useNavigate();
+
+  // Obtener rol del usuario desde el token
+  useEffect(() => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        setUsuarioRol(payload.rol);
+      } catch (err) {
+        console.error("Error al decodificar token:", err);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const obtener = async () => {
@@ -50,6 +69,12 @@ export default function VerReservas() {
 
   // Función para determinar el estado de una reserva
   const obtenerEstadoReserva = (reserva) => {
+    // Si la reserva tiene estado en la BD, usarlo (activa, completada, cancelada)
+    if (reserva.estado) {
+      return reserva.estado;
+    }
+    
+    // Si no tiene estado, calcularlo por fechas (compatibilidad con reservas antiguas)
     const hoy = new Date();
     const checkin = new Date(reserva.fecha_checkin);
     const checkout = new Date(reserva.fecha_checkout);
@@ -63,6 +88,35 @@ export default function VerReservas() {
     if (hoy >= checkin && hoy < checkout) return "activa";
     if (hoy >= checkout) return "finalizada";
     return "pendiente";
+  };
+
+  // Función para cancelar/eliminar reserva
+  const abrirConfirmEliminar = (id) => {
+    setReservaEliminarId(id);
+    setMostrarConfirmEliminar(true);
+  };
+
+  const eliminarReserva = async () => {
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      await axios.delete(`${API_BASE_URL}/reservas/${reservaEliminarId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      // Actualizar el estado local
+      const nuevasReservas = reservas.filter(r => r.id !== reservaEliminarId);
+      setReservas(nuevasReservas);
+      setReservasFiltradas(nuevasReservas);
+      
+      setMostrarConfirmEliminar(false);
+      setReservaEliminarId(null);
+      
+      alert("Reserva cancelada correctamente");
+    } catch (error) {
+      console.error("Error al eliminar reserva:", error);
+      const mensaje = error.response?.data?.detail || error.message;
+      alert("Error al cancelar la reserva: " + mensaje);
+    }
   };
 
   // Función para filtrar reservas
@@ -101,7 +155,11 @@ export default function VerReservas() {
       case "pendiente":
         return "bg-amber-100 text-amber-700 border-amber-200";
       case "activa":
+        return "bg-blue-100 text-blue-700 border-blue-200";
+      case "completada":
         return "bg-green-100 text-green-700 border-green-200";
+      case "cancelada":
+        return "bg-red-100 text-red-700 border-red-200";
       case "finalizada":
         return "bg-slate-100 text-slate-700 border-slate-200";
       default:
@@ -115,6 +173,10 @@ export default function VerReservas() {
         return <Clock className="w-4 h-4" />;
       case "activa":
         return <CheckCircle className="w-4 h-4" />;
+      case "completada":
+        return <CheckCircle className="w-4 h-4" />;
+      case "cancelada":
+        return <XCircle className="w-4 h-4" />;
       case "finalizada":
         return <XCircle className="w-4 h-4" />;
       default:
@@ -149,6 +211,8 @@ export default function VerReservas() {
     total: reservas.length,
     pendientes: reservas.filter(r => obtenerEstadoReserva(r) === "pendiente").length,
     activas: reservas.filter(r => obtenerEstadoReserva(r) === "activa").length,
+    completadas: reservas.filter(r => obtenerEstadoReserva(r) === "completada").length,
+    canceladas: reservas.filter(r => obtenerEstadoReserva(r) === "cancelada").length,
     finalizadas: reservas.filter(r => obtenerEstadoReserva(r) === "finalizada").length,
   };
 
@@ -221,10 +285,20 @@ export default function VerReservas() {
           
           <div className="bg-white rounded-xl shadow-lg p-4 border border-slate-200">
             <div className="flex items-center gap-3">
-              <XCircle className="w-8 h-8 text-slate-600" />
+              <CheckCircle className="w-8 h-8 text-green-600" />
               <div>
-                <p className="text-sm text-slate-600 font-medium">Finalizadas</p>
-                <p className="text-2xl font-bold text-slate-700">{estadisticas.finalizadas}</p>
+                <p className="text-sm text-green-600 font-medium">Completadas</p>
+                <p className="text-2xl font-bold text-green-700">{estadisticas.completadas}</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-white rounded-xl shadow-lg p-4 border border-slate-200">
+            <div className="flex items-center gap-3">
+              <XCircle className="w-8 h-8 text-red-600" />
+              <div>
+                <p className="text-sm text-red-600 font-medium">Canceladas</p>
+                <p className="text-2xl font-bold text-red-700">{estadisticas.canceladas}</p>
               </div>
             </div>
           </div>
@@ -268,6 +342,8 @@ export default function VerReservas() {
                 <option value="todas">Todas las reservas</option>
                 <option value="pendiente">Pendientes</option>
                 <option value="activa">Activas</option>
+                <option value="completada">Completadas</option>
+                <option value="cancelada">Canceladas</option>
                 <option value="finalizada">Finalizadas</option>
               </select>
             </div>
@@ -334,6 +410,9 @@ export default function VerReservas() {
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Check-out</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Estado</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Total</th>
+                    {usuarioRol === "dueño" && (
+                      <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Acciones</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -394,6 +473,22 @@ export default function VerReservas() {
                             <span className="text-sm text-slate-400">N/A</span>
                           )}
                         </td>
+                        {usuarioRol === "dueño" && (
+                          <td className="px-6 py-4">
+                            {estado !== "cancelada" && (
+                              <button
+                                onClick={() => abrirConfirmEliminar(reserva.id)}
+                                className="p-2 text-red-600 hover:text-red-800 hover:bg-red-100 rounded-lg transition-all duration-200"
+                                title="Cancelar reserva"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                            {estado === "cancelada" && (
+                              <span className="text-xs text-red-600 font-medium">Cancelada</span>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -403,6 +498,21 @@ export default function VerReservas() {
           )}
         </div>
       </div>
+
+      {/* Modal de confirmación para eliminar/cancelar reserva */}
+      <ConfirmModal
+        isOpen={mostrarConfirmEliminar}
+        onClose={() => {
+          setMostrarConfirmEliminar(false);
+          setReservaEliminarId(null);
+        }}
+        onConfirm={eliminarReserva}
+        title="Cancelar/Eliminar Reserva"
+        message="¿Estás seguro de que deseas cancelar y eliminar esta reserva? Esta acción no se puede deshacer."
+        confirmText="Sí, cancelar"
+        cancelText="No, mantener"
+        type="danger"
+      />
     </div>
   );
 }

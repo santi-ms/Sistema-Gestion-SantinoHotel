@@ -58,6 +58,9 @@ export default function ReservasDia() {
   const [reservaAImprimir, setReservaAImprimir] = useState(null);
   const [mostrarInstruccionesImpresion, setMostrarInstruccionesImpresion] = useState(false);
   const [reservaPendienteImpresion, setReservaPendienteImpresion] = useState(null);
+  const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
+  const [reservaEliminarId, setReservaEliminarId] = useState(null);
+  const [usuarioRol, setUsuarioRol] = useState(null);
   const { success, error, warning } = useToast();
   const navigate = useNavigate();
 
@@ -77,6 +80,19 @@ export default function ReservasDia() {
     }
   };
 
+  // Obtener rol del usuario desde el token
+  useEffect(() => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        setUsuarioRol(payload.rol);
+      } catch (err) {
+        console.error("Error al decodificar token:", err);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     obtenerReservas();
   }, [fechaSeleccionada]);
@@ -88,6 +104,8 @@ export default function ReservasDia() {
     const fechaFin = new Date(egreso);
 
     const conflictos = reservas.filter((r) => {
+      // Excluir reservas canceladas
+      if (r.estado === "cancelada") return false;
       if (r.habitacion_id !== habitacion) return false;
       const checkIn = new Date(r.fecha_checkin);
       const checkOut = new Date(r.fecha_checkout);
@@ -271,6 +289,29 @@ export default function ReservasDia() {
       obtenerReservas();
     } catch (err) {
       error(err.response?.data?.detail || "Error al realizar checkout");
+      console.error(err);
+    }
+  };
+
+  // ✅ FUNCIÓN PARA CANCELAR/ELIMINAR RESERVA
+  const abrirConfirmEliminar = (id) => {
+    setReservaEliminarId(id);
+    setMostrarConfirmEliminar(true);
+  };
+
+  const eliminarReserva = async () => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    try {
+      await axios.delete(`${API_BASE_URL}/reservas/${reservaEliminarId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      success("Reserva cancelada/eliminada correctamente");
+      setMostrarConfirmEliminar(false);
+      setReservaEliminarId(null);
+      obtenerReservas();
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || "Error al eliminar reserva";
+      error(errorMsg);
       console.error(err);
     }
   };
@@ -643,9 +684,22 @@ export default function ReservasDia() {
                           )}
                         </div>
                         
-                        <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium mt-2 ${getPaymentColor(datos.forma_pago)}`}>
-                          {getPaymentIcon(datos.forma_pago)}
-                          {datos.forma_pago}
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getPaymentColor(datos.forma_pago)}`}>
+                            {getPaymentIcon(datos.forma_pago)}
+                            {datos.forma_pago}
+                          </div>
+                          {datos.estado && (
+                            <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                              datos.estado === "completada" ? "bg-green-100 text-green-700" :
+                              datos.estado === "cancelada" ? "bg-red-100 text-red-700" :
+                              "bg-blue-100 text-blue-700"
+                            }`}>
+                              {datos.estado === "completada" ? "✓ Completada" :
+                               datos.estado === "cancelada" ? "✕ Cancelada" :
+                               "Activa"}
+                            </div>
+                          )}
                         </div>
                       </div>
                       
@@ -665,13 +719,34 @@ export default function ReservasDia() {
                             Marcar como pagado
                           </button>
                         )}
-                        <button
-                          className="w-full bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 flex items-center justify-center gap-2"
-                          onClick={() => abrirConfirmCheckout(datos.id)}
-                        >
-                          <CheckCircle className="w-4 h-4" />
-                          Checkout
-                        </button>
+                        {datos.estado !== "completada" && datos.estado !== "cancelada" && (
+                          <button
+                            className="w-full bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 flex items-center justify-center gap-2"
+                            onClick={() => abrirConfirmCheckout(datos.id)}
+                          >
+                            <CheckCircle className="w-4 h-4" />
+                            Checkout
+                          </button>
+                        )}
+                        {datos.estado === "completada" && (
+                          <div className="w-full bg-green-100 text-green-700 px-3 py-2 rounded-lg text-sm font-medium text-center">
+                            ✓ Checkout realizado
+                          </div>
+                        )}
+                        {usuarioRol === "dueño" && datos.estado !== "cancelada" && (
+                          <button
+                            className="w-full bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 flex items-center justify-center gap-2"
+                            onClick={() => abrirConfirmEliminar(datos.id)}
+                          >
+                            <X className="w-4 h-4" />
+                            Cancelar Reserva
+                          </button>
+                        )}
+                        {datos.estado === "cancelada" && (
+                          <div className="w-full bg-red-100 text-red-700 px-3 py-2 rounded-lg text-sm font-medium text-center">
+                            ✕ Reserva cancelada
+                          </div>
+                        )}
                       </div>
                     </div>
                   ) : (
@@ -708,6 +783,21 @@ export default function ReservasDia() {
         confirmText="Confirmar Checkout"
         cancelText="Cancelar"
         type="warning"
+      />
+
+      {/* Modal de confirmación para eliminar/cancelar reserva */}
+      <ConfirmModal
+        isOpen={mostrarConfirmEliminar}
+        onClose={() => {
+          setMostrarConfirmEliminar(false);
+          setReservaEliminarId(null);
+        }}
+        onConfirm={eliminarReserva}
+        title="Cancelar/Eliminar Reserva"
+        message="¿Estás seguro de que deseas cancelar y eliminar esta reserva? Esta acción no se puede deshacer."
+        confirmText="Sí, eliminar"
+        cancelText="Cancelar"
+        type="danger"
       />
 
       {/* Modal para actualizar forma de pago */}

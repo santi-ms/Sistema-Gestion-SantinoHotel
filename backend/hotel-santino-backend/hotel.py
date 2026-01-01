@@ -112,6 +112,7 @@ class Reserva(SQLModel, table=True):
     forma_pago: str
     nombre_huesped: Optional[str] = None
     origen: Optional[str] = None  # "whatsapp", "web", "gestion", etc.
+    estado: str = "activa"  # "activa", "completada", "cancelada"
 
 class Pedido(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -341,6 +342,42 @@ def crear_tablas():
                         print("✅ [Startup] Columna 'origen' ya existe")
             except Exception as e:
                 print(f"⚠️ [Startup] Error verificando/agregando columna 'origen': {e}")
+            
+            # Verificar y agregar columna 'estado' si falta
+            try:
+                if DATABASE_URL.startswith("postgres"):
+                    # PostgreSQL: verificar si existe la columna
+                    check_query = text("""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name = 'reserva' AND column_name = 'estado'
+                    """)
+                    result = connection.execute(check_query)
+                    exists = result.fetchone() is not None
+                    
+                    if not exists:
+                        print("⚠️ [Startup] Columna 'estado' no existe, agregándola...")
+                        connection.execute(text("ALTER TABLE reserva ADD COLUMN estado TEXT DEFAULT 'activa'"))
+                        # Actualizar reservas existentes sin estado
+                        connection.execute(text("UPDATE reserva SET estado = 'activa' WHERE estado IS NULL"))
+                        connection.commit()
+                        print("✅ [Startup] Columna 'estado' agregada correctamente")
+                    else:
+                        print("✅ [Startup] Columna 'estado' ya existe")
+                else:
+                    # SQLite: intentar agregar (fallará si ya existe)
+                    try:
+                        connection.execute(text("ALTER TABLE reserva ADD COLUMN estado TEXT DEFAULT 'activa'"))
+                        # Actualizar reservas existentes sin estado
+                        connection.execute(text("UPDATE reserva SET estado = 'activa' WHERE estado IS NULL"))
+                        connection.commit()
+                        print("✅ [Startup] Columna 'estado' agregada correctamente (SQLite)")
+                    except Exception as e:
+                        if "duplicate column" not in str(e).lower():
+                            raise
+                        print("✅ [Startup] Columna 'estado' ya existe")
+            except Exception as e:
+                print(f"⚠️ [Startup] Error verificando/agregando columna 'estado': {e}")
     except Exception as e:
         print(f"⚠️ [Startup] Error verificando BD: {e}")
     
@@ -1545,7 +1582,8 @@ def crear_reserva_simple(data: ReservaEntrada, db: Session = Depends(obtener_db)
         select(Reserva).where(
             Reserva.habitacion_id == data.habitacion_id,
             Reserva.fecha_checkin < data.fecha_checkout,  # Reserva empieza antes del checkout
-            Reserva.fecha_checkout > data.fecha_checkin   # Reserva termina después del checkin
+            Reserva.fecha_checkout > data.fecha_checkin,  # Reserva termina después del checkin
+            Reserva.estado != "cancelada"  # Excluir reservas canceladas
         )
     ).all()
     
@@ -1591,7 +1629,8 @@ def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obte
             select(Reserva).where(
                 Reserva.habitacion_id == data.habitacion_id,
                 Reserva.fecha_checkin < fecha_checkout,  # Reserva empieza antes del checkout
-                Reserva.fecha_checkout > fecha_checkin   # Reserva termina después del checkin
+                Reserva.fecha_checkout > fecha_checkin,  # Reserva termina después del checkin
+                Reserva.estado != "cancelada"  # Excluir reservas canceladas
             )
         ).all()
         
@@ -1684,10 +1723,12 @@ def obtener_reservas_por_dia(fecha: str, db: Session = Depends(obtener_db), toke
     except:
         raise HTTPException(status_code=400, detail="Formato de fecha inválido")
 
+    # ✅ Filtrar reservas activas y completadas (excluir canceladas)
     reservas = db.exec(
         select(Reserva).where(
             Reserva.fecha_checkin <= fecha_obj,
-            Reserva.fecha_checkout > fecha_obj
+            Reserva.fecha_checkout > fecha_obj,
+            Reserva.estado != "cancelada"  # Excluir reservas canceladas
         )
     ).all()
     return reservas
@@ -1715,7 +1756,8 @@ def actualizar_reserva_completa(
             Reserva.id != reserva_id,  # Excluir la reserva que estamos editando
             Reserva.habitacion_id == habitacion_id_final,
             Reserva.fecha_checkin < fecha_checkout_final,
-            Reserva.fecha_checkout > fecha_checkin_final
+            Reserva.fecha_checkout > fecha_checkin_final,
+            Reserva.estado != "cancelada"  # Excluir reservas canceladas
         )
     ).all()
     
@@ -1779,9 +1821,11 @@ def eliminar_reserva(
             detail="Solo el dueño puede eliminar reservas"
         )
     
-    db.delete(reserva)
+    # ✅ Marcar como cancelada en lugar de eliminar (para mantener historial)
+    reserva.estado = "cancelada"
+    db.add(reserva)
     db.commit()
-    return {"mensaje": "Reserva eliminada correctamente"}
+    return {"mensaje": "Reserva cancelada correctamente", "estado": "cancelada"}
 
 # ─────────── ENDPOINTS EXISTENTES DE RESERVAS ───────────
 @app.patch("/reservas/{reserva_id}/checkout")
@@ -1792,10 +1836,12 @@ def realizar_checkout(reserva_id: int, db: Session = Depends(obtener_db), token:
 
     fecha_argentina = obtener_fecha_argentina() - timedelta(days=1)
     reserva.fecha_checkout = datetime.combine(fecha_argentina.date(), datetime.min.time()).replace(tzinfo=ARGENTINA_TZ)
+    # ✅ Marcar reserva como completada
+    reserva.estado = "completada"
 
     db.add(reserva)
     db.commit()
-    return {"mensaje": "Checkout realizado"}
+    return {"mensaje": "Checkout realizado", "estado": "completada"}
 
 @app.patch("/reservas/{reserva_id}/pago")
 def actualizar_forma_pago(reserva_id: int, data: ActualizarPagoEntrada, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
@@ -2032,12 +2078,13 @@ def verificar_disponibilidad(
         for habitacion in habitaciones_adecuadas:
             print(f"🔍 Verificando habitación {habitacion.numero}...")
             
-            # Buscar reservas que se solapen con las fechas solicitadas
+            # Buscar reservas que se solapen con las fechas solicitadas (excluir canceladas)
             reservas_solapadas = db.exec(
                 select(Reserva).where(
                     Reserva.habitacion_id == habitacion.id,
                     Reserva.fecha_checkin < fecha_checkout,  # Reserva empieza antes del checkout
-                    Reserva.fecha_checkout > fecha_checkin   # Reserva termina después del checkin
+                    Reserva.fecha_checkout > fecha_checkin,  # Reserva termina después del checkin
+                    Reserva.estado != "cancelada"  # Excluir reservas canceladas
                 )
             ).all()
             
@@ -2146,7 +2193,8 @@ def obtener_reservas_senas_pendientes(db: Session = Depends(obtener_db), token: 
     """
     reservas_pendientes = db.exec(
         select(Reserva).where(
-            Reserva.forma_pago.in_(["Seña Pendiente", "Pendiente - Reserva Web"])
+            Reserva.forma_pago.in_(["Seña Pendiente", "Pendiente - Reserva Web"]),
+            Reserva.estado != "cancelada"  # Excluir reservas canceladas
         )
     ).all()
     
@@ -2187,7 +2235,9 @@ def estadisticas_senas(db: Session = Depends(obtener_db), token: dict = Depends(
     """
     Obtiene estadísticas sobre el estado de las señas
     """
-    todas_reservas = db.exec(select(Reserva)).all()
+    todas_reservas = db.exec(
+        select(Reserva).where(Reserva.estado != "cancelada")  # Excluir reservas canceladas
+    ).all()
     
     estadisticas = {
         "total_reservas": len(todas_reservas),
@@ -2924,7 +2974,8 @@ def obtener_estadisticas_ocupacion(
         reservas = db.exec(
             select(Reserva).where(
                 Reserva.fecha_checkin < fin,
-                Reserva.fecha_checkout > inicio
+                Reserva.fecha_checkout > inicio,
+                Reserva.estado != "cancelada"  # Excluir reservas canceladas
             )
         ).all()
         
@@ -2986,7 +3037,8 @@ def resumen_del_dia(fecha: str, db: Session = Depends(obtener_db), token: dict =
     ingresos_reservas = db.exec(
         select(Reserva.total_estadia).where(
             Reserva.fecha_checkin >= fecha_obj,
-            Reserva.fecha_checkin < dia_siguiente
+            Reserva.fecha_checkin < dia_siguiente,
+            Reserva.estado != "cancelada"  # Excluir reservas canceladas
         )
     ).all()
     total_reservas = sum(ingresos_reservas)
@@ -3023,7 +3075,8 @@ def dashboard_analytics(db: Session = Depends(obtener_db), token: dict = Depends
     reservas_mes = db.exec(
         select(Reserva).where(
             Reserva.fecha_checkin >= inicio_mes,
-            Reserva.fecha_checkin <= hoy
+            Reserva.fecha_checkin <= hoy,
+            Reserva.estado != "cancelada"  # Excluir reservas canceladas
         )
     ).all()
     
@@ -3080,7 +3133,8 @@ def ingresos_por_dia(
     reservas = db.exec(
         select(Reserva).where(
             Reserva.fecha_checkin >= fecha_inicio,
-            Reserva.fecha_checkin <= fecha_fin
+            Reserva.fecha_checkin <= fecha_fin,
+            Reserva.estado != "cancelada"  # Excluir reservas canceladas
         )
     ).all()
     
@@ -3126,7 +3180,8 @@ def analisis_formas_pago(db: Session = Depends(obtener_db), token: dict = Depend
     reservas = db.exec(
         select(Reserva).where(
             Reserva.fecha_checkin >= inicio_mes,
-            Reserva.fecha_checkin <= hoy
+            Reserva.fecha_checkin <= hoy,
+            Reserva.estado != "cancelada"  # Excluir reservas canceladas
         )
     ).all()
     
@@ -3176,11 +3231,12 @@ def detalle_diario_analytics(
         fecha_fin_dt = datetime.strptime(fecha_fin, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
         fecha_fin_dt = fecha_fin_dt.replace(hour=23, minute=59, second=59)
         
-        # Obtener reservas en el rango
+        # Obtener reservas en el rango (excluir canceladas)
         reservas = db.exec(
             select(Reserva).where(
                 Reserva.fecha_checkin >= fecha_inicio_dt,
-                Reserva.fecha_checkin <= fecha_fin_dt
+                Reserva.fecha_checkin <= fecha_fin_dt,
+                Reserva.estado != "cancelada"  # Excluir reservas canceladas
             )
         ).all()
         
@@ -3475,11 +3531,12 @@ def ejecutar_checkout_manual(db: Session = Depends(obtener_db), token: dict = De
         
         print(f"🏨 Ejecutando check-out automático para el {fecha_hoy}")
         
-        # Buscar reservas que vencen hoy y aún están activas
+        # Buscar reservas que vencen hoy y aún están activas (excluir canceladas)
         reservas_a_finalizar = db.exec(
             select(Reserva).where(
                 Reserva.fecha_checkout <= datetime.combine(fecha_hoy, datetime.min.time()).replace(tzinfo=ARGENTINA_TZ) + timedelta(hours=hora_checkout),
-                Reserva.forma_pago.notin_(["Checkout Automático", "checkout_manual", "Cancelado"])
+                Reserva.forma_pago.notin_(["Checkout Automático", "checkout_manual", "Cancelado"]),
+                Reserva.estado != "cancelada"  # Excluir reservas canceladas
             )
         ).all()
         
@@ -3554,7 +3611,8 @@ def obtener_proximos_checkouts(
             select(Reserva).where(
                 Reserva.fecha_checkout >= datetime.combine(fecha_hoy, datetime.min.time()).replace(tzinfo=ARGENTINA_TZ),
                 Reserva.fecha_checkout <= datetime.combine(fecha_limite, datetime.max.time()).replace(tzinfo=ARGENTINA_TZ),
-                Reserva.forma_pago.notin_(["Checkout Automático", "checkout_manual", "Cancelado"])
+                Reserva.forma_pago.notin_(["Checkout Automático", "checkout_manual", "Cancelado"]),
+                Reserva.estado != "cancelada"  # Excluir reservas canceladas
             )
         ).all()
         
