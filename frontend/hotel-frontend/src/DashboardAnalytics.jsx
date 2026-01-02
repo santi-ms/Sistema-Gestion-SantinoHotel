@@ -112,14 +112,31 @@ export default function DashboardAnalytics() {
       const hace30Dias = new Date();
       hace30Dias.setDate(hoy.getDate() - 30);
       
-      const ocupacionRes = await axios.get(`${API_BASE_URL}/analytics/ocupacion-habitaciones`, {
+      const ocupacionRes = await axios.get(`${API_BASE_URL}/ocupacion-estadisticas`, {
         params: {
           fecha_inicio: hace30Dias.toISOString().split('T')[0],
           fecha_fin: hoy.toISOString().split('T')[0]
         },
         headers: { Authorization: `Bearer ${token}` }
       });
-      setOcupacionData(ocupacionRes.data);
+      
+      // Transformar datos del endpoint a formato esperado por el gráfico
+      const datosOcupacion = [];
+      if (ocupacionRes.data && ocupacionRes.data.por_tipo) {
+        Object.keys(ocupacionRes.data.por_tipo).forEach(tipo => {
+          const tipoData = ocupacionRes.data.por_tipo[tipo];
+          tipoData.habitaciones.forEach(hab => {
+            datosOcupacion.push({
+              habitacion: hab.numero,
+              tipo: tipo,
+              capacidad: hab.capacidad,
+              precio: hab.precio,
+              tasa_ocupacion: ocupacionRes.data.resumen?.tasa_ocupacion || 0
+            });
+          });
+        });
+      }
+      setOcupacionData(datosOcupacion);
 
     } catch (error) {
       console.error('Error al cargar analytics:', error);
@@ -456,50 +473,52 @@ export default function DashboardAnalytics() {
         </div>
 
         {/* Ocupación de Habitaciones */}
-        <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200 mb-8">
-          <h3 className="text-lg font-semibold text-slate-800 mb-6">Ocupación por Habitación (Últimos 30 días)</h3>
-          
-          <ResponsiveContainer width="100%" height={400}>
-            <BarChart data={ocupacionData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis 
-                dataKey="habitacion" 
-                tickFormatter={(value) => `Hab. ${value}`}
-              />
-              <YAxis 
-                yAxisId="ocupacion"
-                orientation="left"
-                tickFormatter={(value) => `${value}%`}
-              />
-              <YAxis 
-                yAxisId="ingresos"
-                orientation="right"
-                tickFormatter={(value) => `${value.toLocaleString()}`}
-              />
-              <Tooltip 
-                formatter={([value, name]) => {
-                  if (name === 'Tasa Ocupación') return [`${value}%`, name];
-                  if (name === 'Ingresos') return [`${value.toLocaleString()}`, name];
-                  return [value, name];
-                }}
-              />
-              <Bar 
-                yAxisId="ocupacion"
-                dataKey="tasa_ocupacion" 
-                fill="#8B5CF6" 
-                name="Tasa Ocupación"
-                radius={[4, 4, 0, 0]}
-              />
-              <Bar 
-                yAxisId="ingresos"
-                dataKey="ingresos" 
-                fill="#10B981" 
-                name="Ingresos"
-                radius={[4, 4, 0, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        {ocupacionData.length > 0 && (
+          <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200 mb-8">
+            <h3 className="text-lg font-semibold text-slate-800 mb-6">Ocupación por Habitación (Últimos 30 días)</h3>
+            
+            <ResponsiveContainer width="100%" height={400}>
+              <BarChart data={ocupacionData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis 
+                  dataKey="habitacion" 
+                  tickFormatter={(value) => `Hab. ${value}`}
+                />
+                <YAxis 
+                  yAxisId="precio"
+                  orientation="left"
+                  tickFormatter={(value) => `$${value.toLocaleString()}`}
+                />
+                <YAxis 
+                  yAxisId="ocupacion"
+                  orientation="right"
+                  tickFormatter={(value) => `${value}%`}
+                />
+                <Tooltip 
+                  formatter={(value, name) => {
+                    if (name === 'Tasa Ocupación') return [`${value}%`, name];
+                    if (name === 'Precio') return [`$${value.toLocaleString()}`, name];
+                    return [value, name];
+                  }}
+                />
+                <Bar 
+                  yAxisId="precio"
+                  dataKey="precio" 
+                  fill="#10B981" 
+                  name="Precio"
+                  radius={[4, 4, 0, 0]}
+                />
+                <Bar 
+                  yAxisId="ocupacion"
+                  dataKey="tasa_ocupacion" 
+                  fill="#8B5CF6" 
+                  name="Tasa Ocupación"
+                  radius={[4, 4, 0, 0]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
 
         {/* Tabla Detallada de Ocupación */}
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
