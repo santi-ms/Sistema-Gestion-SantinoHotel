@@ -19,7 +19,9 @@ import {
   MapPin,
   DollarSign,
   Trash2,
-  X
+  X,
+  RefreshCw,
+  AlertCircle
 } from "lucide-react";
 import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
@@ -36,6 +38,11 @@ export default function VerReservas() {
   const [usuarioRol, setUsuarioRol] = useState(null);
   const [mostrarDetalles, setMostrarDetalles] = useState(false);
   const [reservaDetalle, setReservaDetalle] = useState(null);
+  const [mostrarCambiarHabitacion, setMostrarCambiarHabitacion] = useState(false);
+  const [reservaCambiarHabitacion, setReservaCambiarHabitacion] = useState(null);
+  const [nuevaHabitacion, setNuevaHabitacion] = useState("");
+  const [habitaciones, setHabitaciones] = useState([]);
+  const [cargandoHabitaciones, setCargandoHabitaciones] = useState(false);
   const navigate = useNavigate();
 
   // Obtener rol del usuario desde el token
@@ -68,7 +75,20 @@ export default function VerReservas() {
       }
     };
     obtener();
+    obtenerHabitaciones();
   }, []);
+
+  const obtenerHabitaciones = async () => {
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const res = await axios.get(`${API_BASE_URL}/habitaciones`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setHabitaciones(res.data);
+    } catch (error) {
+      console.error("Error al obtener habitaciones:", error);
+    }
+  };
 
   // Función para determinar el estado de una reserva
   const obtenerEstadoReserva = (reserva) => {
@@ -124,6 +144,49 @@ export default function VerReservas() {
   const abrirDetalles = (reserva) => {
     setReservaDetalle(reserva);
     setMostrarDetalles(true);
+  };
+
+  const abrirCambiarHabitacion = (reserva) => {
+    setReservaCambiarHabitacion(reserva);
+    setNuevaHabitacion("");
+    setMostrarCambiarHabitacion(true);
+  };
+
+  const cambiarHabitacion = async () => {
+    if (!nuevaHabitacion || nuevaHabitacion === reservaCambiarHabitacion.habitacion_id.toString()) {
+      alert("Por favor selecciona una habitación diferente");
+      return;
+    }
+
+    setCargandoHabitaciones(true);
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      await axios.put(`${API_BASE_URL}/reservas/${reservaCambiarHabitacion.id}`, {
+        habitacion_id: parseInt(nuevaHabitacion)
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      // Actualizar el estado local
+      const nuevasReservas = reservas.map(r => 
+        r.id === reservaCambiarHabitacion.id 
+          ? { ...r, habitacion_id: parseInt(nuevaHabitacion) }
+          : r
+      );
+      setReservas(nuevasReservas);
+      setReservasFiltradas(nuevasReservas);
+      
+      setMostrarCambiarHabitacion(false);
+      setReservaCambiarHabitacion(null);
+      setNuevaHabitacion("");
+      alert("Habitación cambiada correctamente");
+    } catch (error) {
+      console.error("Error al cambiar habitación:", error);
+      const mensaje = error.response?.data?.detail || error.message;
+      alert("Error al cambiar habitación: " + mensaje);
+    } finally {
+      setCargandoHabitaciones(false);
+    }
   };
 
   const eliminarReserva = async () => {
@@ -514,6 +577,15 @@ export default function VerReservas() {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
+                            {estado !== "cancelada" && (
+                              <button
+                                onClick={() => abrirCambiarHabitacion(reserva)}
+                                className="p-2 text-green-600 hover:text-green-800 hover:bg-green-100 rounded-lg transition-all duration-200"
+                                title="Cambiar habitación"
+                              >
+                                <RefreshCw className="w-4 h-4" />
+                              </button>
+                            )}
                             {usuarioRol === "dueño" && estado !== "cancelada" && (
                               <button
                                 onClick={() => abrirConfirmEliminar(reserva.id)}
@@ -706,6 +778,93 @@ export default function VerReservas() {
                 </p>
               </div>
             )}
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal para cambiar habitación */}
+      <Modal
+        isOpen={mostrarCambiarHabitacion}
+        onClose={() => {
+          setMostrarCambiarHabitacion(false);
+          setReservaCambiarHabitacion(null);
+          setNuevaHabitacion("");
+        }}
+        title="Cambiar Habitación"
+        size="md"
+      >
+        {reservaCambiarHabitacion && (
+          <div className="space-y-4">
+            <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+              <p className="text-sm text-blue-700 font-medium mb-2">Reserva #{reservaCambiarHabitacion.id}</p>
+              <p className="text-base text-slate-900">
+                <strong>Cliente:</strong> {reservaCambiarHabitacion.nombre_huesped || `Cliente ${reservaCambiarHabitacion.cliente_id}`}
+              </p>
+              <p className="text-sm text-slate-600 mt-1">
+                <strong>Habitación actual:</strong> {reservaCambiarHabitacion.habitacion_id}
+              </p>
+              <p className="text-sm text-slate-600">
+                <strong>Fechas:</strong> {new Date(reservaCambiarHabitacion.fecha_checkin).toLocaleDateString('es-ES')} - {new Date(reservaCambiarHabitacion.fecha_checkout).toLocaleDateString('es-ES')}
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Nueva Habitación *
+              </label>
+              <div className="relative">
+                <Home className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <select
+                  value={nuevaHabitacion}
+                  onChange={(e) => setNuevaHabitacion(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-12 pr-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                >
+                  <option value="">Selecciona una habitación</option>
+                  {habitaciones
+                    .filter(h => h.numero.toString() !== reservaCambiarHabitacion.habitacion_id.toString())
+                    .sort((a, b) => a.numero - b.numero)
+                    .map(habitacion => (
+                      <option key={habitacion.id} value={habitacion.id}>
+                        Habitación {habitacion.numero} - {habitacion.tipo} (Capacidad: {habitacion.capacidad} personas)
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
+                <AlertCircle className="w-4 h-4" />
+                Se validará automáticamente que la habitación esté disponible en las fechas de la reserva
+              </p>
+            </div>
+
+            <div className="flex gap-3 justify-end pt-4 border-t border-slate-200">
+              <button
+                onClick={() => {
+                  setMostrarCambiarHabitacion(false);
+                  setReservaCambiarHabitacion(null);
+                  setNuevaHabitacion("");
+                }}
+                className="px-4 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={cambiarHabitacion}
+                disabled={!nuevaHabitacion || cargandoHabitaciones}
+                className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {cargandoHabitaciones ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Cambiando...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4" />
+                    Cambiar Habitación
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
       </Modal>
