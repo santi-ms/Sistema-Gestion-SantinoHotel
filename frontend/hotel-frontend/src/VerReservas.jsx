@@ -578,24 +578,26 @@ export default function VerReservas() {
                               <Eye className="w-4 h-4" />
                             </button>
                             {estado !== "cancelada" && (
-                              <button
-                                onClick={() => abrirCambiarHabitacion(reserva)}
-                                className="p-2 text-green-600 hover:text-green-800 hover:bg-green-100 rounded-lg transition-all duration-200"
-                                title="Cambiar habitación"
-                              >
-                                <RefreshCw className="w-4 h-4" />
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => abrirCambiarHabitacion(reserva)}
+                                  className="p-2 text-green-600 hover:text-green-800 hover:bg-green-100 rounded-lg transition-all duration-200"
+                                  title="Cambiar habitación"
+                                >
+                                  <RefreshCw className="w-4 h-4" />
+                                </button>
+                                {usuarioRol === "dueño" && (
+                                  <button
+                                    onClick={() => abrirConfirmEliminar(reserva.id)}
+                                    className="p-2 text-red-600 hover:text-red-800 hover:bg-red-100 rounded-lg transition-all duration-200"
+                                    title="Cancelar reserva"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </>
                             )}
-                            {usuarioRol === "dueño" && estado !== "cancelada" && (
-                              <button
-                                onClick={() => abrirConfirmEliminar(reserva.id)}
-                                className="p-2 text-red-600 hover:text-red-800 hover:bg-red-100 rounded-lg transition-all duration-200"
-                                title="Cancelar reserva"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                            {usuarioRol === "dueño" && estado === "cancelada" && (
+                            {estado === "cancelada" && usuarioRol === "dueño" && (
                               <span className="text-xs text-red-600 font-medium">Cancelada</span>
                             )}
                           </div>
