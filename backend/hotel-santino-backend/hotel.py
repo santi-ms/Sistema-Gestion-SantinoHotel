@@ -401,6 +401,43 @@ def crear_tablas():
                         print("✅ [Startup] Columna 'estado' ya existe")
             except Exception as e:
                 print(f"⚠️ [Startup] Error verificando/agregando columna 'estado': {e}")
+            
+            # Verificar y modificar columna 'habitacion_id' en 'gastoadicional' para permitir NULL
+            try:
+                if DATABASE_URL.startswith("postgres"):
+                    # PostgreSQL: verificar si la columna permite NULL
+                    check_query = text("""
+                        SELECT is_nullable 
+                        FROM information_schema.columns 
+                        WHERE table_name = 'gastoadicional' AND column_name = 'habitacion_id'
+                    """)
+                    result = connection.execute(check_query)
+                    row = result.fetchone()
+                    if row and row[0] == 'NO':
+                        # La columna no permite NULL, necesitamos modificarla
+                        print("⚠️ [Startup] Columna 'habitacion_id' en 'gastoadicional' no permite NULL, modificándola...")
+                        alter_query = text("ALTER TABLE gastoadicional ALTER COLUMN habitacion_id DROP NOT NULL")
+                        connection.execute(alter_query)
+                        connection.commit()
+                        print("✅ [Startup] Columna 'habitacion_id' en 'gastoadicional' modificada para permitir NULL")
+                    elif row and row[0] == 'YES':
+                        print("✅ [Startup] Columna 'habitacion_id' en 'gastoadicional' ya permite NULL")
+                    else:
+                        print("ℹ️ [Startup] Tabla 'gastoadicional' o columna 'habitacion_id' no existe aún (se creará con NULL permitido)")
+                else:
+                    # SQLite: por defecto permite NULL, solo verificamos que la tabla exista
+                    try:
+                        check_query = text("PRAGMA table_info(gastoadicional)")
+                        result = connection.execute(check_query)
+                        columns = result.fetchall()
+                        if columns:
+                            print("✅ [Startup] Tabla 'gastoadicional' existe (SQLite permite NULL por defecto)")
+                        else:
+                            print("ℹ️ [Startup] Tabla 'gastoadicional' no existe aún (se creará con NULL permitido)")
+                    except:
+                        print("ℹ️ [Startup] Tabla 'gastoadicional' no existe aún (se creará con NULL permitido)")
+            except Exception as e:
+                print(f"⚠️ [Startup] Error al verificar/modificar columna 'habitacion_id' en 'gastoadicional': {e}")
     except Exception as e:
         print(f"⚠️ [Startup] Error verificando BD: {e}")
     
