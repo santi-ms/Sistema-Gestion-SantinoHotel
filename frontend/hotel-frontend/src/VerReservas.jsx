@@ -25,6 +25,7 @@ import {
 import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
 import { SkeletonTable, SkeletonStats } from "./components/Skeleton";
+import { EmptyState } from "./components/EmptyState";
 
 export default function VerReservas() {
   const [reservas, setReservas] = useState([]);
@@ -251,16 +252,16 @@ export default function VerReservas() {
   const getEstadoColor = (estado) => {
     switch (estado) {
       case "pendiente":
-        return "bg-amber-100 text-amber-700 border-amber-200";
+        return "bg-gradient-to-r from-amber-50 to-amber-100 text-amber-800 border-amber-300 shadow-sm";
       case "activa":
-        return "bg-blue-100 text-blue-700 border-blue-200";
+        return "bg-gradient-to-r from-blue-50 to-blue-100 text-blue-800 border-blue-300 shadow-sm";
       case "completada":
       case "finalizada":
-        return "bg-green-100 text-green-700 border-green-200";
+        return "bg-gradient-to-r from-green-50 to-green-100 text-green-800 border-green-300 shadow-sm";
       case "cancelada":
-        return "bg-red-100 text-red-700 border-red-200";
+        return "bg-gradient-to-r from-red-50 to-red-100 text-red-800 border-red-300 shadow-sm";
       default:
-        return "bg-slate-100 text-slate-700 border-slate-200";
+        return "bg-gradient-to-r from-slate-50 to-slate-100 text-slate-800 border-slate-300 shadow-sm";
     }
   };
 
@@ -508,23 +509,26 @@ export default function VerReservas() {
               <SkeletonTable rows={5} columns={8} />
             </div>
           ) : reservasFiltradas.length === 0 ? (
-            <div className="p-8 text-center">
-              <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-              <p className="text-slate-500">No se encontraron reservas con los filtros aplicados</p>
-            </div>
+            <EmptyState
+              icon={Calendar}
+              title="No se encontraron reservas"
+              description={filtroTexto || filtroEstado !== "todas" || filtroFecha 
+                ? "Intenta ajustar los filtros para ver más resultados"
+                : "Aún no hay reservas registradas en el sistema"}
+            />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-slate-50">
+                <thead className="bg-gradient-to-r from-slate-50 to-slate-100 border-b-2 border-slate-200">
                   <tr>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">ID</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Cliente</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Habitación</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Check-in</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Check-out</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Estado</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Total</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Acciones</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">ID</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Cliente</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Habitación</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Check-in</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Check-out</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Estado</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Total</th>
+                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-700 uppercase tracking-wider">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -568,16 +572,18 @@ export default function VerReservas() {
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium border ${getEstadoColor(estado)}`}>
+                          <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border shadow-sm transition-all duration-200 hover:scale-105 ${getEstadoColor(estado)}`}>
                             {getEstadoIcon(estado)}
                             {estado === "finalizada" ? "Completada" : estado.charAt(0).toUpperCase() + estado.slice(1)}
                           </span>
                         </td>
                         <td className="px-6 py-4">
                           {reserva.total_estadia ? (
-                            <div className="flex items-center gap-1">
-                              <DollarSign className="w-4 h-4 text-green-600" />
-                              <span className="text-sm font-semibold text-green-600">
+                            <div className="flex items-center gap-1.5">
+                              <div className="bg-green-100 p-1.5 rounded-lg">
+                                <DollarSign className="w-4 h-4 text-green-600" />
+                              </div>
+                              <span className="text-sm font-bold text-green-700">
                                 ${reserva.total_estadia.toLocaleString()}
                               </span>
                             </div>

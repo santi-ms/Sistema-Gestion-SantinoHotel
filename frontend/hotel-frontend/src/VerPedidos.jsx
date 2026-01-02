@@ -6,6 +6,7 @@ import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import { formatearSoloFecha, formatearSoloHora } from "./utils/fechas";
 import { SkeletonTable } from "./components/Skeleton";
+import { EmptyState } from "./components/EmptyState";
 import { 
   Coffee, 
   DollarSign, 

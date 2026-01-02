@@ -243,29 +243,29 @@ export default function DuenoPanel() {
           {statsCards.map((card, index) => (
             <div
               key={index}
-              className="bg-white rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 border-2 border-orange-100 overflow-hidden"
+              className="bg-white rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 hover:scale-[1.02] border-2 border-orange-100 overflow-hidden group"
             >
               <div className="p-6">
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
-                    <p className="text-sm font-semibold text-gray-600 mb-2">{card.title}</p>
+                    <p className="text-sm font-semibold text-gray-600 mb-2 group-hover:text-gray-800 transition-colors">{card.title}</p>
                     {cargando ? (
                       <div className="space-y-2">
                         <div className="h-8 bg-slate-200 rounded-lg animate-pulse w-32"></div>
                         <div className="h-4 bg-slate-200 rounded animate-pulse w-24"></div>
                       </div>
                     ) : (
-                      <p className={`text-3xl font-bold ${card.textColor} transition-all duration-300`}>
+                      <p className={`text-3xl font-bold ${card.textColor} transition-all duration-300 group-hover:scale-105 inline-block`}>
                         ${card.value.toLocaleString()}
                       </p>
                     )}
                   </div>
-                  <div className={`flex items-center justify-center w-14 h-14 rounded-xl bg-gradient-to-r ${card.color} shadow-lg`}>
+                  <div className={`flex items-center justify-center w-14 h-14 rounded-xl bg-gradient-to-r ${card.color} shadow-lg group-hover:scale-110 transition-transform duration-300`}>
                     <card.icon className="w-7 h-7 text-white" />
                   </div>
                 </div>
               </div>
-              <div className={`h-3 bg-gradient-to-r ${card.color}`}></div>
+              <div className={`h-3 bg-gradient-to-r ${card.color} group-hover:h-4 transition-all duration-300`}></div>
             </div>
           ))}
         </div>

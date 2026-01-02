@@ -5,6 +5,7 @@ import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import { SkeletonTable } from "./components/Skeleton";
+import { EmptyState } from "./components/EmptyState";
 import { 
   Receipt, 
   DollarSign, 
@@ -374,10 +375,11 @@ export default function RegistrarGasto() {
               <p className="text-slate-600">Cargando gastos...</p>
             </div>
           ) : gastosHoy.length === 0 ? (
-            <div className="p-8 text-center">
-              <Receipt className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-              <p className="text-slate-500">No hay gastos registrados hoy</p>
-            </div>
+            <EmptyState
+              icon={Receipt}
+              title="No hay gastos registrados"
+              description="Aún no se han registrado gastos para el día de hoy"
+            />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
