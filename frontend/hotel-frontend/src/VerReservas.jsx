@@ -20,8 +20,7 @@ import {
   DollarSign,
   Trash2,
   X,
-  RefreshCw,
-  AlertCircle
+  RefreshCw
 } from "lucide-react";
 import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
