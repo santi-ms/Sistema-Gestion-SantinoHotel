@@ -359,68 +359,66 @@ export default function DashboardAnalytics() {
         </div>
 
         {/* Métricas Principales */}
-        {dashboardData && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-600 font-medium">Ingresos Totales</p>
-                  <p className="text-3xl font-bold text-green-600">
-                    {formatearMoneda(dashboardData.total_ingresos)}
-                  </p>
-                </div>
-                <div className="bg-green-100 p-3 rounded-xl">
-                  <TrendingUp className="w-8 h-8 text-green-600" />
-                </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-600 font-medium">Ingresos Totales</p>
+                <p className="text-3xl font-bold text-green-600">
+                  {dashboardData ? formatearMoneda(dashboardData.total_ingresos || 0) : '$0'}
+                </p>
               </div>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-600 font-medium">Beneficio Neto</p>
-                  <p className={`text-3xl font-bold ${dashboardData.beneficio_neto >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {formatearMoneda(dashboardData.beneficio_neto)}
-                  </p>
-                </div>
-                <div className={`p-3 rounded-xl ${dashboardData.beneficio_neto >= 0 ? 'bg-green-100' : 'bg-red-100'}`}>
-                  {dashboardData.beneficio_neto >= 0 ? 
-                    <TrendingUp className="w-8 h-8 text-green-600" /> : 
-                    <TrendingDown className="w-8 h-8 text-red-600" />
-                  }
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-600 font-medium">Tasa de Ocupación</p>
-                  <p className="text-3xl font-bold text-blue-600">
-                    {dashboardData.tasa_ocupacion}%
-                  </p>
-                </div>
-                <div className="bg-blue-100 p-3 rounded-xl">
-                  <Home className="w-8 h-8 text-blue-600" />
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-600 font-medium">Total Reservas</p>
-                  <p className="text-3xl font-bold text-purple-600">
-                    {dashboardData.total_reservas}
-                  </p>
-                </div>
-                <div className="bg-purple-100 p-3 rounded-xl">
-                  <Users className="w-8 h-8 text-purple-600" />
-                </div>
+              <div className="bg-green-100 p-3 rounded-xl">
+                <TrendingUp className="w-8 h-8 text-green-600" />
               </div>
             </div>
           </div>
-        )}
+
+          <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-600 font-medium">Beneficio Neto</p>
+                <p className={`text-3xl font-bold ${dashboardData && dashboardData.beneficio_neto >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {dashboardData ? formatearMoneda(dashboardData.beneficio_neto || 0) : '$0'}
+                </p>
+              </div>
+              <div className={`p-3 rounded-xl ${dashboardData && dashboardData.beneficio_neto >= 0 ? 'bg-green-100' : 'bg-red-100'}`}>
+                {dashboardData && dashboardData.beneficio_neto >= 0 ? 
+                  <TrendingUp className="w-8 h-8 text-green-600" /> : 
+                  <TrendingDown className="w-8 h-8 text-red-600" />
+                }
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-600 font-medium">Tasa de Ocupación</p>
+                <p className="text-3xl font-bold text-blue-600">
+                  {dashboardData ? `${dashboardData.tasa_ocupacion || 0}%` : '0%'}
+                </p>
+              </div>
+              <div className="bg-blue-100 p-3 rounded-xl">
+                <Home className="w-8 h-8 text-blue-600" />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-slate-600 font-medium">Total Reservas</p>
+                <p className="text-3xl font-bold text-purple-600">
+                  {dashboardData ? dashboardData.total_reservas || 0 : 0}
+                </p>
+              </div>
+              <div className="bg-purple-100 p-3 rounded-xl">
+                <Users className="w-8 h-8 text-purple-600" />
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* Gráficos */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
@@ -440,45 +438,63 @@ export default function DashboardAnalytics() {
               </select>
             </div>
             
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={ingresosData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="fecha" tickFormatter={formatearFecha} />
-                <YAxis tickFormatter={(value) => `$${value.toLocaleString()}`} />
-                <Tooltip 
-                  formatter={(value, name) => [`$${value.toLocaleString()}`, name]}
-                  labelFormatter={(fecha) => formatearFecha(fecha)}
-                />
-                <Line type="monotone" dataKey="reservas" stroke="#8B5CF6" strokeWidth={2} name="Reservas" />
-                <Line type="monotone" dataKey="pedidos" stroke="#10B981" strokeWidth={2} name="Pedidos" />
-                <Line type="monotone" dataKey="total" stroke="#3B82F6" strokeWidth={3} name="Total" />
-              </LineChart>
-            </ResponsiveContainer>
+            {ingresosData && ingresosData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={ingresosData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="fecha" tickFormatter={formatearFecha} />
+                  <YAxis tickFormatter={(value) => `$${value.toLocaleString()}`} />
+                  <Tooltip 
+                    formatter={(value, name) => [`$${value.toLocaleString()}`, name]}
+                    labelFormatter={(fecha) => formatearFecha(fecha)}
+                  />
+                  <Line type="monotone" dataKey="reservas" stroke="#8B5CF6" strokeWidth={2} name="Reservas" />
+                  <Line type="monotone" dataKey="pedidos" stroke="#10B981" strokeWidth={2} name="Pedidos" />
+                  <Line type="monotone" dataKey="total" stroke="#3B82F6" strokeWidth={3} name="Total" />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-96 text-slate-500">
+                <p>No hay datos de ingresos para el período seleccionado</p>
+              </div>
+            )}
           </div>
 
           {/* Gráfico de Formas de Pago */}
           <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
             <h3 className="text-lg font-semibold text-slate-800 mb-6">Formas de Pago</h3>
             
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={formasPagoData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ forma_pago, percent }) => `${forma_pago} ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="monto"
-                >
-                  {formasPagoData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={colores[index % colores.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => [`$${value.toLocaleString()}`, 'Monto']} />
-              </PieChart>
-            </ResponsiveContainer>
+            {formasPagoData && formasPagoData.length > 0 ? (
+            {formasPagoData && formasPagoData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={formasPagoData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ forma_pago, percent }) => `${forma_pago} ${(percent * 100).toFixed(0)}%`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="monto"
+                  >
+                    {formasPagoData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={colores[index % colores.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value) => [`$${value.toLocaleString()}`, 'Monto']} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex items-center justify-center h-96 text-slate-500">
+                <p>No hay datos de formas de pago disponibles</p>
+              </div>
+            )}
+            ) : (
+              <div className="flex items-center justify-center h-96 text-slate-500">
+                <p>No hay datos de formas de pago disponibles</p>
+              </div>
+            )}
           </div>
         </div>
 
