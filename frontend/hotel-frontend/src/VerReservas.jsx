@@ -776,6 +776,22 @@ export default function VerReservas() {
                 </p>
               </div>
             )}
+
+            {/* Botón para cambiar habitación */}
+            {obtenerEstadoReserva(reservaDetalle) !== "cancelada" && (
+              <div className="pt-4 border-t border-slate-200">
+                <button
+                  onClick={() => {
+                    setMostrarDetalles(false);
+                    abrirCambiarHabitacion(reservaDetalle);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-medium transition-all duration-200 shadow-lg hover:shadow-xl"
+                >
+                  <RefreshCw className="w-5 h-5" />
+                  Cambiar Habitación
+                </button>
+              </div>
+            )}
           </div>
         )}
       </Modal>
