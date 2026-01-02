@@ -409,3 +409,4 @@ El sistema está **bien estructurado** y funcional. Las mejoras sugeridas son **
 - Si hay errores frecuentes → Fase 1 (Logging) + Fase 2 (Tests)
 
 
+

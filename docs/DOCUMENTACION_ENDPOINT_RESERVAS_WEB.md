@@ -336,3 +336,4 @@ Ejemplos:
 - **Modelo**: `backend/hotel-santino-backend/hotel.py` (líneas 227-241)
 - **Documentación adicional**: `docs/ENDPOINTS.md` (líneas 216-250)
 
+

@@ -15,12 +15,20 @@ import os
 
 app = FastAPI()
 
+# Configuración de CORS
+# En producción, especificar explícitamente los orígenes permitidos
+ALLOWED_ORIGINS = os.getenv(
+    "ALLOWED_ORIGINS",
+    "https://hotel-santino-frontend.vercel.app,http://localhost:5173,http://localhost:3000"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permite todos los orígenes
+    allow_origins=ALLOWED_ORIGINS,  # Orígenes específicos permitidos
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # 1) Toma la URL de Postgres que pusiste en las variables de Railway.
@@ -2973,6 +2981,7 @@ def obtener_estadisticas_ocupacion(
 ):
     """
     Obtiene estadísticas detalladas de ocupación para un rango de fechas
+    Incluye días ocupados, ingresos y total de reservas por habitación
     """
     try:
         inicio = datetime.strptime(fecha_inicio, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
@@ -2994,10 +3003,46 @@ def obtener_estadisticas_ocupacion(
         # Calcular días totales
         dias_total = (fin - inicio).days
         
-        # Estadísticas por tipo
-        stats_por_tipo = {}
+        # Calcular estadísticas por habitación
+        stats_por_habitacion = {}
         for habitacion in todas_habitaciones:
-            tipo = habitacion.tipo
+            stats_por_habitacion[habitacion.id] = {
+                "numero": habitacion.numero,
+                "tipo": habitacion.tipo,
+                "capacidad": habitacion.capacidad,
+                "precio": habitacion.precio,
+                "dias_ocupados": 0,
+                "total_reservas": 0,
+                "ingresos": 0
+            }
+        
+        # Procesar reservas para calcular estadísticas por habitación
+        for reserva in reservas:
+            if reserva.habitacion_id and reserva.habitacion_id in stats_por_habitacion:
+                # Calcular días ocupados en el rango
+                checkin_efectivo = max(reserva.fecha_checkin, inicio)
+                checkout_efectivo = min(reserva.fecha_checkout, fin)
+                dias_reserva = (checkout_efectivo - checkin_efectivo).days
+                if dias_reserva > 0:
+                    stats_por_habitacion[reserva.habitacion_id]["dias_ocupados"] += dias_reserva
+                    stats_por_habitacion[reserva.habitacion_id]["total_reservas"] += 1
+                    # Calcular ingresos proporcionales al período
+                    dias_totales_reserva = (reserva.fecha_checkout - reserva.fecha_checkin).days
+                    if dias_totales_reserva > 0:
+                        ingresos_proporcionales = (reserva.total_estadia / dias_totales_reserva) * dias_reserva
+                        stats_por_habitacion[reserva.habitacion_id]["ingresos"] += ingresos_proporcionales
+        
+        # Calcular tasa de ocupación por habitación
+        for hab_id, stats in stats_por_habitacion.items():
+            dias_disponibles = dias_total
+            tasa = (stats["dias_ocupados"] / dias_disponibles * 100) if dias_disponibles > 0 else 0
+            stats["dias_disponibles"] = dias_disponibles
+            stats["tasa_ocupacion"] = round(tasa, 2)
+        
+        # Agrupar por tipo para mantener compatibilidad
+        stats_por_tipo = {}
+        for hab_id, stats in stats_por_habitacion.items():
+            tipo = stats["tipo"]
             if tipo not in stats_por_tipo:
                 stats_por_tipo[tipo] = {
                     "total_habitaciones": 0,
@@ -3006,16 +3051,21 @@ def obtener_estadisticas_ocupacion(
                 }
             
             stats_por_tipo[tipo]["total_habitaciones"] += 1
-            stats_por_tipo[tipo]["capacidad_total"] += habitacion.capacidad
+            stats_por_tipo[tipo]["capacidad_total"] += stats["capacidad"]
             stats_por_tipo[tipo]["habitaciones"].append({
-                "numero": habitacion.numero,
-                "capacidad": habitacion.capacidad,
-                "precio": habitacion.precio
+                "numero": stats["numero"],
+                "capacidad": stats["capacidad"],
+                "precio": stats["precio"],
+                "dias_ocupados": stats["dias_ocupados"],
+                "dias_disponibles": stats["dias_disponibles"],
+                "tasa_ocupacion": stats["tasa_ocupacion"],
+                "total_reservas": stats["total_reservas"],
+                "ingresos": round(stats["ingresos"], 2)
             })
         
-        # Calcular ocupación
-        habitaciones_ocupadas = set(r.habitacion_id for r in reservas)
-        tasa_ocupacion = (len(habitaciones_ocupadas) / total_habitaciones * 100) if total_habitaciones > 0 else 0
+        # Calcular ocupación general
+        habitaciones_ocupadas = set(r.habitacion_id for r in reservas if r.habitacion_id)
+        tasa_ocupacion_general = (len(habitaciones_ocupadas) / total_habitaciones * 100) if total_habitaciones > 0 else 0
         
         return {
             "periodo": {
@@ -3027,7 +3077,7 @@ def obtener_estadisticas_ocupacion(
                 "total_habitaciones": total_habitaciones,
                 "habitaciones_ocupadas": len(habitaciones_ocupadas),
                 "habitaciones_libres": total_habitaciones - len(habitaciones_ocupadas),
-                "tasa_ocupacion": round(tasa_ocupacion, 2)
+                "tasa_ocupacion": round(tasa_ocupacion_general, 2)
             },
             "por_tipo": stats_por_tipo,
             "reservas_activas": len(reservas)

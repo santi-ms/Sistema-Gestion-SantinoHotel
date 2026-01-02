@@ -125,9 +125,6 @@ export default function DashboardAnalytics() {
       // Transformar datos del endpoint a formato esperado por el gráfico
       const datosOcupacion = [];
       if (ocupacionRes.data && ocupacionRes.data.por_tipo) {
-        // Usar la tasa de ocupación general del resumen para todas las habitaciones
-        const tasaOcupacionGeneral = ocupacionRes.data.resumen?.tasa_ocupacion || 0;
-        
         Object.keys(ocupacionRes.data.por_tipo).forEach(tipo => {
           const tipoData = ocupacionRes.data.por_tipo[tipo];
           if (tipoData.habitaciones && Array.isArray(tipoData.habitaciones)) {
@@ -137,7 +134,11 @@ export default function DashboardAnalytics() {
                 tipo: tipo,
                 capacidad: hab.capacidad || 0,
                 precio: hab.precio || 0,
-                tasa_ocupacion: tasaOcupacionGeneral
+                dias_ocupados: hab.dias_ocupados || 0,
+                dias_disponibles: hab.dias_disponibles || 0,
+                tasa_ocupacion: hab.tasa_ocupacion || 0,
+                total_reservas: hab.total_reservas || 0,
+                ingresos: hab.ingresos || 0
               });
             });
           }
@@ -362,11 +363,17 @@ export default function DashboardAnalytics() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
             <div className="flex items-center justify-between">
-              <div>
+              <div className="flex-1">
                 <p className="text-sm text-slate-600 font-medium">Ingresos Totales</p>
                 <p className="text-3xl font-bold text-green-600">
                   {dashboardData ? formatearMoneda(dashboardData.total_ingresos || 0) : '$0'}
                 </p>
+                {dashboardData && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Reservas: {formatearMoneda(dashboardData.ingresos_reservas || 0)} + 
+                    Pedidos: {formatearMoneda(dashboardData.ingresos_pedidos || 0)}
+                  </p>
+                )}
               </div>
               <div className="bg-green-100 p-3 rounded-xl">
                 <TrendingUp className="w-8 h-8 text-green-600" />
@@ -376,11 +383,17 @@ export default function DashboardAnalytics() {
 
           <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
             <div className="flex items-center justify-between">
-              <div>
+              <div className="flex-1">
                 <p className="text-sm text-slate-600 font-medium">Beneficio Neto</p>
                 <p className={`text-3xl font-bold ${dashboardData && dashboardData.beneficio_neto >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   {dashboardData ? formatearMoneda(dashboardData.beneficio_neto || 0) : '$0'}
                 </p>
+                {dashboardData && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    Ingresos: {formatearMoneda(dashboardData.total_ingresos || 0)} - 
+                    Gastos: {formatearMoneda(dashboardData.total_gastos_monto || 0)}
+                  </p>
+                )}
               </div>
               <div className={`p-3 rounded-xl ${dashboardData && dashboardData.beneficio_neto >= 0 ? 'bg-green-100' : 'bg-red-100'}`}>
                 {dashboardData && dashboardData.beneficio_neto >= 0 ? 
@@ -393,11 +406,16 @@ export default function DashboardAnalytics() {
 
           <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
             <div className="flex items-center justify-between">
-              <div>
+              <div className="flex-1">
                 <p className="text-sm text-slate-600 font-medium">Tasa de Ocupación</p>
                 <p className="text-3xl font-bold text-blue-600">
                   {dashboardData ? `${dashboardData.tasa_ocupacion || 0}%` : '0%'}
                 </p>
+                {dashboardData && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    {dashboardData.periodo || 'Este mes'}
+                  </p>
+                )}
               </div>
               <div className="bg-blue-100 p-3 rounded-xl">
                 <Home className="w-8 h-8 text-blue-600" />
@@ -407,11 +425,16 @@ export default function DashboardAnalytics() {
 
           <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
             <div className="flex items-center justify-between">
-              <div>
+              <div className="flex-1">
                 <p className="text-sm text-slate-600 font-medium">Total Reservas</p>
                 <p className="text-3xl font-bold text-purple-600">
                   {dashboardData ? dashboardData.total_reservas || 0 : 0}
                 </p>
+                {dashboardData && (
+                  <p className="text-xs text-slate-500 mt-1">
+                    {dashboardData.periodo || 'Este mes'}
+                  </p>
+                )}
               </div>
               <div className="bg-purple-100 p-3 rounded-xl">
                 <Users className="w-8 h-8 text-purple-600" />
