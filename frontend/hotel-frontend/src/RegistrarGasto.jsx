@@ -95,7 +95,9 @@ export default function RegistrarGasto() {
     const payload = {
       descripcion: form.descripcion.trim(),
       monto: montoNum,
-      habitacion_id: form.habitacion_id ? parseInt(form.habitacion_id) : null
+      habitacion_id: form.habitacion_id && form.habitacion_id.trim() !== "" 
+        ? parseInt(form.habitacion_id) 
+        : null
     };
     
     try {

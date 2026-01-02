@@ -22,6 +22,7 @@ import {
   X
 } from "lucide-react";
 import ConfirmModal from "./components/ConfirmModal";
+import Modal from "./components/Modal";
 
 export default function VerReservas() {
   const [reservas, setReservas] = useState([]);
@@ -33,6 +34,8 @@ export default function VerReservas() {
   const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
   const [reservaEliminarId, setReservaEliminarId] = useState(null);
   const [usuarioRol, setUsuarioRol] = useState(null);
+  const [mostrarDetalles, setMostrarDetalles] = useState(false);
+  const [reservaDetalle, setReservaDetalle] = useState(null);
   const navigate = useNavigate();
 
   // Obtener rol del usuario desde el token
@@ -116,6 +119,11 @@ export default function VerReservas() {
   const abrirConfirmEliminar = (id) => {
     setReservaEliminarId(id);
     setMostrarConfirmEliminar(true);
+  };
+
+  const abrirDetalles = (reserva) => {
+    setReservaDetalle(reserva);
+    setMostrarDetalles(true);
   };
 
   const eliminarReserva = async () => {
@@ -436,9 +444,7 @@ export default function VerReservas() {
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Check-out</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Estado</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Total</th>
-                    {usuarioRol === "dueño" && (
-                      <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Acciones</th>
-                    )}
+                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -499,9 +505,16 @@ export default function VerReservas() {
                             <span className="text-sm text-slate-400">N/A</span>
                           )}
                         </td>
-                        {usuarioRol === "dueño" && (
-                          <td className="px-6 py-4">
-                            {estado !== "cancelada" && (
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => abrirDetalles(reserva)}
+                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded-lg transition-all duration-200"
+                              title="Ver detalles completos"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            {usuarioRol === "dueño" && estado !== "cancelada" && (
                               <button
                                 onClick={() => abrirConfirmEliminar(reserva.id)}
                                 className="p-2 text-red-600 hover:text-red-800 hover:bg-red-100 rounded-lg transition-all duration-200"
@@ -510,11 +523,11 @@ export default function VerReservas() {
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             )}
-                            {estado === "cancelada" && (
+                            {usuarioRol === "dueño" && estado === "cancelada" && (
                               <span className="text-xs text-red-600 font-medium">Cancelada</span>
                             )}
-                          </td>
-                        )}
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -539,6 +552,163 @@ export default function VerReservas() {
         cancelText="No, mantener"
         type="danger"
       />
+
+      {/* Modal de detalles de la reserva */}
+      <Modal
+        isOpen={mostrarDetalles}
+        onClose={() => {
+          setMostrarDetalles(false);
+          setReservaDetalle(null);
+        }}
+        title={`Detalles de la Reserva #${reservaDetalle?.id}`}
+        size="lg"
+      >
+        {reservaDetalle && (
+          <div className="space-y-6">
+            {/* Información básica */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <User className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-sm font-semibold text-blue-700">Cliente</h3>
+                </div>
+                <p className="text-lg font-medium text-slate-900">
+                  {reservaDetalle.nombre_huesped || `Cliente #${reservaDetalle.cliente_id}`}
+                </p>
+                {reservaDetalle.cliente_id && (
+                  <p className="text-sm text-slate-600 mt-1">ID Cliente: {reservaDetalle.cliente_id}</p>
+                )}
+              </div>
+
+              <div className="bg-green-50 p-4 rounded-xl border border-green-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <Home className="w-5 h-5 text-green-600" />
+                  <h3 className="text-sm font-semibold text-green-700">Habitación</h3>
+                </div>
+                <p className="text-lg font-medium text-slate-900">
+                  Habitación {reservaDetalle.habitacion_id}
+                </p>
+              </div>
+            </div>
+
+            {/* Fechas */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-purple-50 p-4 rounded-xl border border-purple-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <CalendarDays className="w-5 h-5 text-purple-600" />
+                  <h3 className="text-sm font-semibold text-purple-700">Check-in</h3>
+                </div>
+                <p className="text-lg font-medium text-slate-900">
+                  {new Date(reservaDetalle.fecha_checkin).toLocaleDateString('es-ES', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </p>
+                <p className="text-sm text-slate-600 mt-1">
+                  {new Date(reservaDetalle.fecha_checkin).toLocaleTimeString('es-ES', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
+                </p>
+              </div>
+
+              <div className="bg-orange-50 p-4 rounded-xl border border-orange-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <CalendarDays className="w-5 h-5 text-orange-600" />
+                  <h3 className="text-sm font-semibold text-orange-700">Check-out</h3>
+                </div>
+                <p className="text-lg font-medium text-slate-900">
+                  {new Date(reservaDetalle.fecha_checkout).toLocaleDateString('es-ES', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                  })}
+                </p>
+                <p className="text-sm text-slate-600 mt-1">
+                  {new Date(reservaDetalle.fecha_checkout).toLocaleTimeString('es-ES', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
+                </p>
+              </div>
+            </div>
+
+            {/* Estado y origen */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <h3 className="text-sm font-semibold text-slate-700 mb-2">Estado</h3>
+                <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium border ${getEstadoColor(obtenerEstadoReserva(reservaDetalle))}`}>
+                  {getEstadoIcon(obtenerEstadoReserva(reservaDetalle))}
+                  {obtenerEstadoReserva(reservaDetalle) === "finalizada" ? "Completada" : obtenerEstadoReserva(reservaDetalle).charAt(0).toUpperCase() + obtenerEstadoReserva(reservaDetalle).slice(1)}
+                </span>
+              </div>
+
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <h3 className="text-sm font-semibold text-slate-700 mb-2">Origen</h3>
+                <p className="text-base font-medium text-slate-900">
+                  {reservaDetalle.origen ? (
+                    <span className="capitalize">{reservaDetalle.origen}</span>
+                  ) : (
+                    <span className="text-slate-400">No especificado</span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {/* Información financiera */}
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-6 rounded-xl border-2 border-green-200">
+              <h3 className="text-lg font-bold text-green-800 mb-4 flex items-center gap-2">
+                <DollarSign className="w-6 h-6" />
+                Información Financiera
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <p className="text-sm text-green-700 font-medium mb-1">Seña</p>
+                  <p className="text-2xl font-bold text-green-800">
+                    ${reservaDetalle.seña?.toLocaleString() || "0"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-green-700 font-medium mb-1">Total Estadía</p>
+                  <p className="text-2xl font-bold text-green-800">
+                    ${reservaDetalle.total_estadia?.toLocaleString() || "0"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-green-700 font-medium mb-1">Forma de Pago</p>
+                  <p className="text-lg font-semibold text-green-800 capitalize">
+                    {reservaDetalle.forma_pago || "No especificado"}
+                  </p>
+                </div>
+              </div>
+              {reservaDetalle.total_estadia && reservaDetalle.seña && (
+                <div className="mt-4 pt-4 border-t border-green-200">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-green-700 font-medium">Saldo Pendiente</span>
+                    <span className="text-xl font-bold text-green-800">
+                      ${(reservaDetalle.total_estadia - reservaDetalle.seña).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Información adicional si existe */}
+            {(reservaDetalle.origen === "web" || reservaDetalle.origen === "whatsapp") && (
+              <div className="bg-amber-50 p-4 rounded-xl border border-amber-200">
+                <h3 className="text-sm font-semibold text-amber-700 mb-2">Notas Adicionales</h3>
+                <p className="text-sm text-slate-700">
+                  Esta reserva fue creada desde {reservaDetalle.origen === "web" ? "la página web" : "WhatsApp"}.
+                  {reservaDetalle.origen === "web" && " Puede contener información adicional como email, teléfono, mascotas, etc."}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

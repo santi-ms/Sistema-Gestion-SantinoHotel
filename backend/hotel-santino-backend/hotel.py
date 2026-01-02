@@ -1041,15 +1041,21 @@ def eliminar_pedido_actualizado(
 @app.post("/gastos")
 def registrar_gasto(gasto: GastoAdicional, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     # Asegurar que use fecha de Argentina
+    # habitacion_id es opcional: solo se asigna si tiene un valor válido (mayor a 0)
+    habitacion_id = None
+    if gasto.habitacion_id is not None and gasto.habitacion_id > 0:
+        habitacion_id = gasto.habitacion_id
+    
     nuevo_gasto = GastoAdicional(
-        habitacion_id=gasto.habitacion_id if gasto.habitacion_id else None,
+        habitacion_id=habitacion_id,
         descripcion=gasto.descripcion,
         monto=gasto.monto,
         fecha=obtener_fecha_argentina()
     )
     db.add(nuevo_gasto)
     db.commit()
-    return {"mensaje": "Gasto registrado correctamente"}
+    db.refresh(nuevo_gasto)
+    return {"mensaje": "Gasto registrado correctamente", "gasto": nuevo_gasto}
 
 @app.get("/gastos")
 def obtener_todos_los_gastos(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
@@ -1083,13 +1089,19 @@ def actualizar_gasto(
     if not gasto:
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
 
-    gasto.habitacion_id = datos.habitacion_id if datos.habitacion_id else None
+    # habitacion_id es opcional: solo se asigna si tiene un valor válido (mayor a 0)
+    if datos.habitacion_id is not None and datos.habitacion_id > 0:
+        gasto.habitacion_id = datos.habitacion_id
+    else:
+        gasto.habitacion_id = None
+    
     gasto.descripcion = datos.descripcion
     gasto.monto = datos.monto
 
     db.add(gasto)
     db.commit()
-    return {"mensaje": "Gasto actualizado correctamente"}
+    db.refresh(gasto)
+    return {"mensaje": "Gasto actualizado correctamente", "gasto": gasto}
 
 @app.delete("/gastos/{gasto_id}")
 def eliminar_gasto(

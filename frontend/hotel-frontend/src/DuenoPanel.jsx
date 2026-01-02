@@ -4,7 +4,6 @@ import axios from 'axios';
 import { API_BASE_URL, TOKEN_KEY } from './config';
 import { 
   Calendar, 
-  Users, 
   Bed, 
   DollarSign, 
   Settings, 
@@ -12,7 +11,6 @@ import {
   Bell,
   Menu,
   X,
-  Plus,
   Eye,
   Edit,
   Trash2,
@@ -142,22 +140,6 @@ export default function DuenoPanel() {
       color: "from-red-500 to-pink-600",
       hoverColor: "hover:from-red-600 hover:to-pink-700",
       path: "/registrar-gasto"
-    },
-    {
-      title: "Agregar Habitación",
-      description: "Gestionar habitaciones del hotel",
-      icon: Plus,
-      color: "from-green-500 to-emerald-600",
-      hoverColor: "hover:from-green-600 hover:to-emerald-700",
-      path: "/agregar-habitacion"
-    },
-    {
-      title: "Registrar Cliente",
-      description: "Gestionar base de datos de huéspedes",
-      icon: Users,
-      color: "from-teal-500 to-cyan-600",
-      hoverColor: "hover:from-teal-600 hover:to-cyan-700",
-      path: "/registrar-cliente"
     },
     {
       title: "Actividades",
