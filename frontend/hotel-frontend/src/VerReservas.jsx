@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
+import { SkeletonTable, SkeletonStats } from "./components/Skeleton";
 
 export default function VerReservas() {
   const [reservas, setReservas] = useState([]);
@@ -332,14 +333,14 @@ export default function VerReservas() {
             <div className="flex items-center gap-3">
               <button
                 onClick={exportarCSV}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-all duration-200 shadow-md hover:shadow-lg hover:scale-105 active:scale-95"
               >
                 <Download className="w-4 h-4" />
                 Exportar CSV
               </button>
               <button
                 onClick={() => navigate(-1)}
-                className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all duration-200"
+                className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95"
               >
                 <ArrowLeft className="w-4 h-4" />
                 Volver
@@ -349,62 +350,80 @@ export default function VerReservas() {
         </div>
 
         {/* Estadísticas */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white rounded-xl shadow-lg p-4 border border-slate-200">
-            <div className="flex items-center gap-3">
-              <Calendar className="w-8 h-8 text-blue-600" />
-              <div>
-                <p className="text-sm text-slate-600 font-medium">Total</p>
-                <p className="text-2xl font-bold text-slate-800">{estadisticas.total}</p>
+        {cargando ? (
+          <div className="mb-8">
+            <SkeletonStats />
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="bg-white rounded-xl shadow-lg p-4 border border-slate-200 hover:shadow-xl transition-shadow duration-200">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-100 p-2 rounded-lg">
+                  <Calendar className="w-6 h-6 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-slate-600 font-medium">Total</p>
+                  <p className="text-2xl font-bold text-slate-800">{estadisticas.total}</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-xl shadow-lg p-4 border border-slate-200 hover:shadow-xl transition-shadow duration-200">
+              <div className="flex items-center gap-3">
+                <div className="bg-amber-100 p-2 rounded-lg">
+                  <Clock className="w-6 h-6 text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-amber-600 font-medium">Pendientes</p>
+                  <p className="text-2xl font-bold text-amber-700">{estadisticas.pendientes}</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-xl shadow-lg p-4 border border-slate-200 hover:shadow-xl transition-shadow duration-200">
+              <div className="flex items-center gap-3">
+                <div className="bg-green-100 p-2 rounded-lg">
+                  <CheckCircle className="w-6 h-6 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-green-600 font-medium">Activas</p>
+                  <p className="text-2xl font-bold text-green-700">{estadisticas.activas}</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-xl shadow-lg p-4 border border-slate-200 hover:shadow-xl transition-shadow duration-200">
+              <div className="flex items-center gap-3">
+                <div className="bg-green-100 p-2 rounded-lg">
+                  <CheckCircle className="w-6 h-6 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-green-600 font-medium">Completadas</p>
+                  <p className="text-2xl font-bold text-green-700">{estadisticas.completadas}</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-xl shadow-lg p-4 border border-slate-200 hover:shadow-xl transition-shadow duration-200">
+              <div className="flex items-center gap-3">
+                <div className="bg-red-100 p-2 rounded-lg">
+                  <XCircle className="w-6 h-6 text-red-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-red-600 font-medium">Canceladas</p>
+                  <p className="text-2xl font-bold text-red-700">{estadisticas.canceladas}</p>
+                </div>
               </div>
             </div>
           </div>
-          
-          <div className="bg-white rounded-xl shadow-lg p-4 border border-slate-200">
-            <div className="flex items-center gap-3">
-              <Clock className="w-8 h-8 text-amber-600" />
-              <div>
-                <p className="text-sm text-amber-600 font-medium">Pendientes</p>
-                <p className="text-2xl font-bold text-amber-700">{estadisticas.pendientes}</p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-xl shadow-lg p-4 border border-slate-200">
-            <div className="flex items-center gap-3">
-              <CheckCircle className="w-8 h-8 text-green-600" />
-              <div>
-                <p className="text-sm text-green-600 font-medium">Activas</p>
-                <p className="text-2xl font-bold text-green-700">{estadisticas.activas}</p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-xl shadow-lg p-4 border border-slate-200">
-            <div className="flex items-center gap-3">
-              <CheckCircle className="w-8 h-8 text-green-600" />
-              <div>
-                <p className="text-sm text-green-600 font-medium">Completadas</p>
-                <p className="text-2xl font-bold text-green-700">{estadisticas.completadas}</p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-xl shadow-lg p-4 border border-slate-200">
-            <div className="flex items-center gap-3">
-              <XCircle className="w-8 h-8 text-red-600" />
-              <div>
-                <p className="text-sm text-red-600 font-medium">Canceladas</p>
-                <p className="text-2xl font-bold text-red-700">{estadisticas.canceladas}</p>
-              </div>
-            </div>
-          </div>
-        </div>
+        )}
 
         {/* Filtros */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200 animate-slide-up">
           <div className="flex items-center gap-2 mb-4">
-            <Filter className="w-5 h-5 text-slate-600" />
+            <div className="bg-blue-100 p-2 rounded-lg">
+              <Filter className="w-5 h-5 text-blue-600" />
+            </div>
             <h3 className="text-lg font-semibold text-slate-800">Filtros</h3>
           </div>
           
@@ -421,7 +440,7 @@ export default function VerReservas() {
                   placeholder="Buscar..."
                   value={filtroTexto}
                   onChange={(e) => setFiltroTexto(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-12 pr-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-slate-400"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-12 pr-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-slate-400 transition-all duration-200 hover:border-slate-400"
                 />
               </div>
             </div>
@@ -434,7 +453,7 @@ export default function VerReservas() {
               <select
                 value={filtroEstado}
                 onChange={(e) => setFiltroEstado(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 hover:border-slate-400 cursor-pointer"
               >
                 <option value="todas">Todas las reservas</option>
                 <option value="pendiente">Pendientes</option>
@@ -449,12 +468,12 @@ export default function VerReservas() {
               <label className="block text-sm font-medium text-slate-700 mb-2">
                 Fecha de check-in
               </label>
-              <input
-                type="date"
-                value={filtroFecha}
-                onChange={(e) => setFiltroFecha(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+                <input
+                  type="date"
+                  value={filtroFecha}
+                  onChange={(e) => setFiltroFecha(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 hover:border-slate-400 cursor-pointer"
+                />
             </div>
           </div>
 
@@ -485,9 +504,8 @@ export default function VerReservas() {
           </div>
 
           {cargando ? (
-            <div className="p-8 text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <p className="text-slate-600">Cargando reservas...</p>
+            <div className="p-8">
+              <SkeletonTable rows={5} columns={8} />
             </div>
           ) : reservasFiltradas.length === 0 ? (
             <div className="p-8 text-center">
@@ -571,14 +589,14 @@ export default function VerReservas() {
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => abrirDetalles(reserva)}
-                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded-lg transition-all duration-200"
+                              className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded-lg transition-all duration-200 hover:scale-110 active:scale-95"
                               title="Ver detalles completos"
                             >
                               <Eye className="w-4 h-4" />
                             </button>
                             <button
                               onClick={() => abrirCambiarHabitacion(reserva)}
-                              className="p-2 text-green-600 hover:text-green-800 hover:bg-green-100 rounded-lg transition-all duration-200"
+                              className="p-2 text-green-600 hover:text-green-800 hover:bg-green-100 rounded-lg transition-all duration-200 hover:scale-110 active:scale-95"
                               title="Cambiar habitación"
                             >
                               <RefreshCw className="w-4 h-4" />
@@ -586,7 +604,7 @@ export default function VerReservas() {
                             {usuarioRol === "dueño" && estado !== "cancelada" && (
                               <button
                                 onClick={() => abrirConfirmEliminar(reserva.id)}
-                                className="p-2 text-red-600 hover:text-red-800 hover:bg-red-100 rounded-lg transition-all duration-200"
+                                className="p-2 text-red-600 hover:text-red-800 hover:bg-red-100 rounded-lg transition-all duration-200 hover:scale-110 active:scale-95"
                                 title="Cancelar reserva"
                               >
                                 <Trash2 className="w-4 h-4" />

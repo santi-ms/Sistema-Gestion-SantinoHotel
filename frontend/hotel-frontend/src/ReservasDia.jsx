@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { SkeletonTable } from "./components/Skeleton";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";

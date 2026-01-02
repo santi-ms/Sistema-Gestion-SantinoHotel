@@ -5,6 +5,7 @@ import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import { formatearSoloFecha, formatearSoloHora } from "./utils/fechas";
+import { SkeletonTable } from "./components/Skeleton";
 import { 
   Coffee, 
   DollarSign, 
@@ -433,9 +434,8 @@ export default function VerPedidos() {
           </div>
 
           {cargando ? (
-            <div className="p-8 text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600 mx-auto mb-4"></div>
-              <p className="text-slate-600">Cargando pedidos...</p>
+            <div className="p-8">
+              <SkeletonTable rows={5} columns={7} />
             </div>
           ) : pedidosFiltrados.length === 0 ? (
             <div className="p-8 text-center">

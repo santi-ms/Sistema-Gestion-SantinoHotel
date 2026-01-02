@@ -250,9 +250,12 @@ export default function DuenoPanel() {
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-gray-600 mb-2">{card.title}</p>
                     {cargando ? (
-                      <div className="h-8 bg-gray-200 rounded animate-pulse"></div>
+                      <div className="space-y-2">
+                        <div className="h-8 bg-slate-200 rounded-lg animate-pulse w-32"></div>
+                        <div className="h-4 bg-slate-200 rounded animate-pulse w-24"></div>
+                      </div>
                     ) : (
-                      <p className={`text-3xl font-bold ${card.textColor}`}>
+                      <p className={`text-3xl font-bold ${card.textColor} transition-all duration-300`}>
                         ${card.value.toLocaleString()}
                       </p>
                     )}
@@ -273,7 +276,7 @@ export default function DuenoPanel() {
             <button
               key={index}
               onClick={() => navigate(button.path)}
-              className="group bg-white rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 border-2 border-orange-100 hover:border-orange-200 overflow-hidden"
+              className="group bg-white rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 hover:scale-[1.02] active:scale-100 border-2 border-orange-100 hover:border-orange-200 overflow-hidden focus-ring"
             >
               <div className="p-6">
                 <div className="flex items-center space-x-4">
