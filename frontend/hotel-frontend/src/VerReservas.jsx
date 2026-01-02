@@ -513,6 +513,10 @@ export default function VerReservas() {
                 <tbody className="divide-y divide-slate-200">
                   {reservasFiltradas.map((reserva) => {
                     const estado = obtenerEstadoReserva(reserva);
+                    // Debug: verificar que el código se ejecuta
+                    if (reserva.id === reservasFiltradas[0]?.id) {
+                      console.log("🔍 Renderizando botón cambiar habitación para reserva:", reserva.id, "Estado:", estado);
+                    }
                     return (
                       <tr key={reserva.id} className="hover:bg-slate-50 transition-colors duration-200">
                         <td className="px-6 py-4">
@@ -578,10 +582,14 @@ export default function VerReservas() {
                               <Eye className="w-4 h-4" />
                             </button>
                             <button
-                              onClick={() => abrirCambiarHabitacion(reserva)}
-                              className="p-2 text-green-600 hover:text-green-800 hover:bg-green-100 rounded-lg transition-all duration-200"
+                              onClick={() => {
+                                console.log("🔄 Click en cambiar habitación para reserva:", reserva.id);
+                                abrirCambiarHabitacion(reserva);
+                              }}
+                              className="p-2 text-green-600 hover:text-green-800 hover:bg-green-100 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                               title="Cambiar habitación"
                               disabled={estado === "cancelada"}
+                              style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                             >
                               <RefreshCw className="w-4 h-4" />
                             </button>
