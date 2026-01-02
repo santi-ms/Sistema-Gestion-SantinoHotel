@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, status, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.encoders import jsonable_encoder
 from sqlmodel import SQLModel, Field, Session, select, create_engine, text
 from sqlalchemy import func
 from passlib.context import CryptContext
@@ -224,6 +225,7 @@ class GastoAdicionalEntrada(BaseModel):
             return int(v)
         except (ValueError, TypeError):
             return None
+
 
 # ─────────── MODELOS PARA RESERVAS ───────────
 class ReservaEntrada(BaseModel):
@@ -1130,7 +1132,14 @@ def registrar_gasto(gasto: GastoAdicionalEntrada, db: Session = Depends(obtener_
         db.add(nuevo_gasto)
         db.commit()
         db.refresh(nuevo_gasto)
-        return {"mensaje": "Gasto registrado correctamente", "gasto": nuevo_gasto}
+        gasto_dict = {
+            "id": nuevo_gasto.id,
+            "habitacion_id": nuevo_gasto.habitacion_id,
+            "descripcion": nuevo_gasto.descripcion,
+            "monto": nuevo_gasto.monto,
+            "fecha": normalizar_fecha_argentina(nuevo_gasto.fecha).isoformat()
+        }
+        return {"mensaje": "Gasto registrado correctamente", "gasto": gasto_dict}
     except HTTPException:
         raise
     except Exception as e:
@@ -1139,7 +1148,18 @@ def registrar_gasto(gasto: GastoAdicionalEntrada, db: Session = Depends(obtener_
 @app.get("/gastos")
 def obtener_todos_los_gastos(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     gastos = db.exec(select(GastoAdicional)).all()
-    return gastos
+    # Serializar fechas correctamente con timezone de Argentina
+    resultado = []
+    for gasto in gastos:
+        gasto_dict = {
+            "id": gasto.id,
+            "habitacion_id": gasto.habitacion_id,
+            "descripcion": gasto.descripcion,
+            "monto": gasto.monto,
+            "fecha": normalizar_fecha_argentina(gasto.fecha).isoformat()
+        }
+        resultado.append(gasto_dict)
+    return resultado
 
 @app.get("/gastos-dia")
 def obtener_gastos_por_dia(
@@ -1155,7 +1175,18 @@ def obtener_gastos_por_dia(
     gastos = db.exec(
         select(GastoAdicional).where(GastoAdicional.fecha >= fecha_obj, GastoAdicional.fecha < fecha_obj + timedelta(days=1))
     ).all()
-    return gastos
+    # Serializar fechas correctamente con timezone de Argentina
+    resultado = []
+    for gasto in gastos:
+        gasto_dict = {
+            "id": gasto.id,
+            "habitacion_id": gasto.habitacion_id,
+            "descripcion": gasto.descripcion,
+            "monto": gasto.monto,
+            "fecha": normalizar_fecha_argentina(gasto.fecha).isoformat()
+        }
+        resultado.append(gasto_dict)
+    return resultado
 
 @app.put("/gastos/{gasto_id}")
 def actualizar_gasto(
@@ -1195,7 +1226,14 @@ def actualizar_gasto(
         db.add(gasto)
         db.commit()
         db.refresh(gasto)
-        return {"mensaje": "Gasto actualizado correctamente", "gasto": gasto}
+        gasto_dict = {
+            "id": gasto.id,
+            "habitacion_id": gasto.habitacion_id,
+            "descripcion": gasto.descripcion,
+            "monto": gasto.monto,
+            "fecha": normalizar_fecha_argentina(gasto.fecha).isoformat()
+        }
+        return {"mensaje": "Gasto actualizado correctamente", "gasto": gasto_dict}
     except HTTPException:
         raise
     except Exception as e:
