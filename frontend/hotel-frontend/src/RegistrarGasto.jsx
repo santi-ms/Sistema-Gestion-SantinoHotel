@@ -6,6 +6,7 @@ import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import { SkeletonTable } from "./components/Skeleton";
 import { EmptyState } from "./components/EmptyState";
+import { formatearSoloHora, formatearSoloFecha } from "./utils/fechas";
 import { 
   Receipt, 
   DollarSign, 
@@ -195,7 +196,7 @@ export default function RegistrarGasto() {
             <div className="flex items-center gap-4">
               <div className="text-sm text-slate-600 bg-slate-50 px-3 py-2 rounded-lg">
                 <Clock className="w-4 h-4 inline mr-1" />
-                {new Date().toLocaleDateString('es-ES')}
+                {formatearSoloFecha(new Date())}
               </div>
               <button
                 onClick={() => navigate(-1)}
@@ -426,21 +427,15 @@ export default function RegistrarGasto() {
                         {esDueño ? (
                           <div>
                             <span className="text-sm text-slate-700">
-                              {new Date(gasto.fecha).toLocaleDateString('es-ES')}
+                              {formatearSoloFecha(gasto.fecha)}
                             </span>
                             <div className="text-xs text-slate-500 mt-1">
-                              {new Date(gasto.fecha).toLocaleTimeString('es-ES', {
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
+                              {formatearSoloHora(gasto.fecha)}
                             </div>
                           </div>
                         ) : (
                           <span className="text-sm text-slate-600">
-                            {new Date(gasto.fecha).toLocaleTimeString('es-ES', {
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
+                            {formatearSoloHora(gasto.fecha)}
                           </span>
                         )}
                       </td>

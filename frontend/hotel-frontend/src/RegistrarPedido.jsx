@@ -514,7 +514,7 @@ const getEstadoBadge = (pedido) => {
             <div className="flex items-center gap-4">
               <div className="text-sm text-slate-600 bg-slate-50 px-3 py-2 rounded-lg">
                 <Clock className="w-4 h-4 inline mr-1" />
-                {new Date().toLocaleDateString('es-ES')}
+                {formatearSoloFecha(new Date())}
               </div>
               
               <button
@@ -877,7 +877,7 @@ const getEstadoBadge = (pedido) => {
             </h3>
             {!esDueño && (
               <p className="text-sm text-slate-600 mt-1">
-                Pedidos registrados el {new Date().toLocaleDateString('es-ES')}
+                Pedidos registrados el {formatearSoloFecha(new Date())}
               </p>
             )}
           </div>
