@@ -119,7 +119,10 @@ export default function RegistrarGasto() {
       setEditandoId(null);
       obtenerGastosHoy();
     } catch (err) {
-      errorToast(err.response?.data?.detail || "Error al registrar/actualizar gasto");
+      console.error('Error completo:', err);
+      console.error('Error response:', err.response);
+      const errorMessage = err.response?.data?.detail || err.response?.data?.message || err.message || "Error al registrar/actualizar gasto";
+      errorToast(errorMessage);
     } finally {
       setCargando(false);
     }
