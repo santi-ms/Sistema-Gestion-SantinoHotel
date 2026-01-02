@@ -99,12 +99,14 @@ export default function DashboardAnalytics() {
       const dashboardRes = await axios.get(`${API_BASE_URL}/analytics/dashboard`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      console.log('Datos del dashboard:', dashboardRes.data);
       setDashboardData(dashboardRes.data);
 
       // Formas de pago
       const formasPagoRes = await axios.get(`${API_BASE_URL}/analytics/formas-pago`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      console.log('Datos de formas de pago:', formasPagoRes.data);
       setFormasPagoData(formasPagoRes.data);
 
       // Ocupación de habitaciones (último mes)
@@ -123,19 +125,27 @@ export default function DashboardAnalytics() {
       // Transformar datos del endpoint a formato esperado por el gráfico
       const datosOcupacion = [];
       if (ocupacionRes.data && ocupacionRes.data.por_tipo) {
+        // Usar la tasa de ocupación general del resumen para todas las habitaciones
+        const tasaOcupacionGeneral = ocupacionRes.data.resumen?.tasa_ocupacion || 0;
+        
         Object.keys(ocupacionRes.data.por_tipo).forEach(tipo => {
           const tipoData = ocupacionRes.data.por_tipo[tipo];
-          tipoData.habitaciones.forEach(hab => {
-            datosOcupacion.push({
-              habitacion: hab.numero,
-              tipo: tipo,
-              capacidad: hab.capacidad,
-              precio: hab.precio,
-              tasa_ocupacion: ocupacionRes.data.resumen?.tasa_ocupacion || 0
+          if (tipoData.habitaciones && Array.isArray(tipoData.habitaciones)) {
+            tipoData.habitaciones.forEach(hab => {
+              datosOcupacion.push({
+                habitacion: hab.numero,
+                tipo: tipo,
+                capacidad: hab.capacidad || 0,
+                precio: hab.precio || 0,
+                tasa_ocupacion: tasaOcupacionGeneral
+              });
             });
-          });
+          }
         });
       }
+      
+      console.log('Datos de ocupación transformados:', datosOcupacion);
+      console.log('Datos originales del endpoint:', ocupacionRes.data);
       setOcupacionData(datosOcupacion);
 
     } catch (error) {
