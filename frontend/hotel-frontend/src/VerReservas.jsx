@@ -69,12 +69,12 @@ export default function VerReservas() {
 
   // Función para determinar el estado de una reserva
   const obtenerEstadoReserva = (reserva) => {
-    // Si la reserva tiene estado en la BD, usarlo (activa, completada, cancelada)
-    if (reserva.estado) {
-      return reserva.estado;
+    // Si está cancelada, siempre retornar cancelada
+    if (reserva.estado === "cancelada") {
+      return "cancelada";
     }
     
-    // Si no tiene estado, calcularlo por fechas (compatibilidad con reservas antiguas)
+    // Calcular estado basado en fechas primero
     const hoy = new Date();
     const checkin = new Date(reserva.fecha_checkin);
     const checkout = new Date(reserva.fecha_checkout);
@@ -84,9 +84,31 @@ export default function VerReservas() {
     checkin.setHours(0, 0, 0, 0);
     checkout.setHours(0, 0, 0, 0);
 
-    if (hoy < checkin) return "pendiente";
-    if (hoy >= checkin && hoy < checkout) return "activa";
-    if (hoy >= checkout) return "finalizada";
+    // Si ya pasó la fecha de checkout, debe ser completada o finalizada
+    if (hoy >= checkout) {
+      // Si tiene estado "completada" en BD, usar ese
+      if (reserva.estado === "completada") {
+        return "completada";
+      }
+      // Si no, retornar "finalizada" (reservas antiguas sin estado)
+      return "finalizada";
+    }
+    
+    // Si aún no ha llegado el check-in, es pendiente
+    if (hoy < checkin) {
+      return "pendiente";
+    }
+    
+    // Si estamos entre check-in y check-out, es activa
+    if (hoy >= checkin && hoy < checkout) {
+      // Si tiene estado en BD y no es cancelada, usarlo
+      if (reserva.estado && reserva.estado !== "cancelada") {
+        return reserva.estado;
+      }
+      return "activa";
+    }
+    
+    // Fallback
     return "pendiente";
   };
 
@@ -134,9 +156,14 @@ export default function VerReservas() {
 
     // Filtro por estado
     if (filtroEstado !== "todas") {
-      filtradas = filtradas.filter(reserva => 
-        obtenerEstadoReserva(reserva) === filtroEstado
-      );
+      filtradas = filtradas.filter(reserva => {
+        const estado = obtenerEstadoReserva(reserva);
+        // Si se filtra por "completada", incluir también "finalizada"
+        if (filtroEstado === "completada") {
+          return estado === "completada" || estado === "finalizada";
+        }
+        return estado === filtroEstado;
+      });
     }
 
     // Filtro por fecha
@@ -157,11 +184,10 @@ export default function VerReservas() {
       case "activa":
         return "bg-blue-100 text-blue-700 border-blue-200";
       case "completada":
+      case "finalizada":
         return "bg-green-100 text-green-700 border-green-200";
       case "cancelada":
         return "bg-red-100 text-red-700 border-red-200";
-      case "finalizada":
-        return "bg-slate-100 text-slate-700 border-slate-200";
       default:
         return "bg-slate-100 text-slate-700 border-slate-200";
     }
@@ -174,10 +200,9 @@ export default function VerReservas() {
       case "activa":
         return <CheckCircle className="w-4 h-4" />;
       case "completada":
+      case "finalizada":
         return <CheckCircle className="w-4 h-4" />;
       case "cancelada":
-        return <XCircle className="w-4 h-4" />;
-      case "finalizada":
         return <XCircle className="w-4 h-4" />;
       default:
         return <AlertCircle className="w-4 h-4" />;
@@ -211,9 +236,11 @@ export default function VerReservas() {
     total: reservas.length,
     pendientes: reservas.filter(r => obtenerEstadoReserva(r) === "pendiente").length,
     activas: reservas.filter(r => obtenerEstadoReserva(r) === "activa").length,
-    completadas: reservas.filter(r => obtenerEstadoReserva(r) === "completada").length,
+    completadas: reservas.filter(r => {
+      const estado = obtenerEstadoReserva(r);
+      return estado === "completada" || estado === "finalizada";
+    }).length,
     canceladas: reservas.filter(r => obtenerEstadoReserva(r) === "cancelada").length,
-    finalizadas: reservas.filter(r => obtenerEstadoReserva(r) === "finalizada").length,
   };
 
   return (
@@ -344,7 +371,6 @@ export default function VerReservas() {
                 <option value="activa">Activas</option>
                 <option value="completada">Completadas</option>
                 <option value="cancelada">Canceladas</option>
-                <option value="finalizada">Finalizadas</option>
               </select>
             </div>
 
@@ -458,7 +484,7 @@ export default function VerReservas() {
                         <td className="px-6 py-4">
                           <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium border ${getEstadoColor(estado)}`}>
                             {getEstadoIcon(estado)}
-                            {estado.charAt(0).toUpperCase() + estado.slice(1)}
+                            {estado === "finalizada" ? "Completada" : estado.charAt(0).toUpperCase() + estado.slice(1)}
                           </span>
                         </td>
                         <td className="px-6 py-4">
