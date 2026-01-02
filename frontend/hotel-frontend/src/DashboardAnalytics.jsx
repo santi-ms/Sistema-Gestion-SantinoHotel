@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { API_BASE_URL, TOKEN_KEY } from './config';
-import { SkeletonStats } from './components/Skeleton';
+import { Skeleton, SkeletonStats } from './components/Skeleton';
 import {
   LineChart,
   Line,
@@ -40,6 +40,7 @@ export default function DashboardAnalytics() {
   const [detalleDiario, setDetalleDiario] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
+  const [error, setError] = useState(null);
   const [periodoIngresos, setPeriodoIngresos] = useState(30);
   
   // Filtros de fecha para detalle diario
@@ -88,7 +89,12 @@ export default function DashboardAnalytics() {
 
   const cargarDatosAnalytics = async () => {
     setCargando(true);
+    setError(null);
     try {
+      if (!token) {
+        throw new Error('No hay token de autenticación');
+      }
+
       // Dashboard principal
       const dashboardRes = await axios.get(`${API_BASE_URL}/analytics/dashboard`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -117,6 +123,7 @@ export default function DashboardAnalytics() {
 
     } catch (error) {
       console.error('Error al cargar analytics:', error);
+      setError(error.response?.data?.detail || error.message || 'Error al cargar los datos');
     } finally {
       setCargando(false);
     }
@@ -243,6 +250,40 @@ export default function DashboardAnalytics() {
             <Skeleton className="h-4 w-96" />
           </div>
           <SkeletonStats />
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-indigo-50 p-4 md:p-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="bg-white rounded-2xl shadow-lg p-6 border border-red-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-red-100 p-3 rounded-xl">
+                <BarChart3 className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-slate-800">Error al cargar Analytics</h1>
+                <p className="text-red-600 mt-1">{error}</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => cargarDatosAnalytics()}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all duration-200"
+              >
+                Reintentar
+              </button>
+              <button
+                onClick={() => navigate(-1)}
+                className="px-4 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all duration-200"
+              >
+                Volver
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     );
