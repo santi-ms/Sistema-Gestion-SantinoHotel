@@ -210,6 +210,11 @@ class PedidoRespuesta(BaseModel):
 class PedidoCobrarEntrada(BaseModel):
     forma_pago: str  # efectivo | tarjeta | transferencia | etc.
 
+class GastoAdicionalEntrada(BaseModel):
+    habitacion_id: Optional[int] = None  # Opcional: puede ser None, 0, o un número válido
+    descripcion: str
+    monto: float
+
 # ─────────── MODELOS PARA RESERVAS ───────────
 class ReservaEntrada(BaseModel):
     habitacion_id: int
@@ -1047,16 +1052,21 @@ def eliminar_pedido_actualizado(
 
 # ─────────── ENDPOINTS DE GASTOS ───────────
 @app.post("/gastos")
-def registrar_gasto(gasto: GastoAdicional, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+def registrar_gasto(gasto: GastoAdicionalEntrada, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     # Asegurar que use fecha de Argentina
     # habitacion_id es opcional: solo se asigna si tiene un valor válido (mayor a 0)
-    habitacion_id = None
-    if gasto.habitacion_id is not None and gasto.habitacion_id > 0:
-        habitacion_id = gasto.habitacion_id
+    habitacion_id_parsed = None
+    if gasto.habitacion_id is not None:
+        try:
+            parsed_id = int(gasto.habitacion_id)
+            if parsed_id > 0:
+                habitacion_id_parsed = parsed_id
+        except (ValueError, TypeError):
+            pass  # Si no es un número válido o es 0, se mantiene None
     
     nuevo_gasto = GastoAdicional(
-        habitacion_id=habitacion_id,
-        descripcion=gasto.descripcion,
+        habitacion_id=habitacion_id_parsed,
+        descripcion=gasto.descripcion.strip(),
         monto=gasto.monto,
         fecha=obtener_fecha_argentina()
     )
@@ -1089,7 +1099,7 @@ def obtener_gastos_por_dia(
 @app.put("/gastos/{gasto_id}")
 def actualizar_gasto(
     gasto_id: int,
-    datos: GastoAdicional,
+    datos: GastoAdicionalEntrada,
     db: Session = Depends(obtener_db),
     token: dict = Depends(verificar_token)
 ):
@@ -1098,12 +1108,17 @@ def actualizar_gasto(
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
 
     # habitacion_id es opcional: solo se asigna si tiene un valor válido (mayor a 0)
-    if datos.habitacion_id is not None and datos.habitacion_id > 0:
-        gasto.habitacion_id = datos.habitacion_id
-    else:
-        gasto.habitacion_id = None
+    habitacion_id_parsed = None
+    if datos.habitacion_id is not None:
+        try:
+            parsed_id = int(datos.habitacion_id)
+            if parsed_id > 0:
+                habitacion_id_parsed = parsed_id
+        except (ValueError, TypeError):
+            pass  # Si no es un número válido o es 0, se mantiene None
     
-    gasto.descripcion = datos.descripcion
+    gasto.habitacion_id = habitacion_id_parsed
+    gasto.descripcion = datos.descripcion.strip()
     gasto.monto = datos.monto
 
     db.add(gasto)
