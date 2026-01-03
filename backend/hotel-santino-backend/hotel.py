@@ -1062,12 +1062,24 @@ def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obt
     if estado_inicial == "PAGADO" and not (pedido.forma_pago and str(pedido.forma_pago).strip()):
         raise HTTPException(status_code=400, detail="Para estado PAGADO debe indicar forma_pago")
     
+    # Determinar forma_pago: si es PENDIENTE y no hay forma_pago, usar cadena vacía
+    # (la BD requiere NOT NULL, pero para pendientes no hay forma de pago aún)
+    forma_pago_final = None
+    if estado_inicial == "PAGADO":
+        if not pedido.forma_pago or not str(pedido.forma_pago).strip():
+            raise HTTPException(status_code=400, detail="Para estado PAGADO debe indicar forma_pago")
+        forma_pago_final = pedido.forma_pago.strip()
+    else:  # PENDIENTE
+        # Para pedidos pendientes, usar cadena vacía si no hay forma_pago
+        # Esto cumple con la restricción NOT NULL de la BD
+        forma_pago_final = (pedido.forma_pago.strip() if pedido.forma_pago and str(pedido.forma_pago).strip() else "")
+    
     nuevo_pedido = Pedido(
         detalle=items_json,
         monto=monto_total,
         habitacion_id=pedido.habitacion_id,
         externo=pedido.externo,
-        forma_pago=(pedido.forma_pago.strip() if pedido.forma_pago else None),
+        forma_pago=forma_pago_final,
         estado=estado_inicial,
         pagado_at=(obtener_fecha_argentina() if estado_inicial == "PAGADO" else None),
         fecha=obtener_fecha_argentina()
