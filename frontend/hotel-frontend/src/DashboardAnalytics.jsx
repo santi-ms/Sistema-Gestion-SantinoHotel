@@ -488,7 +488,6 @@ export default function DashboardAnalytics() {
             <h3 className="text-lg font-semibold text-slate-800 mb-6">Formas de Pago</h3>
             
             {formasPagoData && formasPagoData.length > 0 ? (
-            {formasPagoData && formasPagoData.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
                 <PieChart>
                   <Pie
