@@ -18,27 +18,18 @@ app = FastAPI()
 
 # Configuración de CORS
 # En producción, especificar explícitamente los orígenes permitidos
-ALLOWED_ORIGINS_STR = os.getenv(
+ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
     "https://hotel-santino-frontend.vercel.app,http://localhost:5173,http://localhost:3000"
-)
-# Limpiar espacios y dividir por comas
-ALLOWED_ORIGINS = [origin.strip() for origin in ALLOWED_ORIGINS_STR.split(",") if origin.strip()]
-
-# Agregar también el origen sin www por si acaso
-if "https://hotel-santino-frontend.vercel.app" in ALLOWED_ORIGINS:
-    # Ya está incluido
-    pass
-
-print(f"🌐 [CORS] Orígenes permitidos: {ALLOWED_ORIGINS}")
+).split(",")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,  # Orígenes específicos permitidos
     allow_credentials=True,
-    allow_methods=["*"],  # Permitir todos los métodos
-    allow_headers=["*"],  # Permitir todos los headers
-    expose_headers=["*"],  # Exponer todos los headers
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # 1) Toma la URL de Postgres que pusiste en las variables de Railway.
@@ -108,7 +99,9 @@ class Habitacion(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     numero: int
     tipo: str
-    precio: Optional[float] = None
+    precio: Optional[float] = None  # Precio actual (puede ser calculado dinámicamente)
+    precio_minimo: Optional[float] = None  # Precio mínimo del rango
+    precio_maximo: Optional[float] = None  # Precio máximo del rango
     capacidad: Optional[int] = 2
     descripcion: Optional[str] = None
 
@@ -449,6 +442,33 @@ def crear_tablas():
                         print("ℹ️ [Startup] Tabla 'gastoadicional' no existe aún (se creará con NULL permitido)")
             except Exception as e:
                 print(f"⚠️ [Startup] Error al verificar/modificar columna 'habitacion_id' en 'gastoadicional': {e}")
+            
+            # Verificar y agregar columnas precio_minimo y precio_maximo a habitacion
+            try:
+                if DATABASE_URL.startswith("postgres"):
+                    for columna in ["precio_minimo", "precio_maximo"]:
+                        check_query = text(f"""
+                            SELECT column_name 
+                            FROM information_schema.columns 
+                            WHERE table_name = 'habitacion' AND column_name = '{columna}'
+                        """)
+                        result = connection.execute(check_query)
+                        exists = result.fetchone() is not None
+                        if not exists:
+                            connection.execute(text(f"ALTER TABLE habitacion ADD COLUMN {columna} REAL"))
+                            connection.commit()
+                            print(f"✅ [Startup] Columna '{columna}' agregada a habitacion")
+                else:
+                    for columna in ["precio_minimo", "precio_maximo"]:
+                        try:
+                            connection.execute(text(f"ALTER TABLE habitacion ADD COLUMN {columna} REAL"))
+                            connection.commit()
+                            print(f"✅ [Startup] Columna '{columna}' agregada a habitacion (SQLite)")
+                        except Exception as e:
+                            if "duplicate column" not in str(e).lower():
+                                raise
+            except Exception as e:
+                print(f"⚠️ [Startup] Error verificando/agregando columnas de precio: {e}")
     except Exception as e:
         print(f"⚠️ [Startup] Error verificando BD: {e}")
     
@@ -674,11 +694,6 @@ def registrar_usuario(data: UsuarioRegistro, db: Session = Depends(obtener_db)):
     db.refresh(usuario)
     return {"mensaje": "Usuario registrado"}
 
-@app.options("/login")
-async def login_options():
-    """Endpoint OPTIONS para CORS preflight"""
-    return {}
-
 @app.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(obtener_db)):
     usuario = db.exec(select(Usuario).where(Usuario.email == form_data.username)).first()
@@ -692,8 +707,56 @@ class HabitacionEntrada(BaseModel):
     numero: int
     tipo: str
     precio: Optional[float] = None
+    precio_minimo: Optional[float] = None
+    precio_maximo: Optional[float] = None
     capacidad: Optional[int] = 2
     descripcion: Optional[str] = None
+
+def calcular_precio_dinamico(habitacion: Habitacion, fecha_checkin: datetime, fecha_checkout: datetime, db: Session) -> float:
+    """
+    Calcula el precio dinámico de una habitación basado en la disponibilidad TOTAL del hotel.
+    
+    La disponibilidad se calcula sobre TODAS las habitaciones del hotel, no solo del mismo tipo.
+    Esto permite que los precios suban cuando el hotel está lleno en general.
+    
+    Fórmula: precio = precio_minimo + (precio_maximo - precio_minimo) * (1 - disponibilidad)
+    Donde disponibilidad = habitaciones_disponibles / habitaciones_totales (de todo el hotel)
+    
+    Si no hay rango de precios, usa el precio fijo.
+    """
+    # Si no hay rango de precios, usar precio fijo
+    if not habitacion.precio_minimo or not habitacion.precio_maximo:
+        return habitacion.precio or 0
+    
+    # Calcular disponibilidad basada en TODAS las habitaciones del hotel
+    todas_habitaciones_hotel = db.exec(select(Habitacion)).all()
+    total_habitaciones_hotel = len(todas_habitaciones_hotel)
+    
+    # Contar habitaciones ocupadas en el rango de fechas (de todo el hotel)
+    reservas_ocupadas = db.exec(
+        select(Reserva).where(
+            Reserva.fecha_checkin < fecha_checkout,
+            Reserva.fecha_checkout > fecha_checkin,
+            Reserva.estado != "cancelada"
+        )
+    ).all()
+    
+    # Obtener IDs únicos de habitaciones ocupadas
+    habitaciones_ocupadas = set(r.habitacion_id for r in reservas_ocupadas if r.habitacion_id)
+    habitaciones_disponibles = total_habitaciones_hotel - len(habitaciones_ocupadas)
+    
+    # Calcular tasa de disponibilidad global (0 = todas ocupadas, 1 = todas disponibles)
+    if total_habitaciones_hotel == 0:
+        disponibilidad = 1.0
+    else:
+        disponibilidad = max(0.0, min(1.0, habitaciones_disponibles / total_habitaciones_hotel))
+    
+    # Calcular precio dinámico: menos disponibilidad = precio más alto
+    # precio = precio_minimo + (precio_maximo - precio_minimo) * (1 - disponibilidad)
+    precio_dinamico = habitacion.precio_minimo + (habitacion.precio_maximo - habitacion.precio_minimo) * (1 - disponibilidad)
+    
+    # Redondear a número entero para facilitar el manejo de cambio
+    return int(round(precio_dinamico))
 
 @app.post("/habitaciones")
 def agregar_habitacion(data: HabitacionEntrada, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
@@ -701,6 +764,8 @@ def agregar_habitacion(data: HabitacionEntrada, db: Session = Depends(obtener_db
         numero=data.numero, 
         tipo=data.tipo,
         precio=data.precio,
+        precio_minimo=data.precio_minimo,
+        precio_maximo=data.precio_maximo,
         capacidad=data.capacidad,
         descripcion=data.descripcion
     )
@@ -709,9 +774,91 @@ def agregar_habitacion(data: HabitacionEntrada, db: Session = Depends(obtener_db
     return {"mensaje": "Habitación agregada"}
 
 @app.get("/habitaciones")
-def obtener_habitaciones(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+def obtener_habitaciones(
+    db: Session = Depends(obtener_db), 
+    token: dict = Depends(verificar_token),
+    fecha_checkin: Optional[str] = Query(None, description="Fecha check-in para calcular precio dinámico (YYYY-MM-DD)"),
+    fecha_checkout: Optional[str] = Query(None, description="Fecha check-out para calcular precio dinámico (YYYY-MM-DD)")
+):
     habitaciones = db.exec(select(Habitacion)).all()
+    
+    # Si se proporcionan fechas, calcular precios dinámicos
+    if fecha_checkin and fecha_checkout:
+        try:
+            fecha_inicio = datetime.strptime(fecha_checkin, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+            fecha_fin = datetime.strptime(fecha_checkout, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+            
+            resultado = []
+            for hab in habitaciones:
+                precio_calculado = calcular_precio_dinamico(hab, fecha_inicio, fecha_fin, db)
+                hab_dict = {
+                    "id": hab.id,
+                    "numero": hab.numero,
+                    "tipo": hab.tipo,
+                    "precio": precio_calculado,
+                    "precio_minimo": hab.precio_minimo,
+                    "precio_maximo": hab.precio_maximo,
+                    "capacidad": hab.capacidad,
+                    "descripcion": hab.descripcion
+                }
+                resultado.append(hab_dict)
+            return resultado
+        except ValueError:
+            # Si las fechas son inválidas, devolver sin cálculo dinámico
+            pass
+    
     return habitaciones
+
+@app.get("/habitaciones/precios-dinamicos")
+def obtener_precios_dinamicos(
+    fecha_checkin: str = Query(..., description="Fecha check-in (YYYY-MM-DD)"),
+    fecha_checkout: str = Query(..., description="Fecha check-out (YYYY-MM-DD)"),
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    """
+    Obtiene todas las habitaciones con sus precios dinámicos calculados
+    basados en la disponibilidad para el rango de fechas especificado.
+    """
+    try:
+        fecha_inicio = datetime.strptime(fecha_checkin, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        fecha_fin = datetime.strptime(fecha_checkout, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de fecha inválido. Use YYYY-MM-DD")
+    
+    habitaciones = db.exec(select(Habitacion).order_by(Habitacion.numero)).all()
+    
+    resultado = []
+    for hab in habitaciones:
+        precio_calculado = calcular_precio_dinamico(hab, fecha_inicio, fecha_fin, db)
+        
+        # Calcular disponibilidad para esta habitación específica
+        reservas_ocupadas = db.exec(
+            select(Reserva).where(
+                Reserva.habitacion_id == hab.id,
+                Reserva.fecha_checkin < fecha_fin,
+                Reserva.fecha_checkout > fecha_inicio,
+                Reserva.estado != "cancelada"
+            )
+        ).all()
+        
+        disponible = len(reservas_ocupadas) == 0
+        
+        resultado.append({
+            "id": hab.id,
+            "numero": hab.numero,
+            "tipo": hab.tipo,
+            "precio_actual": precio_calculado,
+            "precio_minimo": hab.precio_minimo,
+            "precio_maximo": hab.precio_maximo,
+            "precio_fijo": hab.precio,  # Precio fijo si existe
+            "capacidad": hab.capacidad,
+            "descripcion": hab.descripcion,
+            "disponible": disponible,
+            "rango_precios": hab.precio_minimo is not None and hab.precio_maximo is not None
+        })
+    
+    return resultado
 
 @app.put("/habitaciones/{habitacion_id}")
 def actualizar_habitacion(
@@ -727,6 +874,8 @@ def actualizar_habitacion(
     habitacion.numero = data.numero
     habitacion.tipo = data.tipo
     habitacion.precio = data.precio
+    habitacion.precio_minimo = data.precio_minimo
+    habitacion.precio_maximo = data.precio_maximo
     habitacion.capacidad = data.capacidad
     habitacion.descripcion = data.descripcion
     
@@ -2256,15 +2405,21 @@ def verificar_disponibilidad(
             
             # Si no hay reservas solapadas, la habitación está disponible
             if not reservas_solapadas:
+                # Calcular precio dinámico si hay rango configurado
+                precio_mostrar = calcular_precio_dinamico(habitacion, fecha_checkin, fecha_checkout, db)
+                
                 habitaciones_disponibles.append({
                     "id": habitacion.id,
                     "numero": habitacion.numero,
                     "tipo": habitacion.tipo,
                     "capacidad": habitacion.capacidad,
-                    "precio": habitacion.precio,
+                    "precio": precio_mostrar,  # Precio dinámico calculado
+                    "precio_fijo": habitacion.precio,  # Precio fijo original (si existe)
+                    "precio_minimo": habitacion.precio_minimo,
+                    "precio_maximo": habitacion.precio_maximo,
                     "descripcion": habitacion.descripcion
                 })
-                print(f"   ✅ Habitación {habitacion.numero} DISPONIBLE")
+                print(f"   ✅ Habitación {habitacion.numero} DISPONIBLE - Precio: ${precio_mostrar}")
             else:
                 print(f"   ❌ Habitación {habitacion.numero} OCUPADA")
         
@@ -2647,9 +2802,21 @@ def disponibilidad_inteligente(data: DisponibilidadInteligenteEntrada, db: Sessi
         # Calcular noches
         noches = calculate_nights(fecha_checkin, fecha_checkout)
         
-        # Calcular precios usando el service
+        # Calcular precio dinámico basado en disponibilidad
+        precio_dinamico = calcular_precio_dinamico(mejor_habitacion, fecha_checkin, fecha_checkout, db)
+        
+        # Crear una copia temporal de la habitación con el precio dinámico para el service
+        from types import SimpleNamespace
+        habitacion_con_precio = SimpleNamespace(
+            precio=precio_dinamico,
+            numero=mejor_habitacion.numero,
+            capacidad=mejor_habitacion.capacidad,
+            tipo=mejor_habitacion.tipo
+        )
+        
+        # Calcular precios usando el service (con precio dinámico)
         precios = calculate_pricing(
-            habitacion=mejor_habitacion,
+            habitacion=habitacion_con_precio,
             noches=noches,
             mascota=data.mascota
         )

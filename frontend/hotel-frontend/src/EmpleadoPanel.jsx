@@ -53,7 +53,7 @@ export default function EmpleadoPanel() {
     },
     {
       title: "Lista de Precios",
-      description: "Consultar precios de comidas y bebidas",
+      description: "Consultar precios dinámicos de habitaciones",
       icon: Menu,
       color: "from-red-500 to-orange-600",
       hoverColor: "hover:from-red-600 hover:to-orange-700",

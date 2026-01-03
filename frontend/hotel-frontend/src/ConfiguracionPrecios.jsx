@@ -1,31 +1,50 @@
 import { useState, useEffect } from "react";
-import { TOKEN_KEY } from "./config";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { useToast } from "./components/ToastContainer";
-import ConfirmModal from "./components/ConfirmModal";
+import { SkeletonTable } from "./components/Skeleton";
+import { EmptyState } from "./components/EmptyState";
 import { 
-  Coffee, 
+  Home, 
   DollarSign, 
-  ArrowLeft, 
-  Save,
+  ArrowLeft,
   Edit3,
-  Trash2,
-  CheckCircle,
-  XCircle,
-  Plus,
-  AlertCircle,
-  Utensils,
-  Wine,
+  Save,
+  Calendar,
+  TrendingUp,
+  TrendingDown,
   Search,
-  Eye,
-  EyeOff
+  X
 } from "lucide-react";
+import { formatearSoloFecha } from "./utils/fechas";
 
 export default function ConfiguracionPrecios() {
-  const [userRole, setUserRole] = useState("");
-
+  const navigate = useNavigate();
   const token = localStorage.getItem(TOKEN_KEY);
+  const { success, error: errorToast } = useToast();
+  
+  const [userRole, setUserRole] = useState("");
+  const [habitaciones, setHabitaciones] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [busqueda, setBusqueda] = useState("");
+  const [tipoFiltro, setTipoFiltro] = useState("todos");
+  const [fechaCheckin, setFechaCheckin] = useState("");
+  const [fechaCheckout, setFechaCheckout] = useState("");
+  const [editandoId, setEditandoId] = useState(null);
+  const [mostrarConfiguracionMasiva, setMostrarConfiguracionMasiva] = useState(false);
+  const [form, setForm] = useState({
+    precio_minimo: "",
+    precio_maximo: "",
+    precio: ""
+  });
+  const [formMasivo, setFormMasivo] = useState({
+    capacidad: "",
+    precio_minimo: "",
+    precio_maximo: ""
+  });
 
-  // Obtener rol del usuario desde el token
+  // Obtener rol del usuario
   useEffect(() => {
     if (token) {
       try {
@@ -36,542 +55,634 @@ export default function ConfiguracionPrecios() {
       }
     }
   }, [token]);
-  const [productos, setProductos] = useState([
-    // Bebidas
-    { id: 1, nombre: "Coca Cola 350ml", precio: 3000, categoria: "bebidas", activo: true },
-    { id: 2, nombre: "Agua Mineral 500ml", precio: 2000, categoria: "bebidas", activo: true },
-    { id: 3, nombre: "Cerveza Quilmes", precio: 4500, categoria: "bebidas", activo: true },
-    { id: 4, nombre: "Jugo de Naranja", precio: 3500, categoria: "bebidas", activo: true },
-    { id: 5, nombre: "Café Expresso", precio: 2500, categoria: "bebidas", activo: true },
-    
-    // Comidas
-    { id: 6, nombre: "Hamburguesa Completa", precio: 12000, categoria: "comidas", activo: true },
-    { id: 7, nombre: "Pizza Margherita", precio: 15000, categoria: "comidas", activo: true },
-    { id: 8, nombre: "Papas Fritas", precio: 5000, categoria: "comidas", activo: true },
-    { id: 9, nombre: "Sandwich de Jamón y Queso", precio: 8000, categoria: "comidas", activo: true },
-    { id: 10, nombre: "Milanesa con Papas", precio: 18000, categoria: "comidas", activo: true },
-    { id: 11, nombre: "Empanadas (x6)", precio: 9000, categoria: "comidas", activo: true },
-  ]);
-  
-  const [form, setForm] = useState({
-    nombre: "",
-    precio: "",
-    categoria: "comidas"
-  });
-  
-  const [editandoId, setEditandoId] = useState(null);
-  const [mensaje, setMensaje] = useState("");
-  const [cargando, setCargando] = useState(false);
-  const [busqueda, setBusqueda] = useState("");
-  const [categoriaFiltro, setCategoriaFiltro] = useState("todas");
-  const [mostrarFormulario, setMostrarFormulario] = useState(false);
-  const [mostrarInactivos, setMostrarInactivos] = useState(false);
-  const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
-  const [productoAEliminar, setProductoAEliminar] = useState(null);
-  const { success, error: errorToast, warning: warningToast } = useToast();
+
+  // Cargar habitaciones
+  useEffect(() => {
+    cargarHabitaciones();
+  }, [fechaCheckin, fechaCheckout]);
+
+  const cargarHabitaciones = async () => {
+    setCargando(true);
+    try {
+      const params = {};
+      if (fechaCheckin && fechaCheckout) {
+        params.fecha_checkin = fechaCheckin;
+        params.fecha_checkout = fechaCheckout;
+      }
+      
+      const res = await axios.get(`${API_BASE_URL}/habitaciones`, {
+        params,
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      setHabitaciones(res.data);
+    } catch (error) {
+      console.error("Error al cargar habitaciones:", error);
+      errorToast("Error al cargar las habitaciones");
+    } finally {
+      setCargando(false);
+    }
+  };
 
   const esDueño = userRole === "dueño";
 
-  // Filtrar productos
-  const productosFiltrados = productos.filter(producto => {
-    const coincideBusqueda = producto.nombre.toLowerCase().includes(busqueda.toLowerCase());
-    const coincideCategoria = categoriaFiltro === "todas" || producto.categoria === categoriaFiltro;
-    const coincideEstado = mostrarInactivos || producto.activo;
-    return coincideBusqueda && coincideCategoria && coincideEstado;
+  // Filtrar habitaciones
+  const habitacionesFiltradas = habitaciones.filter(hab => {
+    const coincideBusqueda = 
+      hab.numero.toString().includes(busqueda) ||
+      hab.tipo.toLowerCase().includes(busqueda.toLowerCase());
+    const coincideTipo = tipoFiltro === "todos" || hab.tipo === tipoFiltro;
+    return coincideBusqueda && coincideTipo;
   });
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm({
-      ...form,
-      [name]: value
-    });
+  // Obtener tipos únicos
+  const tipos = [...new Set(habitaciones.map(h => h.tipo))];
+
+  const formatearMoneda = (valor) => {
+    if (!valor && valor !== 0) return "N/A";
+    return new Intl.NumberFormat('es-AR', {
+      style: 'currency',
+      currency: 'ARS',
+      minimumFractionDigits: 0
+    }).format(valor);
   };
 
-  const handleSubmit = () => {
-    if (!form.nombre.trim() || !form.precio) {
-      errorToast("Faltan campos obligatorios");
-      return;
-    }
-
-    // Validar precio
-    const precioNum = parseFloat(form.precio);
-    if (isNaN(precioNum) || precioNum <= 0) {
-      errorToast("El precio debe ser un número positivo");
-      return;
-    }
-
-    setCargando(true);
-    
-    setTimeout(() => {
-      if (editandoId) {
-        // Actualizar producto existente
-        const productosActualizados = productos.map(producto => 
-          producto.id === editandoId 
-            ? { 
-                ...producto, 
-                nombre: form.nombre.trim(),
-                precio: precioNum,
-                categoria: form.categoria
-              }
-            : producto
-        );
-        setProductos(productosActualizados);
-        success("Producto actualizado correctamente");
-      } else {
-        // Crear nuevo producto
-        const nuevoProducto = {
-          id: Math.max(...productos.map(p => p.id)) + 1,
-          nombre: form.nombre.trim(),
-          precio: precioNum,
-          categoria: form.categoria,
-          activo: true
-        };
-        setProductos([...productos, nuevoProducto]);
-        success("Producto agregado correctamente");
-      }
-      
-      // Reset form
-      setForm({ nombre: "", precio: "", categoria: "comidas" });
-      setEditandoId(null);
-      setMostrarFormulario(false);
-      setCargando(false);
-    }, 800);
-  };
-
-  const cargarParaEditar = (producto) => {
+  const cargarParaEditar = (hab) => {
     setForm({
-      nombre: producto.nombre,
-      precio: producto.precio.toString(),
-      categoria: producto.categoria
+      precio_minimo: hab.precio_minimo || "",
+      precio_maximo: hab.precio_maximo || "",
+      precio: hab.precio || ""
     });
-    setEditandoId(producto.id);
-    setMostrarFormulario(true);
-    window.scrollTo(0, 0);
+    setEditandoId(hab.id);
   };
 
   const cancelarEdicion = () => {
-    setForm({ nombre: "", precio: "", categoria: "comidas" });
+    setForm({ precio_minimo: "", precio_maximo: "", precio: "" });
     setEditandoId(null);
-    setMostrarFormulario(false);
-    setMensaje("");
   };
 
-  const toggleEstadoProducto = (id) => {
-    const productosActualizados = productos.map(producto => 
-      producto.id === id 
-        ? { ...producto, activo: !producto.activo }
-        : producto
-    );
-    setProductos(productosActualizados);
-    const productoActualizado = productosActualizados.find(p => p.id === id);
-    if (productoActualizado.activo) {
-      success("Producto activado");
-    } else {
-      warningToast("Producto desactivado");
+  const guardarPrecios = async () => {
+    if (!editandoId) return;
+
+    const hab = habitaciones.find(h => h.id === editandoId);
+    if (!hab) return;
+
+    try {
+      const precioMin = form.precio_minimo ? parseFloat(form.precio_minimo) : null;
+      const precioMax = form.precio_maximo ? parseFloat(form.precio_maximo) : null;
+      const precio = form.precio ? parseFloat(form.precio) : null;
+
+      if (precioMin && precioMax && precioMin >= precioMax) {
+        errorToast("El precio mínimo debe ser menor al precio máximo");
+        return;
+      }
+
+      await axios.put(`${API_BASE_URL}/habitaciones/${editandoId}`, {
+        numero: hab.numero,
+        tipo: hab.tipo,
+        precio: precio,
+        precio_minimo: precioMin,
+        precio_maximo: precioMax,
+        capacidad: hab.capacidad,
+        descripcion: hab.descripcion
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      success("Precios actualizados correctamente");
+      cancelarEdicion();
+      cargarHabitaciones();
+    } catch (error) {
+      console.error("Error al actualizar precios:", error);
+      errorToast("Error al actualizar los precios");
     }
   };
 
-  const abrirConfirmEliminar = (id) => {
-    setProductoAEliminar(id);
-    setMostrarConfirmEliminar(true);
-  };
+  const aplicarPreciosPorCapacidad = async () => {
+    if (!formMasivo.capacidad || !formMasivo.precio_minimo || !formMasivo.precio_maximo) {
+      errorToast("Debes completar todos los campos");
+      return;
+    }
 
-  const eliminarProducto = () => {
-    setCargando(true);
-    setTimeout(() => {
-      const productosActualizados = productos.filter(producto => producto.id !== productoAEliminar);
-      setProductos(productosActualizados);
-      success("Producto eliminado correctamente");
-      setMostrarConfirmEliminar(false);
+    const capacidad = parseInt(formMasivo.capacidad);
+    const precioMin = parseFloat(formMasivo.precio_minimo);
+    const precioMax = parseFloat(formMasivo.precio_maximo);
+
+    if (isNaN(capacidad) || capacidad <= 0) {
+      errorToast("La capacidad debe ser un número positivo");
+      return;
+    }
+
+    if (isNaN(precioMin) || isNaN(precioMax) || precioMin <= 0 || precioMax <= 0) {
+      errorToast("Los precios deben ser números positivos");
+      return;
+    }
+
+    if (precioMin >= precioMax) {
+      errorToast("El precio mínimo debe ser menor al precio máximo");
+      return;
+    }
+
+    // Filtrar habitaciones con esa capacidad
+    const habitacionesACambiar = habitaciones.filter(h => h.capacidad === capacidad);
+
+    if (habitacionesACambiar.length === 0) {
+      errorToast(`No hay habitaciones con capacidad de ${capacidad} personas`);
+      return;
+    }
+
+    try {
+      setCargando(true);
+      let actualizadas = 0;
+      let errores = 0;
+
+      for (const hab of habitacionesACambiar) {
+        try {
+          await axios.put(`${API_BASE_URL}/habitaciones/${hab.id}`, {
+            numero: hab.numero,
+            tipo: hab.tipo,
+            precio: hab.precio, // Mantener precio fijo si existe
+            precio_minimo: precioMin,
+            precio_maximo: precioMax,
+            capacidad: hab.capacidad,
+            descripcion: hab.descripcion
+          }, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          actualizadas++;
+        } catch (error) {
+          console.error(`Error al actualizar habitación ${hab.numero}:`, error);
+          errores++;
+        }
+      }
+
+      if (actualizadas > 0) {
+        success(`Precios actualizados para ${actualizadas} habitación${actualizadas > 1 ? 'es' : ''} de ${capacidad} personas`);
+      }
+      if (errores > 0) {
+        errorToast(`Error al actualizar ${errores} habitación${errores > 1 ? 'es' : ''}`);
+      }
+
+      setFormMasivo({ capacidad: "", precio_minimo: "", precio_maximo: "" });
+      setMostrarConfiguracionMasiva(false);
+      cargarHabitaciones();
+    } catch (error) {
+      console.error("Error al aplicar precios:", error);
+      errorToast("Error al aplicar los precios");
+    } finally {
       setCargando(false);
-    }, 500);
+    }
   };
 
-  // Estadísticas
-  const totalProductos = productos.length;
-  const productosActivos = productos.filter(p => p.activo).length;
-  const comidas = productos.filter(p => p.categoria === "comidas").length;
-  const bebidas = productos.filter(p => p.categoria === "bebidas").length;
+  // Agrupar habitaciones por capacidad
+  const habitacionesPorCapacidad = habitaciones.reduce((acc, hab) => {
+    const capacidad = hab.capacidad || 2;
+    if (!acc[capacidad]) {
+      acc[capacidad] = [];
+    }
+    acc[capacidad].push(hab);
+    return acc;
+  }, {});
+
+  const capacidadesDisponibles = Object.keys(habitacionesPorCapacidad)
+    .map(Number)
+    .sort((a, b) => a - b);
+
+  const hoy = new Date().toISOString().split("T")[0];
+  const mañana = new Date(Date.now() + 86400000).toISOString().split("T")[0];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-purple-50 p-4 md:p-8">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-orange-50 p-4 md:p-8">
+      <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-purple-600 p-3 rounded-xl">
-                <DollarSign className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-800">
-                  {esDueño ? "Configuración de Precios" : "Lista de Precios"}
-                </h1>
-                <p className="text-slate-600">
-                  {esDueño ? "Gestiona los precios de comidas y bebidas" : "Consulta los precios actuales"}
-                </p>
-              </div>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
+                <div className="bg-gradient-to-br from-red-500 to-orange-600 p-3 rounded-xl">
+                  <Home className="w-6 h-6 text-white" />
+                </div>
+                Lista de Precios de Habitaciones
+              </h1>
+              <p className="text-slate-600 mt-2">
+                {esDueño 
+                  ? "Gestiona los rangos de precios dinámicos de las habitaciones" 
+                  : "Consulta los precios actuales de las habitaciones"}
+              </p>
             </div>
-            
-            <div className="flex items-center gap-4">
-              {/* Botón cambiar rol - REMOVER EN PRODUCCIÓN */}
-              {/* <button
-                onClick={() => setUserRole(userRole === "dueño" ? "empleado" : "dueño")}
-                className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-2 rounded-lg transition-colors duration-200"
-              >
-                Ver como: {userRole === "dueño" ? "Empleado" : "Dueño"}
-              </button> */}
-              
-              {esDueño && (
-                <button
-                  onClick={() => setMostrarFormulario(!mostrarFormulario)}
-                  className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 shadow-lg hover:shadow-xl flex items-center gap-2"
-                >
-                  {mostrarFormulario ? <XCircle className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                  {mostrarFormulario ? "Cancelar" : "Nuevo Producto"}
-                </button>
-              )}
-              
-              <button
-                onClick={() => window.history.back()}
-                className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all duration-200"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Volver
-              </button>
-            </div>
+            <button
+              onClick={() => navigate(-1)}
+              className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all duration-200"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Volver
+            </button>
           </div>
         </div>
 
-        {/* Formulario - Solo para dueños */}
-        {esDueño && mostrarFormulario && (
-          <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-            {editandoId && (
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
-                <div className="flex items-center gap-2 text-blue-700">
-                  <Edit3 className="w-5 h-5" />
-                  <span className="font-medium">Editando producto #{editandoId}</span>
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Nombre del producto */}
-              <div className="md:col-span-1">
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Nombre del producto *
-                </label>
-                <input
-                  type="text"
-                  name="nombre"
-                  placeholder="Ej: Hamburguesa completa"
-                  value={form.nombre}
-                  onChange={handleChange}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent placeholder-slate-400"
-                />
-              </div>
-
-              {/* Precio */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Precio *
-                </label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
-                  <input
-                    type="number"
-                    name="precio"
-                    placeholder="0.00"
-                    value={form.precio}
-                    onChange={handleChange}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-12 pr-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent placeholder-slate-400"
-                  />
-                </div>
-              </div>
-
-              {/* Categoría */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Categoría *
-                </label>
-                <select
-                  name="categoria"
-                  value={form.categoria}
-                  onChange={handleChange}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                >
-                  <option value="comidas">🍽️ Comidas</option>
-                  <option value="bebidas">🥤 Bebidas</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Botones */}
-            <div className="flex flex-col sm:flex-row gap-3 mt-6">
-              <button
-                onClick={handleSubmit}
-                disabled={cargando || !form.nombre.trim() || !form.precio}
-                className="flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl"
-              >
-                {cargando ? (
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                ) : (
-                  <Save className="w-5 h-5" />
-                )}
-                {editandoId ? "Actualizar Producto" : "Agregar Producto"}
-              </button>
-              
-              <button
-                onClick={cancelarEdicion}
-                className="flex items-center justify-center gap-2 bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-3 rounded-xl font-medium transition-all duration-200"
-              >
-                <XCircle className="w-5 h-5" />
-                Cancelar
-              </button>
-            </div>
-
-            {/* Mensaje */}
-            {mensaje && (
-              <div className={`mt-4 p-4 rounded-xl flex items-center gap-2 ${
-                mensaje.includes('✅') || mensaje.includes('🗑️')
-                  ? 'bg-green-50 text-green-700 border border-green-200'
-                  : mensaje.includes('⚠️')
-                  ? 'bg-yellow-50 text-yellow-700 border border-yellow-200'
-                  : 'bg-red-50 text-red-700 border border-red-200'
-              }`}>
-                {mensaje.includes('✅') || mensaje.includes('🗑️') ? (
-                  <CheckCircle className="w-5 h-5" />
-                ) : (
-                  <AlertCircle className="w-5 h-5" />
-                )}
-                {mensaje}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Estadísticas - Solo para dueños */}
+        {/* Configuración masiva por capacidad - Solo para dueño */}
         {esDueño && (
           <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-              <div className="bg-gradient-to-r from-purple-50 to-purple-100 p-4 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <DollarSign className="w-6 h-6 text-purple-600" />
-                  <div>
-                    <p className="text-sm text-purple-600 font-medium">Total Productos</p>
-                    <p className="text-xl font-bold text-purple-700">{totalProductos}</p>
-                  </div>
-                </div>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                  <DollarSign className="w-5 h-5 text-orange-600" />
+                  Configuración Masiva por Capacidad
+                </h2>
+                <p className="text-sm text-slate-600 mt-1">
+                  Configura rangos de precios para todas las habitaciones de una misma capacidad
+                </p>
               </div>
-              
-              <div className="bg-gradient-to-r from-green-50 to-green-100 p-4 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <CheckCircle className="w-6 h-6 text-green-600" />
-                  <div>
-                    <p className="text-sm text-green-600 font-medium">Activos</p>
-                    <p className="text-xl font-bold text-green-700">{productosActivos}</p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-gradient-to-r from-orange-50 to-orange-100 p-4 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <Utensils className="w-6 h-6 text-orange-600" />
-                  <div>
-                    <p className="text-sm text-orange-600 font-medium">Comidas</p>
-                    <p className="text-xl font-bold text-orange-700">{comidas}</p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-4 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <Wine className="w-6 h-6 text-blue-600" />
-                  <div>
-                    <p className="text-sm text-blue-600 font-medium">Bebidas</p>
-                    <p className="text-xl font-bold text-blue-700">{bebidas}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Filtros y búsqueda */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {/* Búsqueda */}
-            <div className="md:col-span-2">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Buscar productos..."
-                  value={busqueda}
-                  onChange={(e) => setBusqueda(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-12 pr-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent placeholder-slate-400"
-                />
-              </div>
-            </div>
-
-            {/* Filtro por categoría */}
-            <div>
-              <select
-                value={categoriaFiltro}
-                onChange={(e) => setCategoriaFiltro(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              <button
+                onClick={() => setMostrarConfiguracionMasiva(!mostrarConfiguracionMasiva)}
+                className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-xl transition-all duration-200 flex items-center gap-2"
               >
-                <option value="todas">Todas las categorías</option>
-                <option value="comidas">🍽️ Comidas</option>
-                <option value="bebidas">🥤 Bebidas</option>
-              </select>
+                {mostrarConfiguracionMasiva ? (
+                  <>
+                    <X className="w-4 h-4" />
+                    Ocultar
+                  </>
+                ) : (
+                  <>
+                    <Edit3 className="w-4 h-4" />
+                    Configurar
+                  </>
+                )}
+              </button>
             </div>
 
-            {/* Mostrar inactivos - Solo para dueños */}
-            {esDueño && (
-              <div className="flex items-center justify-center">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={mostrarInactivos}
-                    onChange={(e) => setMostrarInactivos(e.target.checked)}
-                    className="w-4 h-4 text-purple-600 bg-slate-50 border-slate-300 rounded focus:ring-purple-500 focus:ring-2"
-                  />
-                  <span className="text-sm text-slate-700">Mostrar inactivos</span>
-                </label>
+            {mostrarConfiguracionMasiva && (
+              <div className="mt-4 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Capacidad (personas) *
+                    </label>
+                    <select
+                      value={formMasivo.capacidad}
+                      onChange={(e) => {
+                        setFormMasivo({...formMasivo, capacidad: e.target.value});
+                        // Auto-completar con valores existentes si hay habitaciones de esa capacidad
+                        const capacidad = parseInt(e.target.value);
+                        if (capacidad && habitacionesPorCapacidad[capacidad]) {
+                          const habs = habitacionesPorCapacidad[capacidad];
+                          const habConPrecio = habs.find(h => h.precio_minimo || h.precio_maximo);
+                          if (habConPrecio) {
+                            setFormMasivo({
+                              ...formMasivo,
+                              capacidad: e.target.value,
+                              precio_minimo: habConPrecio.precio_minimo || "",
+                              precio_maximo: habConPrecio.precio_maximo || ""
+                            });
+                          }
+                        }
+                      }}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    >
+                      <option value="">Seleccionar capacidad</option>
+                      {capacidadesDisponibles.map(cap => (
+                        <option key={cap} value={cap}>
+                          {cap} persona{cap > 1 ? 's' : ''} ({habitacionesPorCapacidad[cap].length} habitación{habitacionesPorCapacidad[cap].length > 1 ? 'es' : ''})
+                        </option>
+                      ))}
+                    </select>
+                    {formMasivo.capacidad && habitacionesPorCapacidad[parseInt(formMasivo.capacidad)] && (
+                      <p className="text-xs text-slate-500 mt-1">
+                        Habitaciones: {habitacionesPorCapacidad[parseInt(formMasivo.capacidad)].map(h => h.numero).join(", ")}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Precio Mínimo *
+                    </label>
+                    <input
+                      type="number"
+                      value={formMasivo.precio_minimo}
+                      onChange={(e) => setFormMasivo({...formMasivo, precio_minimo: e.target.value})}
+                      placeholder="Ej: 80000"
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Precio Máximo *
+                    </label>
+                    <input
+                      type="number"
+                      value={formMasivo.precio_maximo}
+                      onChange={(e) => setFormMasivo({...formMasivo, precio_maximo: e.target.value})}
+                      placeholder="Ej: 120000"
+                      className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                  </div>
+                </div>
+                <button
+                  onClick={aplicarPreciosPorCapacidad}
+                  disabled={cargando}
+                  className="w-full md:w-auto px-6 py-3 bg-gradient-to-r from-orange-500 to-red-600 text-white rounded-xl font-semibold hover:from-orange-600 hover:to-red-700 transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <Save className="w-5 h-5" />
+                  Aplicar a todas las habitaciones de {formMasivo.capacidad ? `${formMasivo.capacidad} persona${parseInt(formMasivo.capacidad) > 1 ? 's' : ''}` : 'esta capacidad'}
+                </button>
               </div>
             )}
           </div>
+        )}
+
+        {/* Selector de fechas para precios dinámicos */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
+          <div className="flex items-center gap-2 mb-4">
+            <Calendar className="w-5 h-5 text-orange-600" />
+            <h2 className="text-lg font-semibold text-slate-800">Calcular Precios Dinámicos</h2>
+          </div>
+          <p className="text-sm text-slate-600 mb-4">
+            Selecciona un rango de fechas para ver los precios calculados según la disponibilidad.
+            Los precios aumentan cuando hay menos habitaciones disponibles.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Fecha Check-in
+              </label>
+              <input
+                type="date"
+                value={fechaCheckin}
+                onChange={(e) => setFechaCheckin(e.target.value)}
+                min={hoy}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Fecha Check-out
+              </label>
+              <input
+                type="date"
+                value={fechaCheckout}
+                onChange={(e) => setFechaCheckout(e.target.value)}
+                min={fechaCheckin || hoy}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={() => {
+                  setFechaCheckin("");
+                  setFechaCheckout("");
+                }}
+                className="w-full px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all duration-200 flex items-center justify-center gap-2"
+              >
+                <X className="w-4 h-4" />
+                Limpiar fechas
+              </button>
+            </div>
+          </div>
         </div>
 
-        {/* Lista de productos */}
+        {/* Filtros */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Buscar por número o tipo..."
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-12 pr-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent placeholder-slate-400"
+              />
+            </div>
+            <div>
+              <select
+                value={tipoFiltro}
+                onChange={(e) => setTipoFiltro(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+              >
+                <option value="todos">Todos los tipos</option>
+                {tipos.map(tipo => (
+                  <option key={tipo} value={tipo}>{tipo}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Lista de habitaciones */}
         <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
           <div className="p-6 border-b border-slate-200">
             <h3 className="text-xl font-semibold text-slate-800 flex items-center gap-2">
-              <Coffee className="w-6 h-6 text-purple-600" />
-              Lista de Precios ({productosFiltrados.length})
+              <Home className="w-6 h-6 text-orange-600" />
+              Habitaciones ({habitacionesFiltradas.length})
             </h3>
           </div>
 
-          {productosFiltrados.length === 0 ? (
-            <div className="p-8 text-center">
-              <Coffee className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-              <p className="text-slate-500">No se encontraron productos</p>
+          {cargando ? (
+            <div className="p-8">
+              <SkeletonTable rows={5} columns={6} />
+            </div>
+          ) : habitacionesFiltradas.length === 0 ? (
+            <div className="p-8">
+              <EmptyState
+                icon={Home}
+                title="No se encontraron habitaciones"
+                description="No hay habitaciones que coincidan con los filtros aplicados"
+              />
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-slate-50">
                   <tr>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Producto</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Categoría</th>
-                    <th className="px-6 py-4 text-right text-sm font-medium text-slate-700">Precio</th>
-                    <th className="px-6 py-4 text-center text-sm font-medium text-slate-700">Estado</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Habitación</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Tipo</th>
+                    <th className="px-6 py-4 text-right text-sm font-medium text-slate-700">Precio Actual</th>
+                    <th className="px-6 py-4 text-right text-sm font-medium text-slate-700">Rango de Precios</th>
+                    <th className="px-6 py-4 text-center text-sm font-medium text-slate-700">Capacidad</th>
                     {esDueño && (
                       <th className="px-6 py-4 text-center text-sm font-medium text-slate-700">Acciones</th>
                     )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {productosFiltrados.map((producto) => (
-                    <tr key={producto.id} className={`hover:bg-slate-50 transition-colors duration-200 ${!producto.activo ? 'opacity-60' : ''}`}>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          {producto.categoria === 'comidas' ? (
-                            <Utensils className="w-5 h-5 text-orange-500" />
-                          ) : (
-                            <Wine className="w-5 h-5 text-blue-500" />
-                          )}
-                          <span className={`font-medium ${producto.activo ? 'text-slate-900' : 'text-slate-500'}`}>
-                            {producto.nombre}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          producto.categoria === 'comidas' 
-                            ? 'bg-orange-100 text-orange-700' 
-                            : 'bg-blue-100 text-blue-700'
-                        }`}>
-                          {producto.categoria === 'comidas' ? '🍽️ Comidas' : '🥤 Bebidas'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <span className={`text-lg font-bold ${producto.activo ? 'text-green-600' : 'text-slate-400'}`}>
-                          ${producto.precio.toLocaleString()}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                          producto.activo 
-                            ? 'bg-green-100 text-green-700' 
-                            : 'bg-red-100 text-red-700'
-                        }`}>
-                          {producto.activo ? (
-                            <>
-                              <CheckCircle className="w-3 h-3" />
-                              Activo
-                            </>
-                          ) : (
-                            <>
-                              <XCircle className="w-3 h-3" />
-                              Inactivo
-                            </>
-                          )}
-                        </span>
-                      </td>
-                      {esDueño && (
+                  {habitacionesFiltradas.map((hab) => {
+                    const tieneRango = hab.precio_minimo && hab.precio_maximo;
+                    const precioActual = hab.precio || 0;
+                    const precioMin = hab.precio_minimo || 0;
+                    const precioMax = hab.precio_maximo || 0;
+                    const precioEnRango = tieneRango && precioActual >= precioMin && precioActual <= precioMax;
+                    
+                    return (
+                      <tr key={hab.id} className="hover:bg-slate-50 transition-colors duration-200">
                         <td className="px-6 py-4">
-                          <div className="flex items-center justify-center gap-2">
-                            <button
-                              onClick={() => cargarParaEditar(producto)}
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors duration-200"
-                              title="Editar producto"
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => toggleEstadoProducto(producto.id)}
-                              className={`p-2 rounded-lg transition-colors duration-200 ${
-                                producto.activo 
-                                  ? 'text-yellow-600 hover:bg-yellow-50' 
-                                  : 'text-green-600 hover:bg-green-50'
-                              }`}
-                              title={producto.activo ? "Desactivar producto" : "Activar producto"}
-                            >
-                              {producto.activo ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                            </button>
-                            <button
-                              onClick={() => abrirConfirmEliminar(producto.id)}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors duration-200"
-                              title="Eliminar producto"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                          <div className="flex items-center gap-2">
+                            <Home className="w-5 h-5 text-orange-500" />
+                            <span className="font-medium text-slate-900">
+                              Habitación {hab.numero}
+                            </span>
                           </div>
                         </td>
-                      )}
-                    </tr>
-                  ))}
+                        <td className="px-6 py-4">
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 capitalize">
+                            {hab.tipo}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {fechaCheckin && fechaCheckout && tieneRango && (
+                              precioActual > precioMin ? (
+                                <TrendingUp className="w-4 h-4 text-red-500" />
+                              ) : (
+                                <TrendingDown className="w-4 h-4 text-green-500" />
+                              )
+                            )}
+                            <span className="text-lg font-bold text-green-600">
+                              {formatearMoneda(precioActual)}
+                            </span>
+                          </div>
+                          {fechaCheckin && fechaCheckout && tieneRango && (
+                            <p className="text-xs text-slate-500 mt-1">
+                              {precioEnRango ? "Precio dinámico calculado" : "Precio fijo"}
+                            </p>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {tieneRango ? (
+                            <div>
+                              <div className="text-sm text-slate-700">
+                                <span className="text-green-600">{formatearMoneda(precioMin)}</span>
+                                <span className="mx-2 text-slate-400">-</span>
+                                <span className="text-red-600">{formatearMoneda(precioMax)}</span>
+                              </div>
+                              <div className="w-full bg-slate-200 rounded-full h-2 mt-2">
+                                <div 
+                                  className="bg-gradient-to-r from-green-500 to-red-500 h-2 rounded-full"
+                                  style={{ width: '100%' }}
+                                ></div>
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-slate-400 italic">Sin rango configurado</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <span className="text-sm text-slate-700">
+                            {hab.capacidad || 2} personas
+                          </span>
+                        </td>
+                        {esDueño && (
+                          <td className="px-6 py-4">
+                            {editandoId === hab.id ? (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={guardarPrecios}
+                                  className="p-2 text-green-600 hover:text-green-800 hover:bg-green-100 rounded-lg transition-all duration-200"
+                                  title="Guardar"
+                                >
+                                  <Save className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={cancelarEdicion}
+                                  className="p-2 text-red-600 hover:text-red-800 hover:bg-red-100 rounded-lg transition-all duration-200"
+                                  title="Cancelar"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => cargarParaEditar(hab)}
+                                className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded-lg transition-all duration-200"
+                                title="Editar precios"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
         </div>
-      </div>
 
-      {/* Modal de confirmación para eliminar */}
-      <ConfirmModal
-        isOpen={mostrarConfirmEliminar}
-        onClose={() => setMostrarConfirmEliminar(false)}
-        onConfirm={eliminarProducto}
-        title="Eliminar Producto"
-        message="¿Estás seguro de que deseas eliminar este producto? Esta acción no se puede deshacer."
-        confirmText="Eliminar"
-        cancelText="Cancelar"
-        type="danger"
-      />
+        {/* Modal de edición para dueño */}
+        {esDueño && editandoId && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+              <h3 className="text-xl font-bold text-slate-800 mb-4">
+                Editar Precios - Habitación {habitaciones.find(h => h.id === editandoId)?.numero}
+              </h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Precio Fijo (opcional)
+                  </label>
+                  <input
+                    type="number"
+                    value={form.precio}
+                    onChange={(e) => setForm({...form, precio: e.target.value})}
+                    placeholder="Precio fijo si no hay rango"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Precio Mínimo *
+                  </label>
+                  <input
+                    type="number"
+                    value={form.precio_minimo}
+                    onChange={(e) => setForm({...form, precio_minimo: e.target.value})}
+                    placeholder="Precio cuando hay mucha disponibilidad"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    Precio Máximo *
+                  </label>
+                  <input
+                    type="number"
+                    value={form.precio_maximo}
+                    onChange={(e) => setForm({...form, precio_maximo: e.target.value})}
+                    placeholder="Precio cuando hay poca disponibilidad"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  />
+                </div>
+                
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                  <p className="text-sm text-blue-800">
+                    <strong>💡 Cómo funciona:</strong> El sistema calculará automáticamente el precio entre el mínimo y máximo según la disponibilidad. Menos habitaciones disponibles = precio más alto.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={guardarPrecios}
+                  className="flex-1 bg-gradient-to-r from-orange-500 to-red-600 text-white px-6 py-3 rounded-xl font-semibold hover:from-orange-600 hover:to-red-700 transition-all duration-200 flex items-center justify-center gap-2"
+                >
+                  <Save className="w-5 h-5" />
+                  Guardar Precios
+                </button>
+                <button
+                  onClick={cancelarEdicion}
+                  className="px-6 py-3 bg-slate-100 text-slate-700 rounded-xl font-semibold hover:bg-slate-200 transition-all duration-200"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
