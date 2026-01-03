@@ -18,18 +18,27 @@ app = FastAPI()
 
 # Configuración de CORS
 # En producción, especificar explícitamente los orígenes permitidos
-ALLOWED_ORIGINS = os.getenv(
+ALLOWED_ORIGINS_STR = os.getenv(
     "ALLOWED_ORIGINS",
     "https://hotel-santino-frontend.vercel.app,http://localhost:5173,http://localhost:3000"
-).split(",")
+)
+# Limpiar espacios y dividir por comas
+ALLOWED_ORIGINS = [origin.strip() for origin in ALLOWED_ORIGINS_STR.split(",") if origin.strip()]
+
+# Agregar también el origen sin www por si acaso
+if "https://hotel-santino-frontend.vercel.app" in ALLOWED_ORIGINS:
+    # Ya está incluido
+    pass
+
+print(f"🌐 [CORS] Orígenes permitidos: {ALLOWED_ORIGINS}")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,  # Orígenes específicos permitidos
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+    allow_methods=["*"],  # Permitir todos los métodos
+    allow_headers=["*"],  # Permitir todos los headers
+    expose_headers=["*"],  # Exponer todos los headers
 )
 
 # 1) Toma la URL de Postgres que pusiste en las variables de Railway.
@@ -664,6 +673,11 @@ def registrar_usuario(data: UsuarioRegistro, db: Session = Depends(obtener_db)):
     db.commit()
     db.refresh(usuario)
     return {"mensaje": "Usuario registrado"}
+
+@app.options("/login")
+async def login_options():
+    """Endpoint OPTIONS para CORS preflight"""
+    return {}
 
 @app.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(obtener_db)):
