@@ -18,16 +18,36 @@ app = FastAPI()
 
 # Configuración de CORS
 # En producción, especificar explícitamente los orígenes permitidos
-ALLOWED_ORIGINS = os.getenv(
+ALLOWED_ORIGINS_STR = os.getenv(
     "ALLOWED_ORIGINS",
     "https://hotel-santino-frontend.vercel.app,http://localhost:5173,http://localhost:3000"
-).split(",")
+)
+
+# Limpiar y procesar orígenes (eliminar espacios y filtrar vacíos)
+ALLOWED_ORIGINS = [
+    origin.strip() 
+    for origin in ALLOWED_ORIGINS_STR.split(",") 
+    if origin.strip()
+]
+
+# Agregar orígenes por defecto si no están presentes
+DEFAULT_ORIGINS = [
+    "https://hotel-santino-frontend.vercel.app",
+    "http://localhost:5173",
+    "http://localhost:3000"
+]
+
+for origin in DEFAULT_ORIGINS:
+    if origin not in ALLOWED_ORIGINS:
+        ALLOWED_ORIGINS.append(origin)
+
+print(f"🌐 [CORS] Orígenes permitidos: {ALLOWED_ORIGINS}")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,  # Orígenes específicos permitidos
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
@@ -693,6 +713,11 @@ def registrar_usuario(data: UsuarioRegistro, db: Session = Depends(obtener_db)):
     db.commit()
     db.refresh(usuario)
     return {"mensaje": "Usuario registrado"}
+
+@app.options("/login")
+async def login_options():
+    """Manejo explícito de solicitudes OPTIONS para CORS"""
+    return {"message": "OK"}
 
 @app.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(obtener_db)):
