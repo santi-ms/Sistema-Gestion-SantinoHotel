@@ -271,20 +271,23 @@ export default function RegistrarPedido() {
       
       if (editandoId) {
         // Actualizar pedido existente
-        await axios.put(`${API_BASE_URL}/pedidos/${editandoId}`, pedidoData, {
+        const response = await axios.put(`${API_BASE_URL}/pedidos/${editandoId}`, pedidoData, {
           headers: { Authorization: `Bearer ${token}` }
         });
         success("Pedido actualizado correctamente");
         // Para edición, construir el pedido con los datos actualizados
+        // Buscar el pedido original para mantener sus datos
+        const pedidoOriginal = pedidosHoy.find(p => p.id === editandoId);
         pedidoRegistrado = {
           id: editandoId,
           items: form.items,
           monto: calcularTotal(),
           habitacion_id: form.habitacion_id ? parseInt(form.habitacion_id) : null,
           externo: form.externo,
-          forma_pago: form.forma_pago,
+          forma_pago: guardarPendiente ? "" : form.forma_pago,
+          estado: guardarPendiente ? "PENDIENTE" : "PAGADO", // ✅ Incluir el estado correcto
           // Evitar UTC: mantener la fecha que ya tiene el pedido (si existe) o usar hora local
-          fecha: pedido.fecha || new Date().toISOString()
+          fecha: pedidoOriginal?.fecha || new Date().toISOString()
         };
       } else {
         // Crear nuevo pedido

@@ -1251,18 +1251,26 @@ def actualizar_pedido_con_items(
             pedido.pagado_at = None
     
     # Manejar forma_pago según el estado
+    # Si se envía forma_pago explícitamente (puede ser None, "", o un valor)
     if datos.forma_pago is not None:
-        # Si se envía forma_pago explícitamente
+        forma_pago_enviada = datos.forma_pago
+        # Convertir None a cadena vacía para cumplir con NOT NULL de la BD
+        if forma_pago_enviada is None or (isinstance(forma_pago_enviada, str) and not forma_pago_enviada.strip()):
+            forma_pago_enviada = ""
+        else:
+            forma_pago_enviada = str(forma_pago_enviada).strip()
+        
         if estado_final == "PAGADO":
-            # Para PAGADO, debe tener forma_pago válida
-            if not str(datos.forma_pago).strip():
+            # Para PAGADO, debe tener forma_pago válida (no vacía)
+            if not forma_pago_enviada:
                 raise HTTPException(status_code=400, detail="Para estado PAGADO debe indicar forma_pago")
-            pedido.forma_pago = datos.forma_pago.strip()
+            pedido.forma_pago = forma_pago_enviada
         else:
             # Para PENDIENTE o CANCELADO, puede ser cadena vacía
-            pedido.forma_pago = datos.forma_pago.strip() if str(datos.forma_pago).strip() else ""
+            pedido.forma_pago = forma_pago_enviada
     else:
-        # Si no se envía forma_pago, mantener la lógica según el estado
+        # Si no se envía forma_pago en la actualización, mantener el valor existente
+        # pero asegurar que si es PENDIENTE y está vacío, use cadena vacía
         if estado_final == "PAGADO" and not pedido.forma_pago:
             # Si cambia a PAGADO sin forma_pago, error
             raise HTTPException(status_code=400, detail="Para estado PAGADO debe indicar forma_pago")
