@@ -946,16 +946,31 @@ const getEstadoBadge = (pedido) => {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
-                          {pedido.estado === "PAGADO" && pedido.forma_pago ? (
-                            <>
-                              {getPaymentIcon(pedido.forma_pago)}
-                              <span className="text-sm text-slate-700 capitalize">
-                                {pedido.forma_pago}
-                              </span>
-                            </>
-                          ) : (
-                            <span className="text-sm text-slate-400 italic">-</span>
-                          )}
+                          {(() => {
+                            const estado = (pedido?.estado || "").toUpperCase();
+                            const formaPagoRaw = pedido?.forma_pago || "";
+                            const formaPago = typeof formaPagoRaw === "string" ? formaPagoRaw.trim().toLowerCase() : "";
+                            
+                            // Solo mostrar forma de pago si:
+                            // 1. El estado es PAGADO
+                            // 2. Y tiene una forma de pago válida (no vacía, no "pendiente")
+                            const estaPagado = estado === "PAGADO";
+                            const formasPagoInvalidas = ["", "pendiente", "null", "undefined"];
+                            const tieneFormaPagoValida = formaPago && !formasPagoInvalidas.includes(formaPago);
+                            
+                            if (estaPagado && tieneFormaPagoValida) {
+                              return (
+                                <>
+                                  {getPaymentIcon(pedido.forma_pago)}
+                                  <span className="text-sm text-slate-700 capitalize">
+                                    {pedido.forma_pago}
+                                  </span>
+                                </>
+                              );
+                            }
+                            // Si está pendiente o no tiene forma de pago válida, mostrar "-"
+                            return <span className="text-sm text-slate-400 italic">-</span>;
+                          })()}
                         </div>
                       </td>
                       <td className="px-6 py-4">
