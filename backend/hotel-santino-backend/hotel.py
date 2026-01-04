@@ -2192,7 +2192,15 @@ def actualizar_reserva_completa(
         habitacion = db.get(Habitacion, data.habitacion_id)
         if not habitacion:
             raise HTTPException(status_code=400, detail="Habitación no encontrada")
+        
+        print(f"🔄 [PUT /reservas/{reserva_id}] Cambiando habitación: {reserva.habitacion_id} -> {data.habitacion_id} (Habitación #{habitacion.numero})")
+        
         reserva.habitacion_id = data.habitacion_id
+        
+        # Verificar después del cambio
+        db.refresh(reserva)
+        habitacion_verificada = db.get(Habitacion, reserva.habitacion_id)
+        print(f"✅ [PUT /reservas/{reserva_id}] Habitación actualizada - ID: {reserva.habitacion_id}, Número: {habitacion_verificada.numero if habitacion_verificada else 'N/A'}")
     
     if data.nombre_huesped is not None:
         reserva.nombre_huesped = data.nombre_huesped

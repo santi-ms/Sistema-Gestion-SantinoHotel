@@ -159,23 +159,45 @@ export default function VerReservas() {
       return;
     }
 
+    // Verificar que la habitación seleccionada existe
+    const habitacionSeleccionada = habitaciones.find(h => h.id.toString() === nuevaHabitacion);
+    if (!habitacionSeleccionada) {
+      alert("Error: Habitación seleccionada no encontrada");
+      return;
+    }
+
+    console.log("🔄 [Cambiar Habitación]", {
+      reserva_id: reservaCambiarHabitacion.id,
+      habitacion_actual_id: reservaCambiarHabitacion.habitacion_id,
+      nueva_habitacion_id: parseInt(nuevaHabitacion),
+      nueva_habitacion_numero: habitacionSeleccionada.numero,
+      habitacion_seleccionada: habitacionSeleccionada
+    });
+
     setCargandoHabitaciones(true);
     try {
       const token = localStorage.getItem(TOKEN_KEY);
+      const habitacionIdFinal = parseInt(nuevaHabitacion);
+      
+      console.log("📤 [Cambiar Habitación] Enviando al backend:", {
+        reserva_id: reservaCambiarHabitacion.id,
+        habitacion_id: habitacionIdFinal
+      });
+      
       await axios.put(`${API_BASE_URL}/reservas/${reservaCambiarHabitacion.id}`, {
-        habitacion_id: parseInt(nuevaHabitacion)
+        habitacion_id: habitacionIdFinal
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      
+      console.log("✅ [Cambiar Habitación] Respuesta del backend recibida");
 
-      // Actualizar el estado local
-      const nuevasReservas = reservas.map(r => 
-        r.id === reservaCambiarHabitacion.id 
-          ? { ...r, habitacion_id: parseInt(nuevaHabitacion) }
-          : r
-      );
-      setReservas(nuevasReservas);
-      setReservasFiltradas(nuevasReservas);
+      // Recargar las reservas desde el backend para obtener los datos actualizados
+      const res = await axios.get(`${API_BASE_URL}/reservas`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setReservas(res.data);
+      setReservasFiltradas(res.data);
       
       setMostrarCambiarHabitacion(false);
       setReservaCambiarHabitacion(null);
@@ -858,7 +880,12 @@ export default function VerReservas() {
                 >
                   <option value="">Selecciona una habitación</option>
                   {habitaciones
-                    .filter(h => h.numero.toString() !== reservaCambiarHabitacion.habitacion_id.toString())
+                    .filter(h => {
+                      // Obtener la habitación actual de la reserva
+                      const habitacionActual = habitaciones.find(hab => hab.id === reservaCambiarHabitacion.habitacion_id);
+                      // Filtrar excluyendo la habitación actual (por ID, no por número)
+                      return h.id !== reservaCambiarHabitacion.habitacion_id;
+                    })
                     .sort((a, b) => a.numero - b.numero)
                     .map(habitacion => (
                       <option key={habitacion.id} value={habitacion.id}>
