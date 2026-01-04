@@ -946,10 +946,16 @@ const getEstadoBadge = (pedido) => {
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
-                          {getPaymentIcon(pedido.forma_pago)}
-                          <span className="text-sm text-slate-700 capitalize">
-                            {pedido.forma_pago || "Pendiente"}
-                          </span>
+                          {pedido.estado === "PAGADO" && pedido.forma_pago ? (
+                            <>
+                              {getPaymentIcon(pedido.forma_pago)}
+                              <span className="text-sm text-slate-700 capitalize">
+                                {pedido.forma_pago}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-sm text-slate-400 italic">-</span>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4">
