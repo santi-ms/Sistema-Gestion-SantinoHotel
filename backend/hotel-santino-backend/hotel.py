@@ -2189,18 +2189,14 @@ def actualizar_reserva_completa(
     # Actualizar solo los campos que se enviaron
     if data.habitacion_id is not None:
         # Verificar que la habitación existe
-        habitacion = db.get(Habitacion, data.habitacion_id)
-        if not habitacion:
+        habitacion_nueva = db.get(Habitacion, data.habitacion_id)
+        if not habitacion_nueva:
             raise HTTPException(status_code=400, detail="Habitación no encontrada")
         
-        print(f"🔄 [PUT /reservas/{reserva_id}] Cambiando habitación: {reserva.habitacion_id} -> {data.habitacion_id} (Habitación #{habitacion.numero})")
+        habitacion_anterior = db.get(Habitacion, reserva.habitacion_id)
+        print(f"🔄 [PUT /reservas/{reserva_id}] Cambiando habitación: {reserva.habitacion_id} (Hab. #{habitacion_anterior.numero if habitacion_anterior else 'N/A'}) -> {data.habitacion_id} (Hab. #{habitacion_nueva.numero})")
         
         reserva.habitacion_id = data.habitacion_id
-        
-        # Verificar después del cambio
-        db.refresh(reserva)
-        habitacion_verificada = db.get(Habitacion, reserva.habitacion_id)
-        print(f"✅ [PUT /reservas/{reserva_id}] Habitación actualizada - ID: {reserva.habitacion_id}, Número: {habitacion_verificada.numero if habitacion_verificada else 'N/A'}")
     
     if data.nombre_huesped is not None:
         reserva.nombre_huesped = data.nombre_huesped
@@ -2220,17 +2216,42 @@ def actualizar_reserva_completa(
     if data.fecha_checkout is not None:
         reserva.fecha_checkout = data.fecha_checkout
     
-    db.add(reserva)
-    db.commit()
-    db.refresh(reserva)  # Refrescar para obtener los datos actualizados
+    # Guardar el ID de habitación que estamos asignando antes del commit
+    habitacion_id_asignado = data.habitacion_id if data.habitacion_id is not None else reserva.habitacion_id
     
-    # Verificar el cambio final
-    habitacion_final = db.get(Habitacion, reserva.habitacion_id)
-    print(f"✅ [PUT /reservas/{reserva_id}] Cambio completado - Reserva #{reserva_id} ahora en Habitación #{habitacion_final.numero} (ID: {reserva.habitacion_id})")
+    # Asegurarse de que el objeto esté marcado como modificado
+    if data.habitacion_id is not None:
+        reserva.habitacion_id = data.habitacion_id
+    
+    db.add(reserva)
+    db.flush()  # Forzar que los cambios se envíen a la BD sin hacer commit aún
+    
+    # Verificar antes del commit
+    print(f"🔍 [PUT /reservas/{reserva_id}] Antes del commit - reserva.habitacion_id = {reserva.habitacion_id}")
+    
+    db.commit()
+    
+    # Limpiar la sesión y obtener la reserva directamente de la BD
+    db.expire_all()  # Invalidar todos los objetos en caché
+    reserva_verificada = db.get(Reserva, reserva_id)
+    
+    if reserva_verificada:
+        habitacion_final = db.get(Habitacion, reserva_verificada.habitacion_id)
+        if habitacion_final:
+            print(f"✅ [PUT /reservas/{reserva_id}] Cambio completado - Reserva #{reserva_id} ahora en Habitación #{habitacion_final.numero} (ID: {reserva_verificada.habitacion_id})")
+            # Verificar que el cambio se aplicó correctamente
+            if data.habitacion_id is not None and reserva_verificada.habitacion_id != data.habitacion_id:
+                print(f"❌ [PUT /reservas/{reserva_id}] ERROR CRÍTICO: Se intentó asignar habitación ID {data.habitacion_id} pero la reserva tiene ID {reserva_verificada.habitacion_id}")
+                raise HTTPException(status_code=500, detail=f"Error al actualizar habitación. Se intentó asignar ID {data.habitacion_id} pero se guardó ID {reserva_verificada.habitacion_id}")
+        else:
+            print(f"⚠️ [PUT /reservas/{reserva_id}] Cambio completado pero habitación con ID {reserva_verificada.habitacion_id} no encontrada")
+    else:
+        print(f"❌ [PUT /reservas/{reserva_id}] ERROR: No se pudo verificar la reserva después del commit")
+        raise HTTPException(status_code=500, detail="Error al verificar la reserva después de actualizar")
     
     return {
         "mensaje": "Reserva actualizada correctamente",
-        "habitacion_id": reserva.habitacion_id,
+        "habitacion_id": reserva_verificada.habitacion_id,
         "habitacion_numero": habitacion_final.numero if habitacion_final else None
     }
 
