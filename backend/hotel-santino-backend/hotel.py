@@ -1080,13 +1080,18 @@ def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obt
         habitacion_id=pedido.habitacion_id,
         externo=pedido.externo,
         forma_pago=forma_pago_final,
-        estado=estado_inicial,
+        estado=estado_inicial,  # Asegurar que se guarde el estado correcto
         pagado_at=(obtener_fecha_argentina() if estado_inicial == "PAGADO" else None),
         fecha=obtener_fecha_argentina()
     )
     
+    print(f"📝 [POST /pedidos] Guardando pedido con estado: {estado_inicial}, forma_pago: {forma_pago_final}")
+    
     db.add(nuevo_pedido)
     db.commit()
+    db.refresh(nuevo_pedido)
+    
+    print(f"✅ [POST /pedidos] Pedido guardado - ID: {nuevo_pedido.id}, Estado en BD: {nuevo_pedido.estado}")
     db.refresh(nuevo_pedido)
     
     # Descontar stock automáticamente para bebidas
@@ -1122,6 +1127,12 @@ def obtener_todos_los_pedidos_con_items(db: Session = Depends(obtener_db), token
         # Normalizar fecha a timezone de Argentina
         fecha_normalizada = normalizar_fecha_argentina(pedido.fecha)
         
+        # Obtener estado del pedido - si no existe, inferir del forma_pago
+        estado_pedido = getattr(pedido, "estado", None)
+        if not estado_pedido:
+            # Si el pedido no tiene estado (pedidos antiguos), inferir del forma_pago
+            estado_pedido = "PAGADO" if (pedido.forma_pago and pedido.forma_pago.strip()) else "PENDIENTE"
+        
         resultado.append(PedidoRespuesta(
             id=pedido.id,
             items=items,
@@ -1129,7 +1140,7 @@ def obtener_todos_los_pedidos_con_items(db: Session = Depends(obtener_db), token
             habitacion_id=pedido.habitacion_id,
             externo=pedido.externo,
             forma_pago=pedido.forma_pago,
-            estado=getattr(pedido, "estado", None),
+            estado=estado_pedido,  # Usar estado inferido o existente
             pagado_at=getattr(pedido, "pagado_at", None),
             fecha=fecha_normalizada
         ))
@@ -1158,6 +1169,11 @@ def obtener_pedidos_hoy(db: Session = Depends(obtener_db), token: dict = Depends
         except:
             items = [{"descripcion": pedido.detalle, "cantidad": 1, "precio": pedido.monto}]
         
+        # Obtener estado del pedido - si no existe, inferir del forma_pago
+        estado_pedido = getattr(pedido, "estado", None)
+        if not estado_pedido:
+            estado_pedido = "PAGADO" if (pedido.forma_pago and pedido.forma_pago.strip()) else "PENDIENTE"
+        
         resultado.append({
             "id": pedido.id,
             "items": items,
@@ -1165,7 +1181,7 @@ def obtener_pedidos_hoy(db: Session = Depends(obtener_db), token: dict = Depends
             "habitacion_id": pedido.habitacion_id,
             "externo": pedido.externo,
             "forma_pago": pedido.forma_pago,
-            "estado": getattr(pedido, "estado", None),
+            "estado": estado_pedido,
             "pagado_at": getattr(pedido, "pagado_at", None).isoformat() if getattr(pedido, "pagado_at", None) else None,
             "fecha": normalizar_fecha_argentina(pedido.fecha).isoformat() if normalizar_fecha_argentina(pedido.fecha) else pedido.fecha.isoformat()
         })
@@ -1205,6 +1221,12 @@ def obtener_pedidos_por_dia_con_items(
         # Normalizar fecha a timezone de Argentina
         fecha_normalizada = normalizar_fecha_argentina(pedido.fecha)
         
+        # Obtener estado del pedido - si no existe, inferir del forma_pago
+        estado_pedido = getattr(pedido, "estado", None)
+        if not estado_pedido:
+            # Si el pedido no tiene estado (pedidos antiguos), inferir del forma_pago
+            estado_pedido = "PAGADO" if (pedido.forma_pago and pedido.forma_pago.strip()) else "PENDIENTE"
+        
         resultado.append(PedidoRespuesta(
             id=pedido.id,
             items=items,
@@ -1212,7 +1234,7 @@ def obtener_pedidos_por_dia_con_items(
             habitacion_id=pedido.habitacion_id,
             externo=pedido.externo,
             forma_pago=pedido.forma_pago,
-            estado=getattr(pedido, "estado", None),
+            estado=estado_pedido,  # Usar estado inferido o existente
             pagado_at=getattr(pedido, "pagado_at", None),
             fecha=fecha_normalizada
         ))
@@ -1239,16 +1261,29 @@ def actualizar_pedido_con_items(
     pedido.externo = datos.externo
     
     # Estado: si viene explícito, validar y setear; si no, conservar.
-    estado_final = pedido.estado  # Mantener estado actual por defecto
+    estado_actual = getattr(pedido, "estado", None) or "PENDIENTE"  # Si no tiene estado, asumir PENDIENTE
+    estado_final = estado_actual  # Mantener estado actual por defecto
+    
     if datos.estado is not None:
         estado_final = str(datos.estado).strip().upper()
         if estado_final not in ("PENDIENTE", "PAGADO", "CANCELADO"):
             raise HTTPException(status_code=400, detail="Estado inválido. Use PENDIENTE, PAGADO o CANCELADO")
+        
+        print(f"📝 [PUT /pedidos/{pedido_id}] Actualizando estado: {estado_actual} -> {estado_final}")
+        
         pedido.estado = estado_final
         if estado_final == "PAGADO" and pedido.pagado_at is None:
             pedido.pagado_at = obtener_fecha_argentina()
         if estado_final != "PAGADO":
             pedido.pagado_at = None
+    else:
+        # Si no se envía estado, mantener el actual (o inferir si no existe)
+        if not estado_actual or estado_actual == "PENDIENTE":
+            # Si no tiene estado o es PENDIENTE, inferir del forma_pago
+            estado_final = "PAGADO" if (pedido.forma_pago and pedido.forma_pago.strip()) else "PENDIENTE"
+            if estado_final != estado_actual:
+                pedido.estado = estado_final
+                print(f"📝 [PUT /pedidos/{pedido_id}] Estado inferido: {estado_actual} -> {estado_final}")
     
     # Manejar forma_pago según el estado
     # Si se envía forma_pago explícitamente (puede ser None, "", o un valor)
@@ -1280,6 +1315,10 @@ def actualizar_pedido_con_items(
 
     db.add(pedido)
     db.commit()
+    db.refresh(pedido)
+    
+    print(f"✅ [PUT /pedidos/{pedido_id}] Pedido actualizado - Estado final en BD: {pedido.estado}, Forma pago: {pedido.forma_pago}")
+    
     return {"mensaje": "Pedido actualizado correctamente"}
 
 

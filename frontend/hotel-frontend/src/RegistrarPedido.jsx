@@ -249,8 +249,12 @@ export default function RegistrarPedido() {
       return;
     }
 
+    // Determinar si el pedido es pendiente basado en la selección del usuario
+    const formaPagoSeleccionada = (form.forma_pago || "").toLowerCase().trim();
+    const esPendiente = guardarPendiente || formaPagoSeleccionada === "pendiente" || formaPagoSeleccionada === "";
+    
     // Si se guarda pendiente, no exigir forma de pago
-    if (!guardarPendiente && !form.forma_pago) {
+    if (!esPendiente && !form.forma_pago) {
       errorToast("Debes seleccionar una forma de pago");
       return;
     }
@@ -259,13 +263,25 @@ export default function RegistrarPedido() {
     
     try {
       const token = localStorage.getItem(TOKEN_KEY);
+      
+      // Determinar estado y forma_pago basado en la selección del usuario
+      const formaPagoSeleccionada = (form.forma_pago || "").toLowerCase().trim();
+      const esPendiente = guardarPendiente || formaPagoSeleccionada === "pendiente" || formaPagoSeleccionada === "";
+      
       const pedidoData = {
         items: form.items,
         habitacion_id: form.habitacion_id ? parseInt(form.habitacion_id) : null,
         externo: form.externo,
-        forma_pago: guardarPendiente ? null : form.forma_pago,
-        estado: guardarPendiente ? "PENDIENTE" : "PAGADO"
+        forma_pago: esPendiente ? null : form.forma_pago,
+        estado: esPendiente ? "PENDIENTE" : "PAGADO"
       };
+      
+      console.log("📤 [RegistrarPedido] Enviando pedido:", { 
+        estado: pedidoData.estado, 
+        forma_pago: pedidoData.forma_pago,
+        forma_pago_seleccionada: form.forma_pago,
+        es_pendiente: esPendiente
+      });
 
       let pedidoRegistrado = null;
       
@@ -278,14 +294,17 @@ export default function RegistrarPedido() {
         // Para edición, construir el pedido con los datos actualizados
         // Buscar el pedido original para mantener sus datos
         const pedidoOriginal = pedidosHoy.find(p => p.id === editandoId);
+        const formaPagoSeleccionadaEdit = (form.forma_pago || "").toLowerCase().trim();
+        const esPendienteEdit = guardarPendiente || formaPagoSeleccionadaEdit === "pendiente" || formaPagoSeleccionadaEdit === "";
+        
         pedidoRegistrado = {
           id: editandoId,
           items: form.items,
           monto: calcularTotal(),
           habitacion_id: form.habitacion_id ? parseInt(form.habitacion_id) : null,
           externo: form.externo,
-          forma_pago: guardarPendiente ? "" : form.forma_pago,
-          estado: guardarPendiente ? "PENDIENTE" : "PAGADO", // ✅ Incluir el estado correcto
+          forma_pago: esPendienteEdit ? "" : form.forma_pago,
+          estado: esPendienteEdit ? "PENDIENTE" : "PAGADO", // ✅ Incluir el estado correcto
           // Evitar UTC: mantener la fecha que ya tiene el pedido (si existe) o usar hora local
           fecha: pedidoOriginal?.fecha || new Date().toISOString()
         };
