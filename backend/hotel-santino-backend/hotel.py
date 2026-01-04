@@ -1237,19 +1237,38 @@ def actualizar_pedido_con_items(
     pedido.monto = monto_total
     pedido.habitacion_id = datos.habitacion_id
     pedido.externo = datos.externo
-    # Si viene forma_pago, actualizamos. Si no viene, mantenemos lo existente.
-    if datos.forma_pago is not None:
-        pedido.forma_pago = datos.forma_pago.strip() if str(datos.forma_pago).strip() else None
+    
     # Estado: si viene explícito, validar y setear; si no, conservar.
+    estado_final = pedido.estado  # Mantener estado actual por defecto
     if datos.estado is not None:
-        estado = str(datos.estado).strip().upper()
-        if estado not in ("PENDIENTE", "PAGADO", "CANCELADO"):
+        estado_final = str(datos.estado).strip().upper()
+        if estado_final not in ("PENDIENTE", "PAGADO", "CANCELADO"):
             raise HTTPException(status_code=400, detail="Estado inválido. Use PENDIENTE, PAGADO o CANCELADO")
-        pedido.estado = estado
-        if estado == "PAGADO" and pedido.pagado_at is None:
+        pedido.estado = estado_final
+        if estado_final == "PAGADO" and pedido.pagado_at is None:
             pedido.pagado_at = obtener_fecha_argentina()
-        if estado != "PAGADO":
+        if estado_final != "PAGADO":
             pedido.pagado_at = None
+    
+    # Manejar forma_pago según el estado
+    if datos.forma_pago is not None:
+        # Si se envía forma_pago explícitamente
+        if estado_final == "PAGADO":
+            # Para PAGADO, debe tener forma_pago válida
+            if not str(datos.forma_pago).strip():
+                raise HTTPException(status_code=400, detail="Para estado PAGADO debe indicar forma_pago")
+            pedido.forma_pago = datos.forma_pago.strip()
+        else:
+            # Para PENDIENTE o CANCELADO, puede ser cadena vacía
+            pedido.forma_pago = datos.forma_pago.strip() if str(datos.forma_pago).strip() else ""
+    else:
+        # Si no se envía forma_pago, mantener la lógica según el estado
+        if estado_final == "PAGADO" and not pedido.forma_pago:
+            # Si cambia a PAGADO sin forma_pago, error
+            raise HTTPException(status_code=400, detail="Para estado PAGADO debe indicar forma_pago")
+        elif estado_final == "PENDIENTE" and not pedido.forma_pago:
+            # Si es PENDIENTE y no hay forma_pago, usar cadena vacía
+            pedido.forma_pago = ""
 
     db.add(pedido)
     db.commit()
