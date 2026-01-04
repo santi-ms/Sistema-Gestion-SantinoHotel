@@ -2222,7 +2222,17 @@ def actualizar_reserva_completa(
     
     db.add(reserva)
     db.commit()
-    return {"mensaje": "Reserva actualizada correctamente"}
+    db.refresh(reserva)  # Refrescar para obtener los datos actualizados
+    
+    # Verificar el cambio final
+    habitacion_final = db.get(Habitacion, reserva.habitacion_id)
+    print(f"✅ [PUT /reservas/{reserva_id}] Cambio completado - Reserva #{reserva_id} ahora en Habitación #{habitacion_final.numero} (ID: {reserva.habitacion_id})")
+    
+    return {
+        "mensaje": "Reserva actualizada correctamente",
+        "habitacion_id": reserva.habitacion_id,
+        "habitacion_numero": habitacion_final.numero if habitacion_final else None
+    }
 
 # ─────────── ENDPOINT PARA ELIMINAR RESERVA ───────────
 @app.delete("/reservas/{reserva_id}")

@@ -85,6 +85,7 @@ export default function VerReservas() {
       const res = await axios.get(`${API_BASE_URL}/habitaciones`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      console.log("🏨 [VerReservas] Habitaciones cargadas:", res.data.map(h => ({ id: h.id, numero: h.numero })));
       setHabitaciones(res.data);
     } catch (error) {
       console.error("Error al obtener habitaciones:", error);
@@ -860,7 +861,12 @@ export default function VerReservas() {
                 <strong>Cliente:</strong> {reservaCambiarHabitacion.nombre_huesped || `Cliente ${reservaCambiarHabitacion.cliente_id}`}
               </p>
               <p className="text-sm text-slate-600 mt-1">
-                <strong>Habitación actual:</strong> {reservaCambiarHabitacion.habitacion_id}
+                <strong>Habitación actual:</strong> {
+                  (() => {
+                    const habActual = habitaciones.find(h => h.id === reservaCambiarHabitacion.habitacion_id);
+                    return habActual ? `Habitación ${habActual.numero}` : `ID ${reservaCambiarHabitacion.habitacion_id}`;
+                  })()
+                }
               </p>
               <p className="text-sm text-slate-600">
                 <strong>Fechas:</strong> {new Date(reservaCambiarHabitacion.fecha_checkin).toLocaleDateString('es-ES')} - {new Date(reservaCambiarHabitacion.fecha_checkout).toLocaleDateString('es-ES')}
@@ -879,19 +885,39 @@ export default function VerReservas() {
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-12 pr-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                 >
                   <option value="">Selecciona una habitación</option>
-                  {habitaciones
-                    .filter(h => {
-                      // Obtener la habitación actual de la reserva
-                      const habitacionActual = habitaciones.find(hab => hab.id === reservaCambiarHabitacion.habitacion_id);
-                      // Filtrar excluyendo la habitación actual (por ID, no por número)
-                      return h.id !== reservaCambiarHabitacion.habitacion_id;
-                    })
-                    .sort((a, b) => a.numero - b.numero)
-                    .map(habitacion => (
+                  {(() => {
+                    // Filtrar habitaciones disponibles (excluir la actual y verificar disponibilidad)
+                    const habitacionActualId = reservaCambiarHabitacion.habitacion_id;
+                    const fechaCheckin = new Date(reservaCambiarHabitacion.fecha_checkin);
+                    const fechaCheckout = new Date(reservaCambiarHabitacion.fecha_checkout);
+                    
+                    const habitacionesDisponibles = habitaciones
+                      .filter(h => {
+                        // Excluir la habitación actual
+                        if (h.id === habitacionActualId) return false;
+                        
+                        // Verificar que la habitación no esté ocupada en esas fechas
+                        const estaOcupada = reservas.some(r => 
+                          r.habitacion_id === h.id &&
+                          r.id !== reservaCambiarHabitacion.id &&
+                          r.estado !== "cancelada" &&
+                          new Date(r.fecha_checkin) < fechaCheckout &&
+                          new Date(r.fecha_checkout) > fechaCheckin
+                        );
+                        
+                        return !estaOcupada;
+                      })
+                      .sort((a, b) => a.numero - b.numero);
+                    
+                    console.log("📋 [Cambiar Habitación] Habitaciones disponibles:", habitacionesDisponibles.map(h => ({ id: h.id, numero: h.numero })));
+                    console.log("📋 [Cambiar Habitación] Todas las habitaciones:", habitaciones.map(h => ({ id: h.id, numero: h.numero })));
+                    
+                    return habitacionesDisponibles.map(habitacion => (
                       <option key={habitacion.id} value={habitacion.id}>
                         Habitación {habitacion.numero} - {habitacion.tipo} (Capacidad: {habitacion.capacidad} personas)
                       </option>
-                    ))}
+                    ));
+                  })()}
                 </select>
               </div>
               <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
