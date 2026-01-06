@@ -167,8 +167,9 @@ export default function ReservasDia() {
     }
     
     // Validar formato de teléfono
-    if (!/^\d{10,15}$/.test(celular.replace(/\s/g, ""))) {
-      error("El celular debe contener solo números (10-15 dígitos)");
+    const celularLimpio = celular.replace(/\s/g, "");
+    if (!/^\d{8,15}$/.test(celularLimpio)) {
+      error("El celular debe contener solo números (8-15 dígitos)");
       return;
     }
     

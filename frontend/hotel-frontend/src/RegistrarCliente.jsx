@@ -96,8 +96,9 @@ function RegistrarCliente() {
       errorToast("El celular es obligatorio");
       return false;
     }
-    if (!/^\d{10,15}$/.test(cliente.celular.replace(/\s/g, ""))) {
-      errorToast("El celular debe contener solo números (10-15 dígitos)");
+    const celularLimpio = cliente.celular.replace(/\s/g, "");
+    if (!/^\d{8,15}$/.test(celularLimpio)) {
+      errorToast("El celular debe contener solo números (8-15 dígitos)");
       return false;
     }
     
