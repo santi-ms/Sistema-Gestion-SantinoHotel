@@ -3470,15 +3470,19 @@ def obtener_estadisticas_ocupacion(
         # Procesar reservas para calcular estadísticas por habitación
         for reserva in reservas:
             if reserva.habitacion_id and reserva.habitacion_id in stats_por_habitacion:
+                # Normalizar fechas de la reserva para asegurar que tengan timezone
+                checkin_reserva = normalizar_fecha_argentina(reserva.fecha_checkin)
+                checkout_reserva = normalizar_fecha_argentina(reserva.fecha_checkout)
+                
                 # Calcular días ocupados en el rango
-                checkin_efectivo = max(reserva.fecha_checkin, inicio)
-                checkout_efectivo = min(reserva.fecha_checkout, fin)
+                checkin_efectivo = max(checkin_reserva, inicio)
+                checkout_efectivo = min(checkout_reserva, fin)
                 dias_reserva = (checkout_efectivo - checkin_efectivo).days
                 if dias_reserva > 0:
                     stats_por_habitacion[reserva.habitacion_id]["dias_ocupados"] += dias_reserva
                     stats_por_habitacion[reserva.habitacion_id]["total_reservas"] += 1
                     # Calcular ingresos proporcionales al período
-                    dias_totales_reserva = (reserva.fecha_checkout - reserva.fecha_checkin).days
+                    dias_totales_reserva = (checkout_reserva - checkin_reserva).days
                     if dias_totales_reserva > 0:
                         ingresos_proporcionales = (reserva.total_estadia / dias_totales_reserva) * dias_reserva
                         stats_por_habitacion[reserva.habitacion_id]["ingresos"] += ingresos_proporcionales
