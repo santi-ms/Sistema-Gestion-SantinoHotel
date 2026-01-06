@@ -2128,7 +2128,33 @@ def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obte
 @app.get("/reservas")
 def obtener_todas_las_reservas(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     reservas = db.exec(select(Reserva)).all()
-    return reservas
+    
+    # Enriquecer reservas con datos del cliente (celular)
+    resultado = []
+    for reserva in reservas:
+        reserva_dict = {
+            "id": reserva.id,
+            "cliente_id": reserva.cliente_id,
+            "habitacion_id": reserva.habitacion_id,
+            "fecha_checkin": reserva.fecha_checkin,
+            "fecha_checkout": reserva.fecha_checkout,
+            "seña": reserva.seña,
+            "total_estadia": reserva.total_estadia,
+            "forma_pago": reserva.forma_pago,
+            "nombre_huesped": reserva.nombre_huesped,
+            "origen": reserva.origen,
+            "estado": reserva.estado
+        }
+        
+        # Obtener celular del cliente si existe
+        cliente = db.get(Cliente, reserva.cliente_id)
+        if cliente:
+            reserva_dict["cliente_celular"] = cliente.celular
+            reserva_dict["cliente_nombre"] = cliente.nombre
+        
+        resultado.append(reserva_dict)
+    
+    return resultado
 
 @app.get("/reservas/dia")
 def obtener_reservas_por_dia(fecha: str, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):

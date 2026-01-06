@@ -20,7 +20,8 @@ import {
   DollarSign,
   Trash2,
   X,
-  RefreshCw
+  RefreshCw,
+  MessageCircle
 } from "lucide-react";
 import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
@@ -684,15 +685,32 @@ export default function VerReservas() {
             {/* Información básica */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="bg-blue-50 p-4 rounded-xl border border-blue-200">
-                <div className="flex items-center gap-2 mb-2">
-                  <User className="w-5 h-5 text-blue-600" />
-                  <h3 className="text-sm font-semibold text-blue-700">Cliente</h3>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <User className="w-5 h-5 text-blue-600" />
+                    <h3 className="text-sm font-semibold text-blue-700">Cliente</h3>
+                  </div>
+                  {reservaDetalle.cliente_celular && (
+                    <a
+                      href={`https://wa.me/${reservaDetalle.cliente_celular.replace(/\D/g, '')}?text=Hola%20${encodeURIComponent(reservaDetalle.cliente_nombre || reservaDetalle.nombre_huesped || '')}%2C%20te%20contacto%20por%20tu%20reserva%20%23${reservaDetalle.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm font-medium transition-all duration-200 shadow-sm hover:shadow-md"
+                      title="Abrir WhatsApp"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      WhatsApp
+                    </a>
+                  )}
                 </div>
                 <p className="text-lg font-medium text-slate-900">
-                  {reservaDetalle.nombre_huesped || `Cliente #${reservaDetalle.cliente_id}`}
+                  {reservaDetalle.nombre_huesped || reservaDetalle.cliente_nombre || `Cliente #${reservaDetalle.cliente_id}`}
                 </p>
                 {reservaDetalle.cliente_id && (
                   <p className="text-sm text-slate-600 mt-1">ID Cliente: {reservaDetalle.cliente_id}</p>
+                )}
+                {reservaDetalle.cliente_celular && (
+                  <p className="text-sm text-slate-600 mt-1">Tel: {reservaDetalle.cliente_celular}</p>
                 )}
               </div>
 
