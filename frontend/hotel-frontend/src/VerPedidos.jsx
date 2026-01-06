@@ -5,6 +5,78 @@ import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import { formatearSoloFecha, formatearSoloHora } from "./utils/fechas";
+
+/**
+ * Extrae la fecha en formato YYYY-MM-DD desde un string ISO, respetando el timezone de Argentina
+ */
+function extraerFechaArgentina(fecha) {
+  if (!fecha) return null;
+  
+  // Si es string ISO, extraer fecha directamente
+  if (typeof fecha === "string") {
+    const match = fecha.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      const año = match[1];
+      const mes = match[2];
+      const dia = match[3];
+      
+      // Si tiene timezone -03:00, la fecha ya está en hora de Argentina
+      if (fecha.includes('-03:00') || fecha.includes('+03:00')) {
+        return `${año}-${mes}-${dia}`;
+      }
+      
+      // Si viene sin timezone o con Z, puede estar en UTC
+      // Necesitamos convertir a hora de Argentina
+      if (fecha.includes('Z') || !fecha.match(/[+-]\d{2}:\d{2}$/)) {
+        // Parsear como UTC y convertir a hora de Argentina
+        const fechaUTC = new Date(fecha + (fecha.includes('Z') ? '' : 'Z'));
+        // Usar Intl.DateTimeFormat para obtener la fecha en timezone de Argentina
+        const parts = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'America/Argentina/Buenos_Aires',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit'
+        }).formatToParts(fechaUTC);
+        
+        const get = (type) => parts.find(p => p.type === type)?.value;
+        const y = get('year');
+        const m = get('month');
+        const d = get('day');
+        if (y && m && d) {
+          return `${y}-${m}-${d}`;
+        }
+      }
+      
+      // Si tiene otro timezone, extraer directamente
+      return `${año}-${mes}-${dia}`;
+    }
+  }
+  
+  // Fallback: convertir a Date y formatear
+  try {
+    const fechaObj = typeof fecha === "string" ? new Date(fecha) : fecha;
+    if (fechaObj && !isNaN(fechaObj.getTime())) {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+      }).formatToParts(fechaObj);
+      
+      const get = (type) => parts.find(p => p.type === type)?.value;
+      const y = get('year');
+      const m = get('month');
+      const d = get('day');
+      if (y && m && d) {
+        return `${y}-${m}-${d}`;
+      }
+    }
+  } catch (e) {
+    console.error("Error extrayendo fecha:", e);
+  }
+  
+  return null;
+}
 import { SkeletonTable } from "./components/Skeleton";
 import { EmptyState } from "./components/EmptyState";
 import { 
@@ -104,7 +176,7 @@ export default function VerPedidos() {
     // Filtro por fecha específica
     if (filtroFecha) {
       filtrados = filtrados.filter(pedido => {
-        const fechaPedido = new Date(pedido.fecha).toISOString().split('T')[0];
+        const fechaPedido = extraerFechaArgentina(pedido.fecha);
         return fechaPedido === filtroFecha;
       });
     }
@@ -112,8 +184,10 @@ export default function VerPedidos() {
     // Filtro por mes
     if (filtroMes) {
       filtrados = filtrados.filter(pedido => {
-        const fechaPedido = new Date(pedido.fecha);
-        const mesAno = `${fechaPedido.getFullYear()}-${String(fechaPedido.getMonth() + 1).padStart(2, '0')}`;
+        const fechaPedido = extraerFechaArgentina(pedido.fecha);
+        if (!fechaPedido) return false;
+        // fechaPedido está en formato YYYY-MM-DD
+        const mesAno = fechaPedido.substring(0, 7); // YYYY-MM
         return mesAno === filtroMes;
       });
     }
