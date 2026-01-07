@@ -372,8 +372,19 @@ export default function RegistrarPedido() {
 
   const confirmarCobro = async () => {
     if (!pedidoACobrar) return;
+    
+    // Verificar que el token existe
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) {
+      errorToast("Sesión expirada. Por favor, inicia sesión nuevamente");
+      // Redirigir al login después de un breve delay
+      setTimeout(() => {
+        window.location.href = "/login";
+      }, 2000);
+      return;
+    }
+    
     try {
-      const token = localStorage.getItem(TOKEN_KEY);
       const resp = await axios.patch(`${API_BASE_URL}/pedidos/${pedidoACobrar.id}/pagar`, {
         forma_pago: formaPagoCobro
       }, {
@@ -395,6 +406,17 @@ export default function RegistrarPedido() {
       await cargarPedidosHoy();
     } catch (err) {
       console.error("Error al cobrar pedido:", err);
+      
+      // Si el error es 401 (token inválido), redirigir al login
+      if (err?.response?.status === 401) {
+        errorToast("Sesión expirada. Redirigiendo al login...");
+        localStorage.removeItem(TOKEN_KEY);
+        setTimeout(() => {
+          window.location.href = "/login";
+        }, 2000);
+        return;
+      }
+      
       const detail = err?.response?.data?.detail || err?.response?.data?.error || err?.message;
       errorToast(detail ? `Error al cobrar: ${detail}` : "Error al cobrar el pedido");
     }
