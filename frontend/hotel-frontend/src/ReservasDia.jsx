@@ -28,7 +28,8 @@ import TicketAlojamiento from "./components/TicketAlojamiento";
 
 export default function ReservasDia() {
   const [reservas, setReservas] = useState([]);
-  const [habitacion, setHabitacion] = useState(1);
+  const [habitaciones, setHabitaciones] = useState([]); // Lista de habitaciones desde el backend
+  const [habitacion, setHabitacion] = useState(null); // ID de la habitación seleccionada
   
   // Datos básicos de la reserva
   const [nombre, setNombre] = useState("");
@@ -65,6 +66,25 @@ export default function ReservasDia() {
   const { success, error, warning } = useToast();
   const navigate = useNavigate();
 
+  // ✅ FUNCIÓN PARA CARGAR HABITACIONES
+  const obtenerHabitaciones = async () => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/habitaciones`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const habitacionesOrdenadas = res.data.sort((a, b) => a.numero - b.numero);
+      setHabitaciones(habitacionesOrdenadas);
+      // Establecer la primera habitación como seleccionada por defecto
+      if (habitacionesOrdenadas.length > 0) {
+        setHabitacion(habitacionesOrdenadas[0].id);
+      }
+    } catch (err) {
+      console.error("Error al cargar habitaciones:", err);
+      error("Error al cargar habitaciones");
+    }
+  };
+
   // ✅ FUNCIÓN ORIGINAL - Conecta con tu backend real
   const obtenerReservas = async () => {
     setCargando(true);
@@ -95,10 +115,12 @@ export default function ReservasDia() {
   }, []);
 
   useEffect(() => {
+    obtenerHabitaciones();
+  }, []);
+
+  useEffect(() => {
     obtenerReservas();
   }, [fechaSeleccionada]);
-
-  const habitaciones = Array.from({ length: 15 }, (_, i) => i + 1);
 
   const validarDisponibilidad = () => {
     const fechaInicio = new Date(ingreso);
@@ -155,8 +177,8 @@ export default function ReservasDia() {
   // ✅ FUNCIÓN CORREGIDA - Usa /reservas-gestion con formato correcto
   const registrarReserva = async () => {
     // Validaciones básicas
-    if (!nombre || !precio || !ingreso || !egreso || !dni || !celular) {
-      error("Faltan datos obligatorios: nombre, precio, fechas, DNI y celular son requeridos");
+    if (!nombre || !precio || !ingreso || !egreso || !dni || !celular || !habitacion) {
+      error("Faltan datos obligatorios: nombre, precio, fechas, DNI, celular y habitación son requeridos");
       return;
     }
     
@@ -208,7 +230,7 @@ export default function ReservasDia() {
         cantidad_personas: parseInt(cantidadPersonas),
         
         // Campos para la reserva
-        habitacion_id: habitacion,
+        habitacion_id: parseInt(habitacion), // Asegurar que sea un entero
         fecha_ingreso: fechaIngreso, // Formato dd/mm/aaaa
         fecha_egreso: fechaEgreso,   // Formato dd/mm/aaaa
         precio_total: parseFloat(precio),
@@ -219,6 +241,8 @@ export default function ReservasDia() {
         mascota: mascota,
         observaciones_mascota: observacionesMascota || null
       };
+      
+      console.log("📤 Enviando reserva con habitacion_id:", datosReserva.habitacion_id);
 
       const response = await axios.post(
         `${API_BASE_URL}/reservas-gestion`,
@@ -487,12 +511,14 @@ export default function ReservasDia() {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Habitación</label>
                   <select
-                    value={habitacion}
+                    value={habitacion || ""}
                     onChange={(e) => setHabitacion(parseInt(e.target.value))}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    {habitaciones.map((num) => (
-                      <option key={num} value={num}>Habitación {num}</option>
+                    {habitaciones.map((hab) => (
+                      <option key={hab.id} value={hab.id}>
+                        Habitación {hab.numero} ({hab.tipo})
+                      </option>
                     ))}
                   </select>
                 </div>

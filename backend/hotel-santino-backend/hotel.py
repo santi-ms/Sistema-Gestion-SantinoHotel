@@ -2033,6 +2033,14 @@ def crear_reserva_simple(data: ReservaEntrada, db: Session = Depends(obtener_db)
 def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     try:
         print(f"📥 Datos recibidos del sistema de gestión: {data}")
+        print(f"🔑 habitacion_id recibido: {data.habitacion_id} (tipo: {type(data.habitacion_id)})")
+        
+        # Verificar que la habitación existe y obtener su número
+        habitacion = db.get(Habitacion, data.habitacion_id)
+        if not habitacion:
+            raise HTTPException(status_code=404, detail=f"Habitación con ID {data.habitacion_id} no encontrada")
+        
+        print(f"🏠 Habitación encontrada: ID={habitacion.id}, Número={habitacion.numero}")
         
         # Convertir fechas formato dd/mm/aaaa a datetime
         fecha_checkin = datetime.strptime(data.fecha_ingreso, "%d/%m/%Y").replace(tzinfo=ARGENTINA_TZ)
@@ -2109,6 +2117,8 @@ def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obte
         db.add(reserva)
         db.commit()
         db.refresh(reserva)
+        
+        print(f"✅ Reserva creada: ID={reserva.id}, habitacion_id={reserva.habitacion_id}, habitacion_numero={habitacion.numero}")
         
         mascota_msg = " (con mascota)" if data.mascota else ""
         print(f"🎉 Reserva creada desde sistema de gestión - ID: {reserva.id}{mascota_msg}")

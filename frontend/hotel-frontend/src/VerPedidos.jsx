@@ -5,6 +5,7 @@ import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import { formatearSoloFecha, formatearSoloHora } from "./utils/fechas";
+import TicketTermico from "./components/TicketTermico";
 
 /**
  * Extrae la fecha en formato YYYY-MM-DD desde un string ISO, respetando el timezone de Argentina
@@ -97,7 +98,8 @@ import {
   Users,
   MapPin,
   Edit3,
-  Trash2
+  Trash2,
+  Printer
 } from "lucide-react";
 
 export default function VerPedidos() {
@@ -112,6 +114,7 @@ export default function VerPedidos() {
   const [userRole, setUserRole] = useState("empleado");
   const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
   const [pedidoAEliminar, setPedidoAEliminar] = useState(null);
+  const [pedidoAImprimir, setPedidoAImprimir] = useState(null);
   const { success, error: errorToast } = useToast();
   const navigate = useNavigate();
 
@@ -258,6 +261,20 @@ export default function VerPedidos() {
         }
       } 
     });
+  };
+
+  const imprimirTicket = (pedido) => {
+    // Preparar el pedido para imprimir
+    const pedidoParaImprimir = {
+      id: pedido.id,
+      items: pedido.items || [],
+      monto: pedido.monto,
+      habitacion_id: pedido.habitacion_id,
+      externo: pedido.externo,
+      forma_pago: pedido.forma_pago || "PENDIENTE",
+      fecha: pedido.fecha
+    };
+    setPedidoAImprimir(pedidoParaImprimir);
   };
 
   const getPaymentIcon = (formaPago) => {
@@ -529,9 +546,7 @@ export default function VerPedidos() {
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Tipo</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Forma de Pago</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Fecha</th>
-                    {esDueño && (
-                      <th className="px-6 py-4 text-center text-sm font-medium text-slate-700">Acciones</th>
-                    )}
+                    <th className="px-6 py-4 text-center text-sm font-medium text-slate-700">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
@@ -602,26 +617,35 @@ export default function VerPedidos() {
                           {formatearSoloHora(pedido.fecha)}
                         </div>
                       </td>
-                      {esDueño && (
-                        <td className="px-6 py-4">
-                          <div className="flex items-center justify-center gap-2">
-                            <button
-                              onClick={() => editarPedido(pedido)}
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                              title="Editar pedido"
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => abrirConfirmEliminar(pedido.id)}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Eliminar pedido"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      )}
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() => imprimirTicket(pedido)}
+                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                            title="Imprimir ticket"
+                          >
+                            <Printer className="w-4 h-4" />
+                          </button>
+                          {esDueño && (
+                            <>
+                              <button
+                                onClick={() => editarPedido(pedido)}
+                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                title="Editar pedido"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => abrirConfirmEliminar(pedido.id)}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                title="Eliminar pedido"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -644,6 +668,14 @@ export default function VerPedidos() {
           cancelText="Cancelar"
           type="danger"
         />
+
+        {/* Componente de impresión de ticket */}
+        {pedidoAImprimir && (
+          <TicketTermico
+            pedido={pedidoAImprimir}
+            onClose={() => setPedidoAImprimir(null)}
+          />
+        )}
       </div>
     </div>
   );
