@@ -342,7 +342,7 @@ export default function ReservasDia() {
     }
   };
 
-  const datosReserva = (num) => reservas.find((r) => r.habitacion_id === num);
+  const datosReserva = (habitacionId) => reservas.find((r) => r.habitacion_id === habitacionId);
 
   const getPaymentIcon = (formaPago) => {
     if (formaPago === "tarjeta") return <CreditCard className="w-4 h-4" />;
@@ -655,13 +655,13 @@ export default function ReservasDia() {
 
         {/* Grid de habitaciones */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 mb-8">
-          {habitaciones.map((num) => {
-            const datos = datosReserva(num);
+          {habitaciones.map((hab) => {
+            const datos = datosReserva(hab.id);
             const isOccupied = !!datos;
             
             return (
               <div
-                key={num}
+                key={hab.id}
                 className={`relative overflow-hidden rounded-2xl shadow-lg border transition-all duration-300 hover:shadow-xl hover:scale-105 ${
                   isOccupied 
                     ? "bg-gradient-to-br from-red-50 to-red-100 border-red-200" 
@@ -681,7 +681,7 @@ export default function ReservasDia() {
                     }`}>
                       <Home className="w-4 h-4 text-white" />
                     </div>
-                    <h3 className="font-bold text-lg text-slate-800">Hab. {num}</h3>
+                    <h3 className="font-bold text-lg text-slate-800">Hab. {hab.numero}</h3>
                   </div>
 
                   {isOccupied ? (
