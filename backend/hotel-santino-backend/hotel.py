@@ -2181,7 +2181,36 @@ def obtener_reservas_por_dia(fecha: str, db: Session = Depends(obtener_db), toke
             Reserva.estado != "cancelada"  # Excluir reservas canceladas
         )
     ).all()
-    return reservas
+    
+    # Enriquecer reservas con datos del cliente (celular y nombre)
+    resultado = []
+    for reserva in reservas:
+        reserva_dict = {
+            "id": reserva.id,
+            "cliente_id": reserva.cliente_id,
+            "habitacion_id": reserva.habitacion_id,
+            "fecha_checkin": reserva.fecha_checkin,
+            "fecha_checkout": reserva.fecha_checkout,
+            "seña": reserva.seña,
+            "total_estadia": reserva.total_estadia,
+            "forma_pago": reserva.forma_pago,
+            "nombre_huesped": reserva.nombre_huesped,
+            "origen": reserva.origen,
+            "estado": reserva.estado
+        }
+        
+        # Obtener datos del cliente si existe
+        cliente = db.get(Cliente, reserva.cliente_id)
+        if cliente:
+            reserva_dict["cliente_celular"] = cliente.celular
+            reserva_dict["cliente_nombre"] = cliente.nombre
+            print(f"📋 Reserva #{reserva.id}: Cliente ID={reserva.cliente_id}, Nombre={cliente.nombre}, Celular={cliente.celular}")
+        else:
+            print(f"⚠️ Reserva #{reserva.id}: Cliente ID={reserva.cliente_id} no encontrado")
+        
+        resultado.append(reserva_dict)
+    
+    return resultado
 
 # ─────────── ENDPOINT PARA EDITAR RESERVA COMPLETA ───────────
 @app.put("/reservas/{reserva_id}")
