@@ -226,6 +226,10 @@ export default function ReservasDia() {
     
     setCargando(true);
     try {
+      // Encontrar la habitación seleccionada para mostrar su número
+      const habitacionSeleccionada = habitaciones.find(h => h.id === habitacion);
+      const numeroHabitacionSeleccionada = habitacionSeleccionada ? habitacionSeleccionada.numero : habitacion;
+      
       const datosReserva = {
         // Campos para crear el cliente
         nombre_completo: nombre,
@@ -235,7 +239,7 @@ export default function ReservasDia() {
         cantidad_personas: parseInt(cantidadPersonas),
         
         // Campos para la reserva
-        habitacion_id: parseInt(habitacion), // Asegurar que sea un entero
+        habitacion_id: parseInt(habitacion), // ID de la base de datos (interno)
         fecha_ingreso: fechaIngreso, // Formato dd/mm/aaaa
         fecha_egreso: fechaEgreso,   // Formato dd/mm/aaaa
         precio_total: parseFloat(precio),
@@ -247,7 +251,7 @@ export default function ReservasDia() {
         observaciones_mascota: observacionesMascota || null
       };
       
-      console.log("📤 Enviando reserva con habitacion_id:", datosReserva.habitacion_id);
+      console.log(`📤 Registrando reserva en Habitación ${numeroHabitacionSeleccionada} (ID interno: ${datosReserva.habitacion_id})`);
 
       const response = await axios.post(
         `${API_BASE_URL}/reservas-gestion`,
@@ -662,15 +666,19 @@ export default function ReservasDia() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 mb-8">
           {habitaciones.map((hab) => {
             const datos = datosReserva(hab.id);
-            const isOccupied = !!datos;
+            // IMPORTANTE: Solo considerar ocupada si la reserva realmente corresponde a esta habitación
+            const isOccupied = datos && datos.habitacion_id === hab.id;
             
-            // Si hay una reserva, verificar que realmente corresponde a esta habitación
-            // y usar el número de habitación de la reserva
-            const numeroHabitacion = datos?.habitacion_numero || hab.numero;
-            
-            // Debug: verificar coincidencia
-            if (datos && datos.habitacion_id !== hab.id) {
-              console.warn(`⚠️ Desajuste: Reserva #${datos.id} tiene habitacion_id=${datos.habitacion_id} pero se encontró en habitación ${hab.numero} (hab.id=${hab.id})`);
+            // Determinar el número de habitación a mostrar
+            // Si hay una reserva y el número de habitación no coincide con el habitacion_id,
+            // usar el habitacion_id como número (corrige desajustes en la BD)
+            let numeroHabitacion = hab.numero;
+            if (datos && datos.habitacion_id === hab.id) {
+              // Si hay un desajuste (el número no coincide con el ID), usar el ID como número
+              if (hab.numero !== datos.habitacion_id) {
+                console.log(`⚠️ Desajuste detectado: Habitación ID=${hab.id} tiene numero=${hab.numero} pero reserva tiene habitacion_id=${datos.habitacion_id}. Usando habitacion_id como número.`);
+                numeroHabitacion = datos.habitacion_id;
+              }
             }
             
             return (
