@@ -93,6 +93,11 @@ export default function ReservasDia() {
       const res = await axios.get(`${API_BASE_URL}/reservas/dia?fecha=${fechaSeleccionada}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      console.log("📋 Reservas recibidas:", res.data);
+      // Log cada reserva con su habitación
+      res.data.forEach(r => {
+        console.log(`  Reserva #${r.id}: habitacion_id=${r.habitacion_id}, habitacion_numero=${r.habitacion_numero}, nombre=${r.nombre_huesped}`);
+      });
       setReservas(res.data);
     } catch (err) {
       console.error(err);
@@ -659,6 +664,15 @@ export default function ReservasDia() {
             const datos = datosReserva(hab.id);
             const isOccupied = !!datos;
             
+            // Si hay una reserva, verificar que realmente corresponde a esta habitación
+            // y usar el número de habitación de la reserva
+            const numeroHabitacion = datos?.habitacion_numero || hab.numero;
+            
+            // Debug: verificar coincidencia
+            if (datos && datos.habitacion_id !== hab.id) {
+              console.warn(`⚠️ Desajuste: Reserva #${datos.id} tiene habitacion_id=${datos.habitacion_id} pero se encontró en habitación ${hab.numero} (hab.id=${hab.id})`);
+            }
+            
             return (
               <div
                 key={hab.id}
@@ -681,7 +695,7 @@ export default function ReservasDia() {
                     }`}>
                       <Home className="w-4 h-4 text-white" />
                     </div>
-                    <h3 className="font-bold text-lg text-slate-800">Hab. {hab.numero}</h3>
+                    <h3 className="font-bold text-lg text-slate-800">Hab. {numeroHabitacion}</h3>
                   </div>
 
                   {isOccupied ? (

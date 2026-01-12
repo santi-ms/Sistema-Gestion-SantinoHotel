@@ -2070,18 +2070,41 @@ def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obte
             print(f"⚠️ {mensaje_error}")
             raise HTTPException(status_code=400, detail=mensaje_error)
         
-        # Verificar si el cliente ya existe
-        cliente_existente = db.exec(select(Cliente).where(Cliente.dni == data.dni)).first()
+        # Verificar si el cliente ya existe por DNI y celular (combinación única)
+        cliente_existente = db.exec(
+            select(Cliente).where(
+                Cliente.dni == data.dni,
+                Cliente.celular == data.celular
+            )
+        ).first()
+        
         if cliente_existente:
-            cliente = cliente_existente
-            # Actualizar datos del cliente si es necesario
-            cliente.nombre = data.nombre_completo
-            cliente.celular = data.celular
-            cliente.patente = data.patente
-            db.add(cliente)
-            db.commit()
-            print(f"✅ Cliente existente actualizado: {cliente.nombre}")
+            # Verificar si el nombre también coincide
+            nombre_coincide = cliente_existente.nombre.lower().strip() == data.nombre_completo.lower().strip()
+            
+            if nombre_coincide:
+                # Es exactamente el mismo cliente, reutilizar
+                cliente = cliente_existente
+                print(f"✅ Cliente existente reutilizado: ID={cliente.id}, DNI={cliente.dni}, Nombre={cliente.nombre}, Celular={cliente.celular}")
+            else:
+                # Mismo DNI y celular pero nombre diferente - actualizar nombre por seguridad
+                cliente = cliente_existente
+                cliente.nombre = data.nombre_completo  # Actualizar nombre (puede haber cambiado o corregido)
+                if data.patente:
+                    cliente.patente = data.patente
+                db.add(cliente)
+                db.commit()
+                print(f"✅ Cliente existente actualizado (nombre corregido): ID={cliente.id}, DNI={cliente.dni}, Nombre actualizado a '{cliente.nombre}', Celular={cliente.celular}")
         else:
+            # Buscar solo por DNI para ver si hay conflicto
+            cliente_con_mismo_dni = db.exec(select(Cliente).where(Cliente.dni == data.dni)).first()
+            if cliente_con_mismo_dni:
+                # DNI existe pero con diferente celular - crear nuevo cliente (puede ser error de DNI o persona diferente)
+                print(f"⚠️ ADVERTENCIA: DNI {data.dni} existe pero con celular diferente:")
+                print(f"   Existente: ID={cliente_con_mismo_dni.id}, Nombre='{cliente_con_mismo_dni.nombre}', Celular={cliente_con_mismo_dni.celular}")
+                print(f"   Nuevo: Nombre='{data.nombre_completo}', Celular={data.celular}")
+                print(f"   Creando nuevo cliente (verificar si el DNI es correcto)")
+            
             # Crear nuevo cliente
             cliente = Cliente(
                 nombre=data.nombre_completo,
@@ -2092,7 +2115,7 @@ def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obte
             db.add(cliente)
             db.commit()
             db.refresh(cliente)
-            print(f"✅ Nuevo cliente creado: {cliente.nombre}")
+            print(f"✅ Nuevo cliente creado: ID={cliente.id}, DNI={cliente.dni}, Nombre={cliente.nombre}, Celular={cliente.celular}")
         
         # Preparar observaciones/requests
         observaciones = []
@@ -2161,6 +2184,9 @@ def obtener_todas_las_reservas(db: Session = Depends(obtener_db), token: dict = 
         if cliente:
             reserva_dict["cliente_celular"] = cliente.celular
             reserva_dict["cliente_nombre"] = cliente.nombre
+            print(f"📋 [Ver Reservas] Reserva #{reserva.id}: Cliente ID={reserva.cliente_id}, DNI={cliente.dni}, Nombre={cliente.nombre}, Celular={cliente.celular}, nombre_huesped={reserva.nombre_huesped}")
+        else:
+            print(f"⚠️ [Ver Reservas] Reserva #{reserva.id}: Cliente ID={reserva.cliente_id} no encontrado, nombre_huesped={reserva.nombre_huesped}")
         
         resultado.append(reserva_dict)
     
@@ -2182,7 +2208,7 @@ def obtener_reservas_por_dia(fecha: str, db: Session = Depends(obtener_db), toke
         )
     ).all()
     
-    # Enriquecer reservas con datos del cliente (celular y nombre)
+    # Enriquecer reservas con datos del cliente (celular y nombre) y número de habitación
     resultado = []
     for reserva in reservas:
         reserva_dict = {
@@ -2207,6 +2233,14 @@ def obtener_reservas_por_dia(fecha: str, db: Session = Depends(obtener_db), toke
             print(f"📋 Reserva #{reserva.id}: Cliente ID={reserva.cliente_id}, Nombre={cliente.nombre}, Celular={cliente.celular}")
         else:
             print(f"⚠️ Reserva #{reserva.id}: Cliente ID={reserva.cliente_id} no encontrado")
+        
+        # Obtener número de habitación
+        habitacion = db.get(Habitacion, reserva.habitacion_id)
+        if habitacion:
+            reserva_dict["habitacion_numero"] = habitacion.numero
+            print(f"🏠 Reserva #{reserva.id}: habitacion_id={reserva.habitacion_id}, habitacion_numero={habitacion.numero}")
+        else:
+            print(f"⚠️ Reserva #{reserva.id}: Habitación ID={reserva.habitacion_id} no encontrada")
         
         resultado.append(reserva_dict)
     
