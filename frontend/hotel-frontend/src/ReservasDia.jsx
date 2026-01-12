@@ -66,18 +66,72 @@ export default function ReservasDia() {
   const { success, error, warning } = useToast();
   const navigate = useNavigate();
 
-  // ✅ FUNCIÓN PARA CARGAR HABITACIONES
+  // ✅ FUNCIÓN PARA CARGAR HABITACIONES - SIEMPRE 15 HABITACIONES (1-15)
   const obtenerHabitaciones = async () => {
     const token = localStorage.getItem(TOKEN_KEY);
     try {
       const res = await axios.get(`${API_BASE_URL}/habitaciones`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const habitacionesOrdenadas = res.data.sort((a, b) => a.numero - b.numero);
-      setHabitaciones(habitacionesOrdenadas);
+      
+      console.log("🏨 Habitaciones recibidas del backend:", res.data);
+      
+      // Eliminar duplicados por ID y número
+      const habitacionesBD = [];
+      const idsVistos = new Set();
+      const numerosVistos = new Set();
+      
+      for (const hab of res.data) {
+        if (idsVistos.has(hab.id) || numerosVistos.has(hab.numero)) {
+          console.warn(`⚠️ Habitación duplicada: ID=${hab.id}, Número=${hab.numero}`);
+          continue;
+        }
+        idsVistos.add(hab.id);
+        numerosVistos.add(hab.numero);
+        habitacionesBD.push(hab);
+      }
+      
+      // Crear mapeo de número a habitación de la BD
+      const mapeoPorNumero = {};
+      habitacionesBD.forEach(hab => {
+        mapeoPorNumero[hab.numero] = hab;
+      });
+      
+      // Crear array de las 15 habitaciones (1-15)
+      // Si existe en la BD, usar sus datos; si no, crear objeto virtual
+      const todasHabitaciones = [];
+      for (let numero = 1; numero <= 15; numero++) {
+        if (mapeoPorNumero[numero]) {
+          // Existe en la BD, usar sus datos
+          todasHabitaciones.push(mapeoPorNumero[numero]);
+        } else {
+          // No existe en la BD, crear objeto virtual
+          todasHabitaciones.push({
+            id: `virtual-${numero}`, // ID virtual para identificar
+            numero: numero,
+            tipo: "No registrada",
+            capacidad: 2,
+            precio: null,
+            precio_minimo: null,
+            precio_maximo: null,
+            descripcion: null,
+            esVirtual: true // Flag para identificar habitaciones virtuales
+          });
+          console.log(`ℹ️ Habitación ${numero} no existe en BD, creando virtual`);
+        }
+      }
+      
+      console.log("🏨 Total habitaciones (1-15):", todasHabitaciones.length);
+      console.log("📋 Números:", todasHabitaciones.map(h => h.numero).join(", "));
+      
+      setHabitaciones(todasHabitaciones);
       // Establecer la primera habitación como seleccionada por defecto
-      if (habitacionesOrdenadas.length > 0) {
-        setHabitacion(habitacionesOrdenadas[0].id);
+      if (todasHabitaciones.length > 0) {
+        // Si la primera es virtual, no podemos seleccionarla (no tiene ID real)
+        const primeraReal = todasHabitaciones.find(h => !h.esVirtual);
+        if (primeraReal) {
+          setHabitacion(primeraReal.id);
+        }
       }
     } catch (err) {
       console.error("Error al cargar habitaciones:", err);
@@ -351,7 +405,20 @@ export default function ReservasDia() {
     }
   };
 
-  const datosReserva = (habitacionId) => reservas.find((r) => r.habitacion_id === habitacionId);
+  const datosReserva = (habitacionId) => {
+    if (!habitacionId) return null;
+    // Buscar reserva por habitacion_id
+    return reservas.find((r) => r.habitacion_id === habitacionId);
+  };
+  
+  // Función auxiliar para buscar reserva por número de habitación
+  const datosReservaPorNumero = (numeroHabitacion) => {
+    // Buscar la habitación real con ese número
+    const habitacionReal = habitaciones.find(h => !h.esVirtual && h.numero === numeroHabitacion);
+    if (!habitacionReal) return null;
+    // Buscar reserva por el ID de esa habitación
+    return datosReserva(habitacionReal.id);
+  };
 
   const getPaymentIcon = (formaPago) => {
     if (formaPago === "tarjeta") return <CreditCard className="w-4 h-4" />;
@@ -524,11 +591,13 @@ export default function ReservasDia() {
                     onChange={(e) => setHabitacion(parseInt(e.target.value))}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    {habitaciones.map((hab) => (
-                      <option key={hab.id} value={hab.id}>
-                        Habitación {hab.numero} ({hab.tipo})
-                      </option>
-                    ))}
+                    {habitaciones
+                      .filter(hab => !hab.esVirtual) // Solo mostrar habitaciones reales en el dropdown
+                      .map((hab) => (
+                        <option key={hab.id} value={hab.id}>
+                          Habitación {hab.numero} ({hab.tipo})
+                        </option>
+                      ))}
                   </select>
                 </div>
                 
@@ -665,21 +734,27 @@ export default function ReservasDia() {
         {/* Grid de habitaciones */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 mb-8">
           {habitaciones.map((hab) => {
-            const datos = datosReserva(hab.id);
-            // IMPORTANTE: Solo considerar ocupada si la reserva realmente corresponde a esta habitación
-            const isOccupied = datos && datos.habitacion_id === hab.id;
+            // Buscar reserva para esta habitación
+            let datos = null;
             
-            // Determinar el número de habitación a mostrar
-            // Si hay una reserva y el número de habitación no coincide con el habitacion_id,
-            // usar el habitacion_id como número (corrige desajustes en la BD)
-            let numeroHabitacion = hab.numero;
-            if (datos && datos.habitacion_id === hab.id) {
-              // Si hay un desajuste (el número no coincide con el ID), usar el ID como número
-              if (hab.numero !== datos.habitacion_id) {
-                console.log(`⚠️ Desajuste detectado: Habitación ID=${hab.id} tiene numero=${hab.numero} pero reserva tiene habitacion_id=${datos.habitacion_id}. Usando habitacion_id como número.`);
-                numeroHabitacion = datos.habitacion_id;
-              }
+            if (hab.esVirtual) {
+              // Para habitaciones virtuales, buscar reservas por número de habitación
+              // Buscar en las reservas si alguna tiene una habitación con este número
+              datos = reservas.find(r => {
+                // Buscar la habitación real asociada a esta reserva
+                const habitacionReserva = habitaciones.find(h => !h.esVirtual && h.id === r.habitacion_id);
+                return habitacionReserva && habitacionReserva.numero === hab.numero;
+              });
+            } else {
+              // Para habitaciones reales, buscar por ID
+              datos = datosReserva(hab.id);
             }
+            
+            // Verificar si está ocupada
+            const isOccupied = !!datos;
+            
+            // Usar siempre el número de la habitación (1-15)
+            const numeroHabitacion = hab.numero;
             
             return (
               <div

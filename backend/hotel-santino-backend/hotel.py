@@ -515,6 +515,59 @@ def verificar_token(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=401, detail="Token inválido")
 
 # ─────────── ENDPOINT PARA ARREGLAR LA BASE DE DATOS ───────────
+@app.get("/reservas/reporte-habitaciones")
+def reporte_habitaciones_reservas(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+    """
+    Genera un reporte de todas las reservas con su habitación actual.
+    Útil para identificar reservas que pueden tener habitacion_id incorrecto.
+    """
+    try:
+        todas_reservas = db.exec(select(Reserva)).all()
+        todas_habitaciones = db.exec(select(Habitacion)).all()
+        
+        # Crear mapeo de ID a número para referencia rápida
+        mapeo_id_a_numero = {hab.id: hab.numero for hab in todas_habitaciones}
+        
+        reporte = []
+        reservas_con_problemas = []
+        
+        for reserva in todas_reservas:
+            habitacion_actual = db.get(Habitacion, reserva.habitacion_id)
+            
+            if not habitacion_actual:
+                reservas_con_problemas.append({
+                    "reserva_id": reserva.id,
+                    "problema": f"Habitación con ID {reserva.habitacion_id} no existe",
+                    "nombre_huesped": reserva.nombre_huesped,
+                    "fecha_checkin": reserva.fecha_checkin.isoformat() if reserva.fecha_checkin else None
+                })
+                continue
+            
+            reporte.append({
+                "reserva_id": reserva.id,
+                "nombre_huesped": reserva.nombre_huesped,
+                "habitacion_id": reserva.habitacion_id,
+                "habitacion_numero": habitacion_actual.numero,
+                "fecha_checkin": reserva.fecha_checkin.isoformat() if reserva.fecha_checkin else None,
+                "fecha_checkout": reserva.fecha_checkout.isoformat() if reserva.fecha_checkout else None,
+                "estado": reserva.estado
+            })
+        
+        return {
+            "success": True,
+            "total_reservas": len(todas_reservas),
+            "reservas": reporte,
+            "reservas_con_problemas": reservas_con_problemas,
+            "nota": "Usa PUT /reservas/{id} con habitacion_id para corregir una reserva específica"
+        }
+        
+    except Exception as e:
+        print(f"💥 Error al generar reporte: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Error al generar reporte: {str(e)}"
+        }
+
 @app.post("/fix-database")
 def arreglar_base_datos(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     try:
@@ -805,7 +858,26 @@ def obtener_habitaciones(
     fecha_checkin: Optional[str] = Query(None, description="Fecha check-in para calcular precio dinámico (YYYY-MM-DD)"),
     fecha_checkout: Optional[str] = Query(None, description="Fecha check-out para calcular precio dinámico (YYYY-MM-DD)")
 ):
-    habitaciones = db.exec(select(Habitacion)).all()
+    habitaciones_raw = db.exec(select(Habitacion).order_by(Habitacion.numero)).all()
+    
+    # Eliminar duplicados por ID (mantener el primero encontrado)
+    habitaciones = []
+    ids_vistos = set()
+    numeros_vistos = set()
+    
+    for hab in habitaciones_raw:
+        if hab.id in ids_vistos:
+            print(f"⚠️ Habitación duplicada por ID: ID={hab.id}, Número={hab.numero}")
+            continue
+        if hab.numero in numeros_vistos:
+            print(f"⚠️ Habitación duplicada por número: ID={hab.id}, Número={hab.numero}")
+            continue
+        ids_vistos.add(hab.id)
+        numeros_vistos.add(hab.numero)
+        habitaciones.append(hab)
+    
+    print(f"📊 Habitaciones únicas: {len(habitaciones)} (de {len(habitaciones_raw)} totales)")
+    print(f"📋 Números de habitaciones: {sorted([h.numero for h in habitaciones])}")
     
     # Si se proporcionan fechas, calcular precios dinámicos
     if fecha_checkin and fecha_checkout:
