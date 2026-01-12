@@ -734,21 +734,9 @@ export default function ReservasDia() {
         {/* Grid de habitaciones */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 mb-8">
           {habitaciones.map((hab) => {
-            // Buscar reserva para esta habitación
-            let datos = null;
-            
-            if (hab.esVirtual) {
-              // Para habitaciones virtuales, buscar reservas por número de habitación
-              // Buscar en las reservas si alguna tiene una habitación con este número
-              datos = reservas.find(r => {
-                // Buscar la habitación real asociada a esta reserva
-                const habitacionReserva = habitaciones.find(h => !h.esVirtual && h.id === r.habitacion_id);
-                return habitacionReserva && habitacionReserva.numero === hab.numero;
-              });
-            } else {
-              // Para habitaciones reales, buscar por ID
-              datos = datosReserva(hab.id);
-            }
+            // Buscar reserva para esta habitación por número (más confiable que por ID)
+            // El backend ya devuelve habitacion_numero en cada reserva
+            const datos = reservas.find(r => r.habitacion_numero === hab.numero);
             
             // Verificar si está ocupada
             const isOccupied = !!datos;

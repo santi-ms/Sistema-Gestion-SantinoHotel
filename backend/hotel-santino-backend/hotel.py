@@ -2260,6 +2260,14 @@ def obtener_todas_las_reservas(db: Session = Depends(obtener_db), token: dict = 
         else:
             print(f"⚠️ [Ver Reservas] Reserva #{reserva.id}: Cliente ID={reserva.cliente_id} no encontrado, nombre_huesped={reserva.nombre_huesped}")
         
+        # Obtener número de habitación
+        habitacion = db.get(Habitacion, reserva.habitacion_id)
+        if habitacion:
+            reserva_dict["habitacion_numero"] = habitacion.numero
+            print(f"🏠 [Ver Reservas] Reserva #{reserva.id}: habitacion_id={reserva.habitacion_id}, habitacion_numero={habitacion.numero}")
+        else:
+            print(f"⚠️ [Ver Reservas] Reserva #{reserva.id}: Habitación ID={reserva.habitacion_id} no encontrada")
+        
         resultado.append(reserva_dict)
     
     return resultado

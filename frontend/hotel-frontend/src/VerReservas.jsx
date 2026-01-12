@@ -186,13 +186,14 @@ export default function VerReservas() {
         habitacion_id: habitacionIdFinal
       });
       
-      await axios.put(`${API_BASE_URL}/reservas/${reservaCambiarHabitacion.id}`, {
+      const response = await axios.put(`${API_BASE_URL}/reservas/${reservaCambiarHabitacion.id}`, {
         habitacion_id: habitacionIdFinal
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      console.log("✅ [Cambiar Habitación] Respuesta del backend recibida");
+      console.log("✅ [Cambiar Habitación] Respuesta del backend:", response.data);
+      console.log(`   Nueva habitación: ID=${response.data.habitacion_id}, Número=${response.data.habitacion_numero}`);
 
       // Recargar las reservas desde el backend para obtener los datos actualizados
       const res = await axios.get(`${API_BASE_URL}/reservas`, {
@@ -311,7 +312,7 @@ export default function VerReservas() {
       ...reservasFiltradas.map(r => [
         r.id,
         r.nombre_huesped || r.cliente_id,
-        r.habitacion_id,
+        r.habitacion_numero || r.habitacion_id,
         new Date(r.fecha_checkin).toLocaleDateString('es-ES'),
         new Date(r.fecha_checkout).toLocaleDateString('es-ES'),
         obtenerEstadoReserva(r),
@@ -575,7 +576,7 @@ export default function VerReservas() {
                           <div className="flex items-center gap-2">
                             <Home className="w-4 h-4 text-slate-500" />
                             <span className="text-sm font-medium text-slate-900">
-                              Habitación {reserva.habitacion_id}
+                              Habitación {reserva.habitacion_numero || reserva.habitacion_id}
                             </span>
                           </div>
                         </td>
@@ -720,7 +721,7 @@ export default function VerReservas() {
                   <h3 className="text-sm font-semibold text-green-700">Habitación</h3>
                 </div>
                 <p className="text-lg font-medium text-slate-900">
-                  Habitación {reservaDetalle.habitacion_id}
+                  Habitación {reservaDetalle.habitacion_numero || reservaDetalle.habitacion_id}
                 </p>
               </div>
             </div>
