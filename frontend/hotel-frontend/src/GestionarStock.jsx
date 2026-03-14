@@ -53,6 +53,19 @@ export default function GestionarStock() {
 
   const token = localStorage.getItem(TOKEN_KEY);
 
+  // Obtener rol del usuario desde el token
+  const obtenerRolUsuario = () => {
+    try {
+      if (!token) return null;
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      return payload.rol;
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const esAdmin = obtenerRolUsuario() === "dueño";
+
   // Cargar stock
   const cargarStock = async () => {
     setCargando(true);
@@ -252,6 +265,11 @@ export default function GestionarStock() {
   };
 
   const ajustarCantidad = async (id, cantidadActual, ajuste) => {
+    // Solo los administradores pueden restar stock
+    if (ajuste < 0 && !esAdmin) {
+      errorToast("Solo los administradores pueden modificar el stock");
+      return;
+    }
     const nuevaCantidad = cantidadActual + ajuste;
     if (nuevaCantidad < 0) {
       errorToast("La cantidad no puede ser negativa");
@@ -340,23 +358,25 @@ export default function GestionarStock() {
                 <RefreshCw className="w-4 h-4" />
                 Actualizar
               </button>
-              <button
-                onClick={() => {
-                  setForm({
-                    nombre_producto: "",
-                    categoria: "bebidas",
-                    cantidad: 0,
-                    cantidad_minima: 0
-                  });
-                  setEditandoId(null);
-                  setMostrarFormulario(true);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium transition-colors flex items-center gap-2"
-              >
-                <Plus className="w-5 h-5" />
-                Agregar Producto
-              </button>
+              {esAdmin && (
+                <button
+                  onClick={() => {
+                    setForm({
+                      nombre_producto: "",
+                      categoria: "bebidas",
+                      cantidad: 0,
+                      cantidad_minima: 0
+                    });
+                    setEditandoId(null);
+                    setMostrarFormulario(true);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium transition-colors flex items-center gap-2"
+                >
+                  <Plus className="w-5 h-5" />
+                  Agregar Producto
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -546,23 +566,29 @@ export default function GestionarStock() {
                         </td>
                         <td className="py-4 px-4">
                           <div className="flex items-center justify-center gap-2">
-                            <button
-                              onClick={() => ajustarCantidad(item.id, item.cantidad, -1)}
-                              className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                              title="Restar 1"
-                            >
-                              <Minus className="w-4 h-4" />
-                            </button>
+                            {esAdmin ? (
+                              <button
+                                onClick={() => ajustarCantidad(item.id, item.cantidad, -1)}
+                                className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                title="Restar 1"
+                              >
+                                <Minus className="w-4 h-4" />
+                              </button>
+                            ) : (
+                              <div className="w-6"></div>
+                            )}
                             <span className="font-bold text-lg text-slate-800 min-w-[3rem] text-center">
                               {item.cantidad}
                             </span>
-                            <button
-                              onClick={() => ajustarCantidad(item.id, item.cantidad, 1)}
-                              className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors"
-                              title="Sumar 1"
-                            >
-                              <PlusIcon className="w-4 h-4" />
-                            </button>
+                            {esAdmin && (
+                              <button
+                                onClick={() => ajustarCantidad(item.id, item.cantidad, 1)}
+                                className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors"
+                                title="Sumar 1"
+                              >
+                                <PlusIcon className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                         <td className="py-4 px-4 text-center text-slate-600">
@@ -586,20 +612,24 @@ export default function GestionarStock() {
                             >
                               <History className="w-4 h-4" />
                             </button>
-                            <button
-                              onClick={() => cargarParaEditar(item)}
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                              title="Editar"
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => abrirConfirmEliminar(item.id)}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Eliminar"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {esAdmin && (
+                              <>
+                                <button
+                                  onClick={() => cargarParaEditar(item)}
+                                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                  title="Editar"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => abrirConfirmEliminar(item.id)}
+                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                  title="Eliminar"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>

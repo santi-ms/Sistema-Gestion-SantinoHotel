@@ -514,6 +514,12 @@ def verificar_token(token: str = Depends(oauth2_scheme)):
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido")
 
+def verificar_admin(token: dict = Depends(verificar_token)):
+    """Verifica que el usuario tenga rol de administrador (dueño)"""
+    if token.get("rol") != "dueño":
+        raise HTTPException(status_code=403, detail="Solo los administradores pueden realizar esta acción")
+    return token
+
 # ─────────── ENDPOINT PARA ARREGLAR LA BASE DE DATOS ───────────
 @app.get("/reservas/reporte-habitaciones")
 def reporte_habitaciones_reservas(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
@@ -1769,7 +1775,7 @@ class StockActualizar(BaseModel):
 def crear_actualizar_stock(
     data: StockEntrada,
     db: Session = Depends(obtener_db),
-    token: dict = Depends(verificar_token)
+    token: dict = Depends(verificar_admin)
 ):
     # Obtener usuario actual
     usuario_actual = db.exec(select(Usuario).where(Usuario.email == token["sub"])).first()
@@ -1858,7 +1864,7 @@ def actualizar_stock(
     stock_id: int,
     data: StockActualizar,
     db: Session = Depends(obtener_db),
-    token: dict = Depends(verificar_token)
+    token: dict = Depends(verificar_admin)
 ):
     # Obtener usuario actual
     usuario_actual = db.exec(select(Usuario).where(Usuario.email == token["sub"])).first()
@@ -1871,6 +1877,13 @@ def actualizar_stock(
     cantidad_anterior = stock.cantidad
     nombre_anterior = stock.nombre_producto
     categoria_anterior = stock.categoria
+    
+    # Validar que no se pueda reducir la cantidad (solo aumentar o mantener)
+    if data.cantidad is not None and data.cantidad < cantidad_anterior:
+        raise HTTPException(
+            status_code=400, 
+            detail="No se puede reducir el stock manualmente. El stock solo se reduce mediante pedidos realizados."
+        )
     
     if data.nombre_producto is not None:
         stock.nombre_producto = data.nombre_producto.strip()
