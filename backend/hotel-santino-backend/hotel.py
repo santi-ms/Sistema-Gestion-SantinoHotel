@@ -1878,12 +1878,8 @@ def actualizar_stock(
     nombre_anterior = stock.nombre_producto
     categoria_anterior = stock.categoria
     
-    # Validar que no se pueda reducir la cantidad (solo aumentar o mantener)
-    if data.cantidad is not None and data.cantidad < cantidad_anterior:
-        raise HTTPException(
-            status_code=400, 
-            detail="No se puede reducir el stock manualmente. El stock solo se reduce mediante pedidos realizados."
-        )
+    # Nota: Solo los administradores pueden acceder a este endpoint (verificar_admin)
+    # Por lo tanto, pueden aumentar o reducir stock manualmente
     
     if data.nombre_producto is not None:
         stock.nombre_producto = data.nombre_producto.strip()
