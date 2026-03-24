@@ -58,7 +58,7 @@ export default function Login() {
             <span className="text-white font-extrabold text-3xl tracking-tighter">HS</span>
           </div>
           <h1 className="text-4xl font-extrabold text-white tracking-tight mb-3">Hotel Santino</h1>
-          <p className="text-slate-400 text-lg mb-12">Management Suite</p>
+          <p className="text-slate-400 text-lg mb-12">Santo Tomé, Corrientes</p>
 
           {/* Features */}
           <div className="space-y-4 text-left max-w-xs mx-auto">
