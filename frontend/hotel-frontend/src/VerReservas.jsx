@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
+import { getUserRole } from "./hooks/useAuth";
 import {
   Calendar,
   User,
@@ -49,15 +50,8 @@ export default function VerReservas() {
 
   // Obtener rol del usuario desde el token
   useEffect(() => {
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        setUsuarioRol(payload.rol);
-      } catch (err) {
-        console.error("Error al decodificar token:", err);
-      }
-    }
+    const rol = getUserRole();
+    if (rol) setUsuarioRol(rol);
   }, []);
 
   useEffect(() => {

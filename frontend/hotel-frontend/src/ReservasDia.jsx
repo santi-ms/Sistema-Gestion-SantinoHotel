@@ -3,6 +3,7 @@ import { SkeletonTable } from "./components/Skeleton";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
+import { getUserRole } from "./hooks/useAuth";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
@@ -163,15 +164,8 @@ export default function ReservasDia() {
 
   // Obtener rol del usuario desde el token
   useEffect(() => {
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        setUsuarioRol(payload.rol);
-      } catch (err) {
-        console.error("Error al decodificar token:", err);
-      }
-    }
+    const rol = getUserRole();
+    if (rol) setUsuarioRol(rol);
   }, []);
 
   useEffect(() => {
@@ -239,6 +233,13 @@ export default function ReservasDia() {
     // Validaciones básicas
     if (!nombre || !precio || !ingreso || !egreso || !dni || !celular || !habitacion) {
       error("Faltan datos obligatorios: nombre, precio, fechas, DNI, celular y habitación son requeridos");
+      return;
+    }
+
+    // Bloquear habitaciones virtuales (no registradas en el sistema)
+    const habSeleccionada = habitaciones.find(h => h.id === habitacion);
+    if (!habSeleccionada || habSeleccionada.esVirtual) {
+      error("La habitación seleccionada no está registrada en el sistema. Por favor registrala primero en 'Habitaciones'.");
       return;
     }
     

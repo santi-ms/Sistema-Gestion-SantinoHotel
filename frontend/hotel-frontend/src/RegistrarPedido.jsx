@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import { useLocation } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
+import { getUserRole } from "./hooks/useAuth";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import { formatearSoloFecha, formatearSoloHora, obtenerHoyArgentinaISO } from "./utils/fechas";
@@ -60,15 +61,8 @@ export default function RegistrarPedido() {
 
   // Obtener rol del usuario desde el token
   useEffect(() => {
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        setUserRole(payload.rol || "empleado");
-      } catch (error) {
-        console.error("Error al decodificar token:", error);
-      }
-    }
+    const rol = getUserRole();
+    if (rol) setUserRole(rol);
   }, []);
 
   // Cargar pedido para editar si viene desde VerPedidos
@@ -323,9 +317,8 @@ export default function RegistrarPedido() {
           monto: calcularTotal(),
           habitacion_id: form.habitacion_id ? parseInt(form.habitacion_id) : null,
           externo: form.externo,
-          forma_pago: form.forma_pago,
-          estado: response.data.estado,
           forma_pago: response.data.forma_pago,
+          estado: response.data.estado,
           fecha: response.data.fecha || new Date().toISOString()
         };
       }

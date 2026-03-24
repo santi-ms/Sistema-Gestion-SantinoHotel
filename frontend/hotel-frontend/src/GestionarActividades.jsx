@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
+import { getUserRole } from "./hooks/useAuth";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import {
@@ -48,15 +49,9 @@ export default function GestionarActividades() {
 
   // Obtener rol del usuario
   useEffect(() => {
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        setUserRole(payload.rol);
-      } catch (error) {
-        console.error("Error al decodificar token:", error);
-      }
-    }
-  }, [token]);
+    const rol = getUserRole();
+    if (rol) setUserRole(rol);
+  }, []);
 
   // Cargar actividades
   const cargarActividades = async () => {

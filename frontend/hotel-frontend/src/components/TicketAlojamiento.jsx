@@ -180,6 +180,13 @@ export default function TicketAlojamiento({ reserva, onClose }) {
           onClose();
         }, 1000);
       }
+    } else {
+      // Popup bloqueado por el navegador
+      alert(
+        "El navegador bloqueó la ventana de impresión.\n" +
+        "Por favor, permitá las ventanas emergentes para este sitio e intentá de nuevo."
+      );
+      if (onClose) onClose();
     }
   }, [reserva, onClose]);
 

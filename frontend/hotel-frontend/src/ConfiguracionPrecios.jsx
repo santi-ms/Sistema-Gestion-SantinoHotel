@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
+import { getUserRole } from "./hooks/useAuth";
 import { useToast } from "./components/ToastContainer";
 import { SkeletonTable } from "./components/Skeleton";
 import { EmptyState } from "./components/EmptyState";
@@ -46,15 +47,9 @@ export default function ConfiguracionPrecios() {
 
   // Obtener rol del usuario
   useEffect(() => {
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        setUserRole(payload.rol);
-      } catch (error) {
-        console.error("Error al decodificar token:", error);
-      }
-    }
-  }, [token]);
+    const rol = getUserRole();
+    if (rol) setUserRole(rol);
+  }, []);
 
   // Cargar habitaciones
   useEffect(() => {

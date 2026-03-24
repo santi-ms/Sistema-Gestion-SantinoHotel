@@ -2,11 +2,12 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
+import { getUserRole } from "./hooks/useAuth";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import { SkeletonTable } from "./components/Skeleton";
 import { EmptyState } from "./components/EmptyState";
-import { formatearSoloHora, formatearSoloFecha } from "./utils/fechas";
+import { formatearSoloHora, formatearSoloFecha, obtenerHoyArgentinaISO } from "./utils/fechas";
 import {
   Receipt,
   DollarSign,
@@ -43,19 +44,13 @@ export default function RegistrarGasto() {
 
   // Obtener rol del usuario desde el token
   useEffect(() => {
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        setUserRole(payload.rol);
-      } catch (error) {
-        console.error("Error al decodificar token:", error);
-      }
-    }
-  }, [token]);
+    const rol = getUserRole();
+    if (rol) setUserRole(rol);
+  }, []);
 
   const obtenerGastosHoy = async () => {
     setCargando(true);
-    const hoy = new Date().toISOString().split("T")[0];
+    const hoy = obtenerHoyArgentinaISO();
     try {
       const res = await axios.get(`${API_BASE_URL}/gastos-dia?fecha=${hoy}`, {
         headers: { Authorization: `Bearer ${token}` }

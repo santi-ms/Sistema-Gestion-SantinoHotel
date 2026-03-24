@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
+import { getUserRole } from "./hooks/useAuth";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import {
@@ -53,18 +54,7 @@ export default function GestionarStock() {
 
   const token = localStorage.getItem(TOKEN_KEY);
 
-  // Obtener rol del usuario desde el token
-  const obtenerRolUsuario = () => {
-    try {
-      if (!token) return null;
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      return payload.rol;
-    } catch (error) {
-      return null;
-    }
-  };
-
-  const esAdmin = obtenerRolUsuario() === "dueño";
+  const esAdmin = getUserRole() === "dueño";
 
   // Cargar stock
   const cargarStock = async () => {
