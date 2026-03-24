@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { API_BASE_URL, TOKEN_KEY } from './config';
 import AppLayout from './components/Layout/AppLayout';
+import { useToast } from './components/ToastContainer';
 
 const actionButtons = [
   { title: "Ver Analytics",       description: "Reportes y gráficos de rendimiento", icon: "bar_chart",         path: "/analytics" },
@@ -19,6 +20,7 @@ const actionButtons = [
 
 export default function DuenoPanel() {
   const navigate = useNavigate();
+  const { error: errorToast } = useToast();
   const [resumen, setResumen] = useState({ total_reservas: 0, total_pedidos: 0, total_gastos: 0, balance: 0 });
   const [fecha, setFecha] = useState(new Date().toLocaleDateString('fr-CA'));
   const [cargando, setCargando] = useState(true);
@@ -33,6 +35,7 @@ export default function DuenoPanel() {
         setResumen(res.data);
       } catch (err) {
         console.error("Error al obtener resumen:", err);
+        errorToast("No se pudo cargar el resumen del día");
       } finally {
         setCargando(false);
       }

@@ -3,6 +3,7 @@ import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { getUserRole } from "./hooks/useAuth";
+import { useToast } from "./components/ToastContainer";
 import {
   Calendar,
   User,
@@ -47,6 +48,7 @@ export default function VerReservas() {
   const [habitaciones, setHabitaciones] = useState([]);
   const [cargandoHabitaciones, setCargandoHabitaciones] = useState(false);
   const navigate = useNavigate();
+  const { error: errorToast } = useToast();
 
   // Obtener rol del usuario desde el token
   useEffect(() => {
@@ -55,23 +57,28 @@ export default function VerReservas() {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
     const obtener = async () => {
       setCargando(true);
       try {
         const token = localStorage.getItem(TOKEN_KEY);
         const res = await axios.get(`${API_BASE_URL}/reservas`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal
         });
         setReservas(res.data);
         setReservasFiltradas(res.data);
       } catch (error) {
+        if (axios.isCancel(error)) return;
         console.error("Error al obtener reservas:", error);
+        errorToast("No se pudieron cargar las reservas");
       } finally {
         setCargando(false);
       }
     };
     obtener();
     obtenerHabitaciones();
+    return () => controller.abort();
   }, []);
 
   const obtenerHabitaciones = async () => {
@@ -80,10 +87,10 @@ export default function VerReservas() {
       const res = await axios.get(`${API_BASE_URL}/habitaciones`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      console.log("🏨 [VerReservas] Habitaciones cargadas:", res.data.map(h => ({ id: h.id, numero: h.numero })));
       setHabitaciones(res.data);
     } catch (error) {
       console.error("Error al obtener habitaciones:", error);
+      errorToast("No se pudieron cargar las habitaciones");
     }
   };
 

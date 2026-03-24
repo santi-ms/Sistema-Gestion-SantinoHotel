@@ -3,6 +3,7 @@ import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { getUserRole } from "./hooks/useAuth";
+import { useDebounce } from "./hooks/useDebounce";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import {
@@ -43,6 +44,7 @@ export default function GestionarStock() {
   const [filtroEstado, setFiltroEstado] = useState("todos"); // todos, bajo, agotado
   const [ordenarPor, setOrdenarPor] = useState("nombre"); // nombre, cantidad, fecha
   const [busqueda, setBusqueda] = useState("");
+  const busquedaDebounced = useDebounce(busqueda, 300);
   const [mostrarHistorial, setMostrarHistorial] = useState(false);
   const [historial, setHistorial] = useState([]);
   const [productoSeleccionado, setProductoSeleccionado] = useState(null);
@@ -99,9 +101,9 @@ export default function GestionarStock() {
     let filtrado = stock;
 
     // Filtro por búsqueda
-    if (busqueda) {
+    if (busquedaDebounced) {
       filtrado = filtrado.filter(item =>
-        item.nombre_producto.toLowerCase().includes(busqueda.toLowerCase())
+        item.nombre_producto.toLowerCase().includes(busquedaDebounced.toLowerCase())
       );
     }
 
@@ -133,7 +135,7 @@ export default function GestionarStock() {
     });
 
     setStockFiltrado(filtrado);
-  }, [stock, busqueda, filtroCategoria, filtroEstado, ordenarPor]);
+  }, [stock, busquedaDebounced, filtroCategoria, filtroEstado, ordenarPor]);
 
   // Cargar historial de un producto
   const cargarHistorial = async (stockId, nombreProducto) => {

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { getUserRole } from "./hooks/useAuth";
+import { useDebounce } from "./hooks/useDebounce";
 import { useToast } from "./components/ToastContainer";
 import { SkeletonTable } from "./components/Skeleton";
 import { EmptyState } from "./components/EmptyState";
@@ -29,6 +30,7 @@ export default function ConfiguracionPrecios() {
   const [habitaciones, setHabitaciones] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [busqueda, setBusqueda] = useState("");
+  const busquedaDebounced = useDebounce(busqueda, 300);
   const [tipoFiltro, setTipoFiltro] = useState("todos");
   const [fechaCheckin, setFechaCheckin] = useState("");
   const [fechaCheckout, setFechaCheckout] = useState("");
@@ -84,8 +86,8 @@ export default function ConfiguracionPrecios() {
   // Filtrar habitaciones
   const habitacionesFiltradas = habitaciones.filter(hab => {
     const coincideBusqueda = 
-      hab.numero.toString().includes(busqueda) ||
-      hab.tipo.toLowerCase().includes(busqueda.toLowerCase());
+      hab.numero.toString().includes(busquedaDebounced) ||
+      hab.tipo.toLowerCase().includes(busquedaDebounced.toLowerCase());
     const coincideTipo = tipoFiltro === "todos" || hab.tipo === tipoFiltro;
     return coincideBusqueda && coincideTipo;
   });

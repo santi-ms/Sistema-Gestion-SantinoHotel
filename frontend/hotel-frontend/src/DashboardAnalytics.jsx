@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { API_BASE_URL, TOKEN_KEY } from './config';
+import { useToast } from './components/ToastContainer';
 import { Skeleton, SkeletonStats } from './components/Skeleton';
 import {
   LineChart,
@@ -49,7 +50,7 @@ export default function DashboardAnalytics() {
   const [fechaFin, setFechaFin] = useState('');
   
   const navigate = useNavigate();
-
+  const { error: errorToast } = useToast();
   const token = localStorage.getItem(TOKEN_KEY);
 
   // Colores para los gráficos
@@ -152,6 +153,7 @@ export default function DashboardAnalytics() {
     } catch (error) {
       console.error('Error al cargar analytics:', error);
       setError(error.response?.data?.detail || error.message || 'Error al cargar los datos');
+      errorToast("No se pudieron cargar los datos de analytics");
     } finally {
       setCargando(false);
     }
@@ -166,12 +168,13 @@ export default function DashboardAnalytics() {
       setIngresosData(res.data);
     } catch (error) {
       console.error('Error al cargar ingresos:', error);
+      errorToast("No se pudieron cargar los datos de ingresos");
     }
   };
 
   const cargarDetalleDiario = async () => {
     if (!fechaInicio || !fechaFin) return;
-    
+
     setCargandoDetalle(true);
     try {
       const res = await axios.get(`${API_BASE_URL}/analytics/detalle-diario`, {
@@ -184,6 +187,7 @@ export default function DashboardAnalytics() {
       setDetalleDiario(res.data);
     } catch (error) {
       console.error('Error al cargar detalle diario:', error);
+      errorToast("No se pudo cargar el detalle diario");
     } finally {
       setCargandoDetalle(false);
     }

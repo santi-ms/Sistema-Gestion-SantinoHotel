@@ -126,22 +126,27 @@ export default function VerPedidos() {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
     const obtenerPedidos = async () => {
       setCargando(true);
       try {
         const token = localStorage.getItem(TOKEN_KEY);
         const res = await axios.get(`${API_BASE_URL}/pedidos`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal
         });
         setPedidos(res.data);
         setPedidosFiltrados(res.data);
       } catch (error) {
+        if (axios.isCancel(error)) return;
         console.error("Error al obtener pedidos:", error);
+        errorToast("No se pudieron cargar los pedidos");
       } finally {
         setCargando(false);
       }
     };
     obtenerPedidos();
+    return () => controller.abort();
   }, []);
 
   // Función para filtrar pedidos

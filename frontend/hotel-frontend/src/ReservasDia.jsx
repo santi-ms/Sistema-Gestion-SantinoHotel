@@ -157,6 +157,7 @@ export default function ReservasDia() {
       setReservas(res.data);
     } catch (err) {
       console.error(err);
+      error("No se pudieron cargar las reservas del día");
     } finally {
       setCargando(false);
     }
