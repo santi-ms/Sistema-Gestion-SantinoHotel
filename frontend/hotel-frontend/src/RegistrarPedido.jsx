@@ -113,7 +113,6 @@ export default function RegistrarPedido() {
         fecha: pedido.fecha
       }));
       
-      console.log(`[RegistrarPedido] Pedidos cargados: ${pedidosFormateados.length}`, pedidosFormateados);
       setPedidosHoy(pedidosFormateados);
     } catch (err) {
       console.error("Error al cargar pedidos:", err);
@@ -270,13 +269,6 @@ export default function RegistrarPedido() {
         forma_pago: esPendiente ? null : form.forma_pago,
         estado: esPendiente ? "PENDIENTE" : "PAGADO"
       };
-      
-      console.log("📤 [RegistrarPedido] Enviando pedido:", { 
-        estado: pedidoData.estado, 
-        forma_pago: pedidoData.forma_pago,
-        forma_pago_seleccionada: form.forma_pago,
-        es_pendiente: esPendiente
-      });
 
       let pedidoRegistrado = null;
       
@@ -335,7 +327,6 @@ export default function RegistrarPedido() {
       
       // Recargar pedidos del día - esperar un momento para que el backend procese
       setTimeout(async () => {
-        console.log("[RegistrarPedido] Recargando pedidos después de registrar...");
         await cargarPedidosHoy();
       }, 300);
       

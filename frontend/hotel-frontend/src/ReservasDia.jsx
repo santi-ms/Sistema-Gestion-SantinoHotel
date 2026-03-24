@@ -76,7 +76,6 @@ export default function ReservasDia() {
         headers: { Authorization: `Bearer ${token}` },
       });
       
-      console.log("🏨 Habitaciones recibidas del backend:", res.data);
       
       // Eliminar duplicados por ID y número
       const habitacionesBD = [];
@@ -119,12 +118,9 @@ export default function ReservasDia() {
             descripcion: null,
             esVirtual: true // Flag para identificar habitaciones virtuales
           });
-          console.log(`ℹ️ Habitación ${numero} no existe en BD, creando virtual`);
         }
       }
       
-      console.log("🏨 Total habitaciones (1-15):", todasHabitaciones.length);
-      console.log("📋 Números:", todasHabitaciones.map(h => h.numero).join(", "));
       
       setHabitaciones(todasHabitaciones);
       // Establecer la primera habitación como seleccionada por defecto
@@ -149,10 +145,8 @@ export default function ReservasDia() {
       const res = await axios.get(`${API_BASE_URL}/reservas/dia?fecha=${fechaSeleccionada}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      console.log("📋 Reservas recibidas:", res.data);
       // Log cada reserva con su habitación
       res.data.forEach(r => {
-        console.log(`  Reserva #${r.id}: habitacion_id=${r.habitacion_id}, habitacion_numero=${r.habitacion_numero}, nombre=${r.nombre_huesped}`);
       });
       setReservas(res.data);
     } catch (err) {

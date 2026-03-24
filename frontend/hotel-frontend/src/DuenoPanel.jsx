@@ -4,6 +4,7 @@ import axios from 'axios';
 import { API_BASE_URL, TOKEN_KEY } from './config';
 import AppLayout from './components/Layout/AppLayout';
 import { useToast } from './components/ToastContainer';
+import { formatARS } from './utils/moneda';
 
 const actionButtons = [
   { title: "Ver Analytics",       description: "Reportes y gráficos de rendimiento", icon: "bar_chart",         path: "/analytics" },
@@ -43,7 +44,7 @@ export default function DuenoPanel() {
     obtenerResumen();
   }, [fecha]);
 
-  const fmt = (v) => `$${Number(v || 0).toLocaleString('es-AR')}`;
+  const fmt = formatARS;
 
   const statsCards = [
     { title: "Ingresos Reservas",  value: resumen.total_reservas, icon: "bed",          color: "text-blue-600",   bg: "bg-blue-50" },

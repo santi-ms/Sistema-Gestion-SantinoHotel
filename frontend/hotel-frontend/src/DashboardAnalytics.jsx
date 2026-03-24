@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { API_BASE_URL, TOKEN_KEY } from './config';
 import { useToast } from './components/ToastContainer';
+import { formatARS } from './utils/moneda';
 import { Skeleton, SkeletonStats } from './components/Skeleton';
 import {
   LineChart,
@@ -222,13 +223,7 @@ export default function DashboardAnalytics() {
     }
   };
 
-  const formatearMoneda = (valor) => {
-    return new Intl.NumberFormat('es-AR', {
-      style: 'currency',
-      currency: 'ARS',
-      minimumFractionDigits: 0
-    }).format(valor);
-  };
+  const formatearMoneda = formatARS;
 
   const formatearFecha = (fecha) => {
     return new Date(fecha).toLocaleDateString('es-ES', {
@@ -499,52 +494,32 @@ export default function DashboardAnalytics() {
         </div>
 
         {/* Ocupación de Habitaciones */}
-        {ocupacionData.length > 0 && (
-          <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200 mb-8">
-            <h3 className="text-lg font-semibold text-slate-800 mb-6">Ocupación por Habitación (Últimos 30 días)</h3>
-            
+        <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200 mb-8">
+          <h3 className="text-lg font-semibold text-slate-800 mb-6">Ocupación por Habitación (Últimos 30 días)</h3>
+          {ocupacionData.length > 0 ? (
             <ResponsiveContainer width="100%" height={400}>
               <BarChart data={ocupacionData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="habitacion" 
-                  tickFormatter={(value) => `Hab. ${value}`}
-                />
-                <YAxis 
-                  yAxisId="precio"
-                  orientation="left"
-                  tickFormatter={(value) => `$${value.toLocaleString()}`}
-                />
-                <YAxis 
-                  yAxisId="ocupacion"
-                  orientation="right"
-                  tickFormatter={(value) => `${value}%`}
-                />
-                <Tooltip 
+                <XAxis dataKey="habitacion" tickFormatter={(value) => `Hab. ${value}`} />
+                <YAxis yAxisId="precio" orientation="left" tickFormatter={(value) => formatARS(value)} />
+                <YAxis yAxisId="ocupacion" orientation="right" tickFormatter={(value) => `${value}%`} />
+                <Tooltip
                   formatter={(value, name) => {
                     if (name === 'Tasa Ocupación') return [`${value}%`, name];
-                    if (name === 'Precio') return [`$${value.toLocaleString()}`, name];
+                    if (name === 'Precio') return [formatARS(value), name];
                     return [value, name];
                   }}
                 />
-                <Bar 
-                  yAxisId="precio"
-                  dataKey="precio" 
-                  fill="#10B981" 
-                  name="Precio"
-                  radius={[4, 4, 0, 0]}
-                />
-                <Bar 
-                  yAxisId="ocupacion"
-                  dataKey="tasa_ocupacion" 
-                  fill="#8B5CF6" 
-                  name="Tasa Ocupación"
-                  radius={[4, 4, 0, 0]}
-                />
+                <Bar yAxisId="precio" dataKey="precio" fill="#10B981" name="Precio" radius={[4, 4, 0, 0]} />
+                <Bar yAxisId="ocupacion" dataKey="tasa_ocupacion" fill="#8B5CF6" name="Tasa Ocupación" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </div>
-        )}
+          ) : (
+            <div className="flex items-center justify-center h-48 text-slate-500">
+              <p>No hay datos de ocupación disponibles</p>
+            </div>
+          )}
+        </div>
 
         {/* Tabla Detallada de Ocupación */}
         <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">

@@ -30,6 +30,8 @@ import { SkeletonTable, SkeletonStats } from "./components/Skeleton";
 import { EmptyState } from "./components/EmptyState";
 import AppLayout from "./components/Layout/AppLayout";
 
+const ITEMS_POR_PAGINA = 20;
+
 export default function VerReservas() {
   const [reservas, setReservas] = useState([]);
   const [reservasFiltradas, setReservasFiltradas] = useState([]);
@@ -37,6 +39,7 @@ export default function VerReservas() {
   const [filtroTexto, setFiltroTexto] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("todas");
   const [filtroFecha, setFiltroFecha] = useState("");
+  const [paginaActual, setPaginaActual] = useState(1);
   const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
   const [reservaEliminarId, setReservaEliminarId] = useState(null);
   const [usuarioRol, setUsuarioRol] = useState(null);
@@ -169,23 +172,11 @@ export default function VerReservas() {
       return;
     }
 
-    console.log("🔄 [Cambiar Habitación]", {
-      reserva_id: reservaCambiarHabitacion.id,
-      habitacion_actual_id: reservaCambiarHabitacion.habitacion_id,
-      nueva_habitacion_id: parseInt(nuevaHabitacion),
-      nueva_habitacion_numero: habitacionSeleccionada.numero,
-      habitacion_seleccionada: habitacionSeleccionada
-    });
 
     setCargandoHabitaciones(true);
     try {
       const token = localStorage.getItem(TOKEN_KEY);
       const habitacionIdFinal = parseInt(nuevaHabitacion);
-      
-      console.log("📤 [Cambiar Habitación] Enviando al backend:", {
-        reserva_id: reservaCambiarHabitacion.id,
-        habitacion_id: habitacionIdFinal
-      });
       
       const response = await axios.put(`${API_BASE_URL}/reservas/${reservaCambiarHabitacion.id}`, {
         habitacion_id: habitacionIdFinal
@@ -193,7 +184,6 @@ export default function VerReservas() {
         headers: { Authorization: `Bearer ${token}` }
       });
       
-      console.log("✅ [Cambiar Habitación] Respuesta del backend:", response.data);
       console.log(`   Nueva habitación: ID=${response.data.habitacion_id}, Número=${response.data.habitacion_numero}`);
 
       // Recargar las reservas desde el backend para obtener los datos actualizados
@@ -273,6 +263,7 @@ export default function VerReservas() {
     }
 
     setReservasFiltradas(filtradas);
+    setPaginaActual(1); // Resetear página al filtrar
   }, [reservas, filtroTexto, filtroEstado, filtroFecha]);
 
   const getEstadoColor = (estado) => {
@@ -536,6 +527,7 @@ export default function VerReservas() {
                 : "Aún no hay reservas registradas en el sistema"}
             />
           ) : (
+            <>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gradient-to-r from-slate-50 to-slate-100 border-b-2 border-slate-200">
@@ -551,7 +543,9 @@ export default function VerReservas() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {reservasFiltradas.map((reserva) => {
+                  {reservasFiltradas
+                    .slice((paginaActual - 1) * ITEMS_POR_PAGINA, paginaActual * ITEMS_POR_PAGINA)
+                    .map((reserva) => {
                     const estado = obtenerEstadoReserva(reserva);
                     return (
                       <tr key={reserva.id} className="hover:bg-slate-50 transition-colors duration-200">
@@ -646,6 +640,33 @@ export default function VerReservas() {
                 </tbody>
               </table>
             </div>
+            {reservasFiltradas.length > ITEMS_POR_PAGINA && (
+              <div className="flex items-center justify-between px-6 py-4 border-t border-slate-200">
+                <p className="text-sm text-slate-500">
+                  Mostrando {((paginaActual - 1) * ITEMS_POR_PAGINA) + 1}–{Math.min(paginaActual * ITEMS_POR_PAGINA, reservasFiltradas.length)} de {reservasFiltradas.length} reservas
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPaginaActual(p => Math.max(1, p - 1))}
+                    disabled={paginaActual === 1}
+                    className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg disabled:opacity-40 hover:bg-slate-50 transition-colors"
+                  >
+                    ← Anterior
+                  </button>
+                  <span className="text-sm font-medium text-slate-700 px-2">
+                    Página {paginaActual} de {Math.ceil(reservasFiltradas.length / ITEMS_POR_PAGINA)}
+                  </span>
+                  <button
+                    onClick={() => setPaginaActual(p => Math.min(Math.ceil(reservasFiltradas.length / ITEMS_POR_PAGINA), p + 1))}
+                    disabled={paginaActual === Math.ceil(reservasFiltradas.length / ITEMS_POR_PAGINA)}
+                    className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg disabled:opacity-40 hover:bg-slate-50 transition-colors"
+                  >
+                    Siguiente →
+                  </button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </div>
       </div>
@@ -922,8 +943,6 @@ export default function VerReservas() {
                       })
                       .sort((a, b) => a.numero - b.numero);
                     
-                    console.log("📋 [Cambiar Habitación] Habitaciones disponibles:", habitacionesDisponibles.map(h => ({ id: h.id, numero: h.numero })));
-                    console.log("📋 [Cambiar Habitación] Todas las habitaciones:", habitaciones.map(h => ({ id: h.id, numero: h.numero })));
                     
                     return habitacionesDisponibles.map(habitacion => (
                       <option key={habitacion.id} value={habitacion.id}>
