@@ -28,7 +28,12 @@ const navItemsDueno = [
   { label: 'Clientes',      icon: 'people',           path: '/registrar-cliente' },
 ];
 
-export default function Sidebar({ role = 'empleado' }) {
+/**
+ * Sidebar responsive:
+ * - Desktop (md+): siempre visible, fijo a la izquierda
+ * - Mobile: drawer deslizable controlado por isOpen/onClose
+ */
+export default function Sidebar({ role = 'empleado', isOpen = false, onClose = () => {} }) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -40,19 +45,40 @@ export default function Sidebar({ role = 'empleado' }) {
     navigate('/');
   };
 
+  const handleNav = (path) => {
+    navigate(path);
+    onClose(); // cerrar drawer en mobile al navegar
+  };
+
   return (
-    <aside className="h-screen w-64 fixed left-0 top-0 flex flex-col bg-[#0f172a] text-sm font-medium z-20">
+    <aside
+      className={`
+        h-screen w-64 fixed left-0 top-0 flex flex-col bg-[#0f172a] text-sm font-medium z-40
+        transition-transform duration-300 ease-in-out
+        ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+        md:translate-x-0
+      `}
+    >
       <div className="flex flex-col h-full py-8 px-4">
 
-        {/* Brand */}
-        <div className="flex items-center gap-3 px-2 mb-10">
-          <div className="w-10 h-10 bg-primary-container flex items-center justify-center rounded-xl shadow-lg flex-shrink-0">
-            <span className="text-white font-extrabold text-base tracking-tighter">HS</span>
+        {/* Brand + botón cerrar en mobile */}
+        <div className="flex items-center justify-between px-2 mb-10">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-primary-container flex items-center justify-center rounded-xl shadow-lg flex-shrink-0">
+              <span className="text-white font-extrabold text-base tracking-tighter">HS</span>
+            </div>
+            <div>
+              <h1 className="text-base font-bold tracking-tight text-white leading-tight">Hotel Santino</h1>
+            </div>
           </div>
-          <div>
-            <h1 className="text-base font-bold tracking-tight text-white leading-tight">Hotel Santino</h1>
-            <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Management Suite</p>
-          </div>
+          {/* Botón X solo en mobile */}
+          <button
+            className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            onClick={onClose}
+            aria-label="Cerrar menú"
+          >
+            <span className="material-symbols-outlined text-[20px]">close</span>
+          </button>
         </div>
 
         {/* Nav */}
@@ -62,7 +88,7 @@ export default function Sidebar({ role = 'empleado' }) {
             return (
               <button
                 key={item.path}
-                onClick={() => navigate(item.path)}
+                onClick={() => handleNav(item.path)}
                 className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-all duration-150 ${
                   isActive
                     ? 'bg-blue-600 text-white border-r-4 border-blue-400'
