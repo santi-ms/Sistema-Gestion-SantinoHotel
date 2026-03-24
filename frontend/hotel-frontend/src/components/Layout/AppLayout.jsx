@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import Sidebar from './Sidebar';
+import { getUserRole } from '../../hooks/useAuth';
 
 /**
  * Layout principal con sidebar fijo + área de contenido
  * Responsivo: sidebar como drawer en mobile, fijo en desktop
  */
-export default function AppLayout({ children, role = 'empleado', pageTitle = '', topbarActions = null }) {
+export default function AppLayout({ children, pageTitle = '', topbarActions = null }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const role = getUserRole() ?? 'empleado';
 
   return (
     <div className="flex min-h-screen bg-surface">
