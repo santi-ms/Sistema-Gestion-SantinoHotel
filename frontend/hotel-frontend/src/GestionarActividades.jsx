@@ -4,10 +4,9 @@ import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
-import { 
-  CheckSquare, 
-  Plus, 
-  ArrowLeft, 
+import {
+  CheckSquare,
+  Plus,
   Save,
   Edit3,
   Trash2,
@@ -21,6 +20,7 @@ import {
   User,
   Search
 } from "lucide-react";
+import AppLayout from "./components/Layout/AppLayout";
 
 export default function GestionarActividades() {
   const [actividades, setActividades] = useState([]);
@@ -266,32 +266,23 @@ export default function GestionarActividades() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-blue-600 p-3 rounded-xl">
-                <CheckSquare className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-800">Gestión de Actividades</h1>
-                <p className="text-slate-600">Administra las tareas y actividades del hotel</p>
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                setMostrarFormulario(true);
-                cancelarEdicion();
-              }}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium transition-colors duration-200 flex items-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              Nueva Actividad
-            </button>
-          </div>
-        </div>
+    <AppLayout
+      role="empleado"
+      pageTitle="Gestión de Actividades"
+      topbarActions={
+        <button
+          onClick={() => {
+            setMostrarFormulario(true);
+            cancelarEdicion();
+          }}
+          className="flex items-center gap-2 px-3 py-2 bg-primary-container hover:bg-primary text-white rounded-xl font-semibold text-sm transition-colors"
+        >
+          <span className="material-symbols-outlined text-[18px]">add</span>
+          Nueva Actividad
+        </button>
+      }
+    >
+      <div className="space-y-6 max-w-7xl mx-auto">
 
         {/* Filtros */}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
@@ -505,14 +496,6 @@ export default function GestionarActividades() {
           )}
         </div>
 
-        {/* Botón volver */}
-        <button
-          onClick={() => navigate(-1)}
-          className="mt-8 inline-flex items-center gap-2 text-slate-600 hover:text-slate-800 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Volver atrás
-        </button>
       </div>
 
       {/* Modal de confirmación */}
@@ -526,7 +509,7 @@ export default function GestionarActividades() {
         cancelText="Cancelar"
         type="danger"
       />
-    </div>
+    </AppLayout>
   );
 }
 

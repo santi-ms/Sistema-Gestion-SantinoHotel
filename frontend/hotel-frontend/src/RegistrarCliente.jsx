@@ -4,10 +4,9 @@ import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
-import { 
-  User, 
-  UserPlus, 
-  ArrowLeft, 
+import {
+  User,
+  UserPlus,
   Save,
   CheckCircle,
   AlertCircle,
@@ -21,6 +20,7 @@ import {
   Hash,
   XCircle
 } from "lucide-react";
+import AppLayout from "./components/Layout/AppLayout";
 
 function RegistrarCliente() {
   const [cliente, setCliente] = useState({
@@ -189,38 +189,8 @@ function RegistrarCliente() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-green-50 p-4 md:p-8">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-green-600 p-3 rounded-xl">
-                <UserPlus className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-800">
-                  {editandoId ? "Editar Cliente" : "Registrar Cliente"}
-                </h1>
-                <p className="text-slate-600">Gestiona la base de datos de clientes</p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-4">
-              <div className="text-sm text-slate-600 bg-slate-50 px-3 py-2 rounded-lg">
-                <Users className="w-4 h-4 inline mr-1" />
-                {clientes.length} cliente{clientes.length !== 1 ? 's' : ''} registrado{clientes.length !== 1 ? 's' : ''}
-              </div>
-              <button
-                onClick={() => navigate(-1)}
-                className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all duration-200"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Volver
-              </button>
-            </div>
-          </div>
-        </div>
+    <AppLayout role="empleado" pageTitle={editandoId ? "Editar Cliente" : "Registrar Cliente"}>
+      <div className="space-y-6 max-w-7xl mx-auto">
 
         {/* Formulario */}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
@@ -470,7 +440,7 @@ function RegistrarCliente() {
         cancelText="Cancelar"
         type="danger"
       />
-    </div>
+    </AppLayout>
   );
 }
 

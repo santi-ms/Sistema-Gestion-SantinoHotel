@@ -6,6 +6,7 @@ import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import { formatearSoloFecha, formatearSoloHora } from "./utils/fechas";
 import TicketTermico from "./components/TicketTermico";
+import AppLayout from "./components/Layout/AppLayout";
 
 /**
  * Extrae la fecha en formato YYYY-MM-DD desde un string ISO, respetando el timezone de Argentina
@@ -80,11 +81,10 @@ function extraerFechaArgentina(fecha) {
 }
 import { SkeletonTable } from "./components/Skeleton";
 import { EmptyState } from "./components/EmptyState";
-import { 
-  Coffee, 
-  DollarSign, 
-  Home, 
-  ArrowLeft, 
+import {
+  Coffee,
+  DollarSign,
+  Home,
   Search,
   Filter,
   Download,
@@ -295,39 +295,23 @@ export default function VerPedidos() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-purple-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-purple-600 p-3 rounded-xl">
-                <Coffee className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-800">Ver Pedidos</h1>
-                <p className="text-slate-600">Análisis completo de pedidos gastronómicos</p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              <button
-                onClick={exportarCSV}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
-              >
-                <Download className="w-4 h-4" />
-                Exportar CSV
-              </button>
-              <button
-                onClick={() => navigate(-1)}
-                className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all duration-200"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Volver
-              </button>
-            </div>
-          </div>
-        </div>
+    <AppLayout
+      role="empleado"
+      pageTitle="Ver Pedidos"
+      topbarActions={
+        <button
+          onClick={exportarCSV}
+          className="flex items-center gap-2 px-3 py-2 bg-primary-container hover:bg-primary text-white rounded-xl font-semibold text-sm transition-colors"
+          style={{ backgroundColor: '#16a34a' }}
+          onMouseEnter={e => e.currentTarget.style.backgroundColor = '#15803d'}
+          onMouseLeave={e => e.currentTarget.style.backgroundColor = '#16a34a'}
+        >
+          <span className="material-symbols-outlined text-[18px]">download</span>
+          Exportar CSV
+        </button>
+      }
+    >
+      <div className="space-y-6 max-w-7xl mx-auto">
 
         {/* Estadísticas */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -677,6 +661,6 @@ export default function VerPedidos() {
           />
         )}
       </div>
-    </div>
+    </AppLayout>
   );
 }

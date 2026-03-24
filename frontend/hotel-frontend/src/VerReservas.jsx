@@ -2,11 +2,10 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
-import { 
-  Calendar, 
-  User, 
-  Home, 
-  ArrowLeft, 
+import {
+  Calendar,
+  User,
+  Home,
   Search,
   Filter,
   Download,
@@ -27,6 +26,7 @@ import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
 import { SkeletonTable, SkeletonStats } from "./components/Skeleton";
 import { EmptyState } from "./components/EmptyState";
+import AppLayout from "./components/Layout/AppLayout";
 
 export default function VerReservas() {
   const [reservas, setReservas] = useState([]);
@@ -341,39 +341,32 @@ export default function VerReservas() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-blue-600 p-3 rounded-xl">
-                <Calendar className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-800">Ver Reservas</h1>
-                <p className="text-slate-600">Gestiona todas las reservas del hotel</p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              <button
-                onClick={exportarCSV}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-all duration-200 shadow-md hover:shadow-lg hover:scale-105 active:scale-95"
-              >
-                <Download className="w-4 h-4" />
-                Exportar CSV
-              </button>
-              <button
-                onClick={() => navigate(-1)}
-                className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all duration-200 hover:scale-105 active:scale-95"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Volver
-              </button>
-            </div>
-          </div>
+    <AppLayout
+      role="empleado"
+      pageTitle="Ver Reservas"
+      topbarActions={
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportarCSV}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl font-semibold text-sm transition-colors text-white"
+            style={{ backgroundColor: '#16a34a' }}
+            onMouseEnter={e => e.currentTarget.style.backgroundColor = '#15803d'}
+            onMouseLeave={e => e.currentTarget.style.backgroundColor = '#16a34a'}
+          >
+            <span className="material-symbols-outlined text-[18px]">download</span>
+            Exportar CSV
+          </button>
+          <button
+            onClick={() => navigate('/reservas-dia')}
+            className="flex items-center gap-2 px-3 py-2 bg-primary-container hover:bg-primary text-white rounded-xl font-semibold text-sm transition-colors"
+          >
+            <span className="material-symbols-outlined text-[18px]">add</span>
+            Nueva Reserva
+          </button>
         </div>
+      }
+    >
+      <div className="space-y-6 max-w-7xl mx-auto">
 
         {/* Estadísticas */}
         {cargando ? (
@@ -977,6 +970,6 @@ export default function VerReservas() {
           </div>
         )}
       </Modal>
-    </div>
+    </AppLayout>
   );
 }

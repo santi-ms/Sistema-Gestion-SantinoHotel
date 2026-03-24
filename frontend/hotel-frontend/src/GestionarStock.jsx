@@ -4,10 +4,9 @@ import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
-import { 
-  Package, 
-  Plus, 
-  ArrowLeft, 
+import {
+  Package,
+  Plus,
   Save,
   Edit3,
   Trash2,
@@ -23,6 +22,7 @@ import {
   X,
   ArrowUpDown
 } from "lucide-react";
+import AppLayout from "./components/Layout/AppLayout";
 
 export default function GestionarStock() {
   const [stock, setStock] = useState([]);
@@ -336,50 +336,41 @@ export default function GestionarStock() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-blue-600 p-3 rounded-xl">
-                <Package className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-800">Control de Stock</h1>
-                <p className="text-slate-600">Gestiona el inventario de bebidas y productos</p>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={cargarStock}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Actualizar
-              </button>
-              {esAdmin && (
-                <button
-                  onClick={() => {
-                    setForm({
-                      nombre_producto: "",
-                      categoria: "bebidas",
-                      cantidad: 0,
-                      cantidad_minima: 0
-                    });
-                    setEditandoId(null);
-                    setMostrarFormulario(true);
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium transition-colors flex items-center gap-2"
-                >
-                  <Plus className="w-5 h-5" />
-                  Agregar Producto
-                </button>
-              )}
-            </div>
-          </div>
+    <AppLayout
+      role="empleado"
+      pageTitle="Control de Stock"
+      topbarActions={
+        <div className="flex items-center gap-2">
+          <button
+            onClick={cargarStock}
+            className="flex items-center gap-2 px-3 py-2 bg-surface-container-high hover:bg-surface-container-highest text-on-surface rounded-xl font-semibold text-sm transition-colors border border-outline-variant"
+          >
+            <span className="material-symbols-outlined text-[18px]">refresh</span>
+            Actualizar
+          </button>
+          {esAdmin && (
+            <button
+              onClick={() => {
+                setForm({
+                  nombre_producto: "",
+                  categoria: "bebidas",
+                  cantidad: 0,
+                  cantidad_minima: 0
+                });
+                setEditandoId(null);
+                setMostrarFormulario(true);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="flex items-center gap-2 px-3 py-2 bg-primary-container hover:bg-primary text-white rounded-xl font-semibold text-sm transition-colors"
+            >
+              <span className="material-symbols-outlined text-[18px]">add</span>
+              Agregar Producto
+            </button>
+          )}
         </div>
+      }
+    >
+      <div className="space-y-6 max-w-7xl mx-auto">
 
         {/* Filtros */}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
@@ -831,14 +822,6 @@ export default function GestionarStock() {
           )}
         </div>
 
-        {/* Botón volver */}
-        <button
-          onClick={() => navigate(-1)}
-          className="mt-8 inline-flex items-center gap-2 text-slate-600 hover:text-slate-800 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Volver atrás
-        </button>
       </div>
 
       {/* Modal de confirmación */}
@@ -852,7 +835,7 @@ export default function GestionarStock() {
         cancelText="Cancelar"
         type="danger"
       />
-    </div>
+    </AppLayout>
   );
 }
 

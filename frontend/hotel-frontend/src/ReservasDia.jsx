@@ -6,25 +6,26 @@ import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
-import { 
-  Calendar, 
-  User, 
-  DollarSign, 
-  CreditCard, 
-  Home, 
-  CheckCircle, 
-  Clock, 
-  ArrowLeft, 
-  Plus, 
-  X, 
+import {
+  Calendar,
+  User,
+  DollarSign,
+  CreditCard,
+  Home,
+  CheckCircle,
+  Clock,
+  Plus,
+  X,
   IdCard,
   Car,
   Phone,
   Users,
   Heart,
-  Printer
+  Printer,
+  ArrowLeft
 } from "lucide-react";
 import TicketAlojamiento from "./components/TicketAlojamiento";
+import AppLayout from "./components/Layout/AppLayout";
 
 export default function ReservasDia() {
   const [reservas, setReservas] = useState([]);
@@ -446,39 +447,28 @@ export default function ReservasDia() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-blue-600 p-3 rounded-xl">
-                <Calendar className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-800">Reservas del día</h1>
-                <p className="text-slate-600">Gestiona las reservas de tu hotel</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                <input
-                  type="date"
-                  value={fechaSeleccionada}
-                  onChange={(e) => setFechaSeleccionada(e.target.value)}
-                  className="bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-              <button
-                onClick={() => setMostrarFormulario(!mostrarFormulario)}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 shadow-lg hover:shadow-xl flex items-center gap-2"
-              >
-                {mostrarFormulario ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                {mostrarFormulario ? "Cancelar" : "Nueva Reserva"}
-              </button>
-            </div>
-          </div>
+    <AppLayout
+      role="empleado"
+      pageTitle="Reservas del Día"
+      topbarActions={
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={fechaSeleccionada}
+            onChange={(e) => setFechaSeleccionada(e.target.value)}
+            className="bg-surface-container border border-outline-variant rounded-xl px-3 py-2 text-on-surface text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          />
+          <button
+            onClick={() => setMostrarFormulario(!mostrarFormulario)}
+            className="flex items-center gap-2 px-3 py-2 bg-primary-container hover:bg-primary text-white rounded-xl font-semibold text-sm transition-colors"
+          >
+            <span className="material-symbols-outlined text-[18px]">{mostrarFormulario ? "close" : "add"}</span>
+            {mostrarFormulario ? "Cancelar" : "Nueva Reserva"}
+          </button>
         </div>
+      }
+    >
+      <div className="space-y-6 max-w-7xl mx-auto">
 
         {/* Formulario de nueva reserva */}
         {mostrarFormulario && (
@@ -1013,6 +1003,6 @@ export default function ReservasDia() {
           onClose={() => setReservaAImprimir(null)}
         />
       )}
-    </div>
+    </AppLayout>
   );
 }

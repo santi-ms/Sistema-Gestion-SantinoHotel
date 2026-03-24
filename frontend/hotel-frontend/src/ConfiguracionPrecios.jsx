@@ -5,10 +5,9 @@ import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { useToast } from "./components/ToastContainer";
 import { SkeletonTable } from "./components/Skeleton";
 import { EmptyState } from "./components/EmptyState";
-import { 
-  Home, 
-  DollarSign, 
-  ArrowLeft,
+import {
+  Home,
+  DollarSign,
   Edit3,
   Save,
   Calendar,
@@ -18,6 +17,7 @@ import {
   X
 } from "lucide-react";
 import { formatearSoloFecha } from "./utils/fechas";
+import AppLayout from "./components/Layout/AppLayout";
 
 export default function ConfiguracionPrecios() {
   const navigate = useNavigate();
@@ -252,33 +252,8 @@ export default function ConfiguracionPrecios() {
   const mañana = new Date(Date.now() + 86400000).toISOString().split("T")[0];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-orange-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-slate-800 flex items-center gap-3">
-                <div className="bg-gradient-to-br from-red-500 to-orange-600 p-3 rounded-xl">
-                  <Home className="w-6 h-6 text-white" />
-                </div>
-                Lista de Precios de Habitaciones
-              </h1>
-              <p className="text-slate-600 mt-2">
-                {esDueño 
-                  ? "Gestiona los rangos de precios dinámicos de las habitaciones" 
-                  : "Consulta los precios actuales de las habitaciones"}
-              </p>
-            </div>
-            <button
-              onClick={() => navigate(-1)}
-              className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all duration-200"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Volver
-            </button>
-          </div>
-        </div>
+    <AppLayout role="empleado" pageTitle="Lista de Precios">
+      <div className="space-y-6 max-w-7xl mx-auto">
 
         {/* Configuración masiva por capacidad - Solo para dueño */}
         {esDueño && (
@@ -683,6 +658,6 @@ export default function ConfiguracionPrecios() {
           </div>
         )}
       </div>
-    </div>
+    </AppLayout>
   );
 }

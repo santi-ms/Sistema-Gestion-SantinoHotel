@@ -10,12 +10,12 @@ import {
   TrendingDown,
   BarChart3,
   PieChart,
-  ArrowLeft,
   RefreshCw,
   ShoppingCart,
   XCircle,
   CheckCircle
 } from "lucide-react";
+import AppLayout from "./components/Layout/AppLayout";
 
 export default function DashboardStock() {
   const [estadisticas, setEstadisticas] = useState(null);
@@ -46,12 +46,14 @@ export default function DashboardStock() {
 
   if (cargando) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-slate-600">Cargando estadísticas...</p>
+      <AppLayout role="empleado" pageTitle="Dashboard de Stock">
+        <div className="flex items-center justify-center py-24">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-slate-600">Cargando estadísticas...</p>
+          </div>
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
@@ -60,38 +62,20 @@ export default function DashboardStock() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-blue-600 p-3 rounded-xl">
-                <BarChart3 className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-800">Dashboard de Stock</h1>
-                <p className="text-slate-600">Estadísticas y análisis del inventario</p>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={cargarEstadisticas}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Actualizar
-              </button>
-              <button
-                onClick={() => navigate(-1)}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl font-medium transition-colors flex items-center gap-2"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Volver
-              </button>
-            </div>
-          </div>
-        </div>
+    <AppLayout
+      role="empleado"
+      pageTitle="Dashboard de Stock"
+      topbarActions={
+        <button
+          onClick={cargarEstadisticas}
+          className="flex items-center gap-2 px-3 py-2 bg-primary-container hover:bg-primary text-white rounded-xl font-semibold text-sm transition-colors"
+        >
+          <span className="material-symbols-outlined text-[18px]">refresh</span>
+          Actualizar
+        </button>
+      }
+    >
+      <div className="space-y-6 max-w-7xl mx-auto">
 
         {/* Resumen General */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -303,7 +287,7 @@ export default function DashboardStock() {
           </div>
         </div>
       </div>
-    </div>
+    </AppLayout>
   );
 }
 

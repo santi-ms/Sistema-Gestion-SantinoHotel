@@ -25,12 +25,12 @@ import {
   Calendar,
   Home,
   Users,
-  ArrowLeft,
   Download,
   RefreshCw,
   Eye,
   PieChart as PieChartIcon
 } from 'lucide-react';
+import AppLayout from './components/Layout/AppLayout';
 
 export default function DashboardAnalytics() {
   const [dashboardData, setDashboardData] = useState(null);
@@ -271,22 +271,22 @@ export default function DashboardAnalytics() {
 
   if (cargando) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-indigo-50 p-4 md:p-8">
-        <div className="max-w-7xl mx-auto">
+      <AppLayout role="dueño" pageTitle="Dashboard Analytics">
+        <div className="space-y-6 max-w-7xl mx-auto">
           <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
             <Skeleton className="h-8 w-64 mb-4" />
             <Skeleton className="h-4 w-96" />
           </div>
           <SkeletonStats />
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-indigo-50 p-4 md:p-8">
-        <div className="max-w-7xl mx-auto">
+      <AppLayout role="dueño" pageTitle="Dashboard Analytics">
+        <div className="space-y-6 max-w-7xl mx-auto">
           <div className="bg-white rounded-2xl shadow-lg p-6 border border-red-200">
             <div className="flex items-center gap-3 mb-4">
               <div className="bg-red-100 p-3 rounded-xl">
@@ -304,60 +304,39 @@ export default function DashboardAnalytics() {
               >
                 Reintentar
               </button>
-              <button
-                onClick={() => navigate(-1)}
-                className="px-4 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all duration-200"
-              >
-                Volver
-              </button>
             </div>
           </div>
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-indigo-50 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-indigo-600 p-3 rounded-xl">
-                <BarChart3 className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-800">Dashboard Analytics</h1>
-                <p className="text-slate-600">Análisis completo del rendimiento del hotel</p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => cargarDatosAnalytics()}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-all duration-200"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Actualizar
-              </button>
-              <button
-                onClick={exportarReporte}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-all duration-200"
-              >
-                <Download className="w-4 h-4" />
-                Exportar
-              </button>
-              <button
-                onClick={() => navigate(-1)}
-                className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all duration-200"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Volver
-              </button>
-            </div>
-          </div>
+    <AppLayout
+      role="dueño"
+      pageTitle="Dashboard Analytics"
+      topbarActions={
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => cargarDatosAnalytics()}
+            className="flex items-center gap-2 px-3 py-2 bg-surface-container-high hover:bg-surface-container-highest text-on-surface rounded-xl font-semibold text-sm transition-colors border border-outline-variant"
+          >
+            <span className="material-symbols-outlined text-[18px]">refresh</span>
+            Actualizar
+          </button>
+          <button
+            onClick={exportarReporte}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl font-semibold text-sm transition-colors text-white"
+            style={{ backgroundColor: '#16a34a' }}
+            onMouseEnter={e => e.currentTarget.style.backgroundColor = '#15803d'}
+            onMouseLeave={e => e.currentTarget.style.backgroundColor = '#16a34a'}
+          >
+            <span className="material-symbols-outlined text-[18px]">download</span>
+            Exportar
+          </button>
         </div>
+      }
+    >
 
         {/* Métricas Principales */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -507,11 +486,6 @@ export default function DashboardAnalytics() {
                   <Tooltip formatter={(value) => [`$${value.toLocaleString()}`, 'Monto']} />
                 </PieChart>
               </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-96 text-slate-500">
-                <p>No hay datos de formas de pago disponibles</p>
-              </div>
-            )}
             ) : (
               <div className="flex items-center justify-center h-96 text-slate-500">
                 <p>No hay datos de formas de pago disponibles</p>
@@ -865,7 +839,6 @@ export default function DashboardAnalytics() {
             </div>
           </div>
         </div>
-      </div>
-    </div>
+    </AppLayout>
   );
 }

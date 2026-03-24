@@ -6,6 +6,7 @@ import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import { formatearSoloFecha, formatearSoloHora, obtenerHoyArgentinaISO } from "./utils/fechas";
 import TicketTermico from "./components/TicketTermico";
+import AppLayout from "./components/Layout/AppLayout";
 import { 
   Coffee, 
   DollarSign, 
@@ -536,49 +537,19 @@ const getEstadoBadge = (pedido) => {
   const esDueño = userRole === "dueño";
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-purple-50 p-4 md:p-8">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-purple-600 p-3 rounded-xl">
-                <Coffee className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-800">
-                  {editandoId ? "Editar Pedido" : "Registrar Pedido"}
-                </h1>
-                <p className="text-slate-600">
-                  {esDueño ? "Gestiona los pedidos gastronómicos" : "Registra pedidos gastronómicos"}
-                </p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-4">
-              <div className="text-sm text-slate-600 bg-slate-50 px-3 py-2 rounded-lg">
-                <Clock className="w-4 h-4 inline mr-1" />
-                {formatearSoloFecha(new Date())}
-              </div>
-              
-              <button
-                onClick={() => setMostrarFormulario(!mostrarFormulario)}
-                className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 shadow-lg hover:shadow-xl flex items-center gap-2"
-              >
-                {mostrarFormulario ? <XCircle className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                {mostrarFormulario ? "Cancelar" : "Nuevo Pedido"}
-              </button>
-              
-              <button
-                onClick={() => window.history.back()}
-                className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all duration-200"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Volver
-              </button>
-            </div>
-          </div>
-        </div>
+    <AppLayout
+      role="empleado"
+      pageTitle={editandoId ? "Editar Pedido" : "Registrar Pedido"}
+      topbarActions={
+        <button
+          onClick={() => setMostrarFormulario(!mostrarFormulario)}
+          className="flex items-center gap-2 px-3 py-2 bg-primary-container hover:bg-primary text-white rounded-xl font-semibold text-sm transition-colors"
+        >
+          <span className="material-symbols-outlined text-[18px]">{mostrarFormulario ? "close" : "add"}</span>
+          {mostrarFormulario ? "Cancelar" : "Nuevo Pedido"}
+        </button>
+      }
+    >
 
         {/* Formulario */}
         {mostrarFormulario && (
@@ -1087,7 +1058,6 @@ const getEstadoBadge = (pedido) => {
             </div>
           )}
         </div>
-      </div>
 
       {/* Modal de confirmación para eliminar */}
       <ConfirmModal
@@ -1204,6 +1174,6 @@ const getEstadoBadge = (pedido) => {
           onClose={() => setPedidoAImprimir(null)}
         />
       )}
-    </div>
+    </AppLayout>
   );
 }

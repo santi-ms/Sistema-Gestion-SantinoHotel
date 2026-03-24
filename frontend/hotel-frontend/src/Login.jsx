@@ -1,7 +1,6 @@
 import { useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
-import { Mail, Lock, Eye, EyeOff, MapPin, ArrowRight, Coffee } from "lucide-react";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { useToast } from "./components/ToastContainer";
 
@@ -21,27 +20,19 @@ export default function Login() {
       data.append("password", contraseña);
 
       const response = await axios.post(`${API_BASE_URL}/login`, data, {
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
-        }
+        headers: { "Content-Type": "application/x-www-form-urlencoded" }
       });
 
       const token = response.data.access_token;
       localStorage.setItem(TOKEN_KEY, token);
       success("Bienvenido al Hotel Santino");
 
-      // Decodificar el token para obtener el rol
       const payload = JSON.parse(atob(token.split(".")[1]));
-
       setTimeout(() => {
-        if (payload.rol === "empleado") {
-          navigate("/empleado");
-        } else if (payload.rol === "dueño") {
-          navigate("/dueno");
-        }
+        if (payload.rol === "empleado") navigate("/empleado");
+        else if (payload.rol === "dueño") navigate("/dueno");
       }, 500);
     } catch (error) {
-      console.error("Error de login:", error);
       const errorMsg = error.response?.data?.detail || error.message || "Credenciales incorrectas";
       errorToast(errorMsg);
     } finally {
@@ -50,141 +41,128 @@ export default function Login() {
   };
 
   const handleKeyPress = (e) => {
-    if (e.key === 'Enter') {
-      handleLogin();
-    }
+    if (e.key === "Enter") handleLogin();
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden">
-      {/* Fondo personalizado con colores cálidos */}
-      <div className="absolute inset-0 bg-gradient-to-br from-amber-900 via-orange-900 to-red-900">
-        <div className="absolute inset-0 bg-black bg-opacity-30"></div>
-        
-        {/* Círculos animados con colores del hotel */}
-        <div className="absolute top-0 left-0 w-72 h-72 bg-orange-400 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse"></div>
-        <div className="absolute top-0 right-0 w-72 h-72 bg-amber-400 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse animation-delay-2000"></div>
-        <div className="absolute bottom-0 left-1/2 w-72 h-72 bg-yellow-400 rounded-full mix-blend-multiply filter blur-xl opacity-20 animate-pulse animation-delay-4000"></div>
+    <div className="min-h-screen flex">
+      {/* Panel izquierdo oscuro */}
+      <div className="hidden lg:flex lg:w-1/2 bg-[#0f172a] flex-col items-center justify-center p-12 relative overflow-hidden">
+        {/* Decoración de fondo */}
+        <div className="absolute top-0 left-0 w-96 h-96 bg-primary-container opacity-10 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2" />
+        <div className="absolute bottom-0 right-0 w-96 h-96 bg-blue-500 opacity-5 rounded-full blur-3xl translate-x-1/2 translate-y-1/2" />
+
+        <div className="relative z-10 text-center">
+          {/* Logo */}
+          <div className="w-20 h-20 bg-primary-container rounded-2xl flex items-center justify-center mx-auto mb-8 shadow-2xl">
+            <span className="text-white font-extrabold text-3xl tracking-tighter">HS</span>
+          </div>
+          <h1 className="text-4xl font-extrabold text-white tracking-tight mb-3">Hotel Santino</h1>
+          <p className="text-slate-400 text-lg mb-12">Management Suite</p>
+
+          {/* Features */}
+          <div className="space-y-4 text-left max-w-xs mx-auto">
+            {[
+              { icon: "hotel", text: "Gestión de reservas en tiempo real" },
+              { icon: "restaurant", text: "Control de pedidos del restobar" },
+              { icon: "bar_chart", text: "Analytics y reportes financieros" },
+            ].map((f) => (
+              <div key={f.icon} className="flex items-center gap-3 text-slate-300">
+                <div className="w-8 h-8 bg-white/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-[18px] text-blue-400">{f.icon}</span>
+                </div>
+                <span className="text-sm">{f.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p className="absolute bottom-8 text-slate-600 text-xs">Santo Tomé, Corrientes · © 2025</p>
       </div>
 
-      {/* Contenido principal */}
-      <div className="relative z-10 min-h-screen flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          {/* Logo y título del Hotel Santino */}
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-r from-orange-500 to-amber-600 rounded-3xl mb-6 shadow-2xl border-2 border-amber-400 border-opacity-30">
-              <div className="text-white font-bold text-2xl">HS</div>
+      {/* Panel derecho blanco */}
+      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-surface-container-lowest">
+        <div className="w-full max-w-sm">
+          {/* Logo mobile */}
+          <div className="lg:hidden flex items-center gap-3 mb-10">
+            <div className="w-10 h-10 bg-primary-container rounded-xl flex items-center justify-center">
+              <span className="text-white font-extrabold text-sm">HS</span>
             </div>
-            <h1 className="text-4xl font-bold text-white mb-2 font-serif">Hotel Santino</h1>
-            <div className="flex items-center justify-center gap-2 text-amber-200 mb-2">
-              <Coffee className="w-4 h-4" />
-              <span className="text-lg font-medium">Restobar</span>
-            </div>
-            <div className="flex items-center justify-center gap-1 text-orange-200">
-              <MapPin className="w-4 h-4" />
-              <span className="text-sm">Santo Tomé, Corrientes</span>
-            </div>
-            <div className="mt-4 w-20 h-1 bg-gradient-to-r from-orange-400 to-amber-400 mx-auto rounded-full"></div>
+            <span className="font-bold text-on-surface text-lg">Hotel Santino</span>
           </div>
 
-          {/* Formulario de login */}
-          <div className="backdrop-blur-lg bg-white bg-opacity-15 rounded-3xl p-8 shadow-2xl border border-amber-200 border-opacity-20">
-            <h2 className="text-2xl font-semibold text-white text-center mb-2">Sistema de Gestión</h2>
-            <p className="text-amber-200 text-center mb-8 text-sm">Acceso al panel administrativo</p>
-            
-            {/* Campo de email */}
-            <div className="relative mb-6">
-              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                <Mail className="h-5 w-5 text-amber-300" />
-              </div>
+          <h2 className="text-2xl font-extrabold text-on-surface tracking-tight mb-1">Iniciar sesión</h2>
+          <p className="text-on-surface-variant text-sm mb-8">Ingresá tus credenciales para continuar</p>
+
+          {/* Email */}
+          <div className="mb-4">
+            <label className="block text-xs font-semibold text-on-surface-variant uppercase tracking-wide mb-2">
+              Correo electrónico
+            </label>
+            <div className="relative">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[20px]">mail</span>
               <input
                 type="email"
-                placeholder="Correo electrónico"
+                placeholder="usuario@hotel.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 onKeyPress={handleKeyPress}
-                className="w-full pl-12 pr-4 py-4 bg-white bg-opacity-10 border border-amber-300 border-opacity-30 rounded-xl text-white placeholder-amber-200 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all duration-300 hover:bg-opacity-20"
+                className="w-full pl-10 pr-4 py-3 bg-surface-container-low border border-outline-variant rounded-xl text-on-surface text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all placeholder:text-outline"
               />
             </div>
+          </div>
 
-            {/* Campo de contraseña */}
-            <div className="relative mb-6">
-              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                <Lock className="h-5 w-5 text-amber-300" />
-              </div>
+          {/* Password */}
+          <div className="mb-6">
+            <label className="block text-xs font-semibold text-on-surface-variant uppercase tracking-wide mb-2">
+              Contraseña
+            </label>
+            <div className="relative">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[20px]">lock</span>
               <input
                 type={mostrarContraseña ? "text" : "password"}
-                placeholder="Contraseña"
+                placeholder="••••••••"
                 value={contraseña}
                 onChange={(e) => setContraseña(e.target.value)}
                 onKeyPress={handleKeyPress}
-                className="w-full pl-12 pr-12 py-4 bg-white bg-opacity-10 border border-amber-300 border-opacity-30 rounded-xl text-white placeholder-amber-200 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all duration-300 hover:bg-opacity-20"
+                className="w-full pl-10 pr-12 py-3 bg-surface-container-low border border-outline-variant rounded-xl text-on-surface text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all placeholder:text-outline"
               />
               <button
                 type="button"
                 onClick={() => setMostrarContraseña(!mostrarContraseña)}
-                className="absolute inset-y-0 right-0 pr-4 flex items-center text-amber-300 hover:text-white transition-colors duration-200"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-outline hover:text-on-surface transition-colors"
               >
-                {mostrarContraseña ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                <span className="material-symbols-outlined text-[20px]">
+                  {mostrarContraseña ? "visibility_off" : "visibility"}
+                </span>
               </button>
             </div>
-
-            {/* Botón de login */}
-            <button
-              onClick={handleLogin}
-              disabled={cargando || !email || !contraseña}
-              className="w-full bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white font-semibold py-4 px-6 rounded-xl transition-all duration-300 transform hover:scale-105 hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center group shadow-lg"
-            >
-              {cargando ? (
-                <div className="flex items-center">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                  Verificando acceso...
-                </div>
-              ) : (
-                <div className="flex items-center">
-                  Ingresar al Sistema
-                  <ArrowRight className="ml-2 h-5 w-5 transition-transform duration-300 group-hover:translate-x-1" />
-                </div>
-              )}
-            </button>
           </div>
 
-          {/* Footer personalizado */}
-          <div className="text-center mt-8">
-            <div className="text-amber-200 text-sm font-medium mb-2">
-              Hotel Santino - Restobar
-            </div>
-            <div className="text-orange-300 text-xs">
-              Santo Tomé, Corrientes • Sistema de Gestión Hotelera
-            </div>
-            <div className="text-amber-400 text-xs mt-2">
-              © 2025 - Hospitalidad familiar desde el corazón de Corrientes
-            </div>
-          </div>
+          {/* Submit */}
+          <button
+            onClick={handleLogin}
+            disabled={cargando || !email || !contraseña}
+            className="w-full bg-primary-container hover:bg-primary text-white font-bold py-3 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm shadow-lg shadow-blue-900/20"
+          >
+            {cargando ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Verificando...
+              </>
+            ) : (
+              <>
+                Ingresar al sistema
+                <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+              </>
+            )}
+          </button>
+
+          <p className="text-center text-xs text-outline mt-8">
+            Hotel Santino · Santo Tomé, Corrientes
+          </p>
         </div>
       </div>
-
-      {/* Efectos visuales adicionales */}
-      <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-black to-transparent opacity-50"></div>
-      
-      {/* Estilos CSS adicionales para animaciones */}
-      <style jsx>{`
-        .animation-delay-2000 {
-          animation-delay: 2s;
-        }
-        .animation-delay-4000 {
-          animation-delay: 4s;
-        }
-        
-        @keyframes float {
-          0%, 100% { transform: translateY(0px); }
-          50% { transform: translateY(-20px); }
-        }
-        
-        .animate-float {
-          animation: float 6s ease-in-out infinite;
-        }
-      `}</style>
     </div>
   );
 }

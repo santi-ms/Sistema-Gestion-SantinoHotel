@@ -7,11 +7,10 @@ import ConfirmModal from "./components/ConfirmModal";
 import { SkeletonTable } from "./components/Skeleton";
 import { EmptyState } from "./components/EmptyState";
 import { formatearSoloHora, formatearSoloFecha } from "./utils/fechas";
-import { 
-  Receipt, 
-  DollarSign, 
-  Home, 
-  ArrowLeft, 
+import {
+  Receipt,
+  DollarSign,
+  Home,
   Save,
   Edit3,
   Trash2,
@@ -22,6 +21,7 @@ import {
   TrendingDown,
   FileText
 } from "lucide-react";
+import AppLayout from "./components/Layout/AppLayout";
 
 export default function RegistrarGasto() {
   const [form, setForm] = useState({
@@ -174,40 +174,8 @@ export default function RegistrarGasto() {
   const esDueño = userRole === "dueño";
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-red-50 p-4 md:p-8">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-red-600 p-3 rounded-xl">
-                <Receipt className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-slate-800">
-                  {editandoId ? "Editar Gasto" : "Registrar Gasto"}
-                </h1>
-                <p className="text-slate-600">
-                  {esDueño ? "Gestiona compras y gastos operativos" : "Registra compras y gastos operativos del hotel"}
-                </p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-4">
-              <div className="text-sm text-slate-600 bg-slate-50 px-3 py-2 rounded-lg">
-                <Clock className="w-4 h-4 inline mr-1" />
-                {formatearSoloFecha(new Date())}
-              </div>
-              <button
-                onClick={() => navigate(-1)}
-                className="flex items-center gap-2 px-4 py-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all duration-200"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Volver
-              </button>
-            </div>
-          </div>
-        </div>
+    <AppLayout role="empleado" pageTitle={editandoId ? "Editar Gasto" : "Registrar Gasto"}>
+      <div className="space-y-6 max-w-7xl mx-auto">
 
         {/* Formulario */}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
@@ -477,6 +445,6 @@ export default function RegistrarGasto() {
         cancelText="Cancelar"
         type="danger"
       />
-    </div>
+    </AppLayout>
   );
 }

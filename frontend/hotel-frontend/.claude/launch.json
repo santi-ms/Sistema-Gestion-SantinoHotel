@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hotel-frontend",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "npm run dev"],
+      "port": 3000,
+      "autoPort": true,
+      "cwd": "C:\\Users\\santi\\Desktop\\HotelGestion2\\frontend\\hotel-frontend"
+    }
+  ]
+}
