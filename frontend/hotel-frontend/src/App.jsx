@@ -99,13 +99,13 @@ function App() {
 
       {/* RUTAS PRINCIPALMENTE DEL EMPLEADO */}
       <Route path="/reservas-dia" element={
-        <RutaPrivada rol="empleado">
+        <RutaPrivada rol={["empleado", "dueño"]}>
           <ReservasDia />
         </RutaPrivada>
       } />
 
       <Route path="/registrar-pedido" element={
-        <RutaPrivada rol="empleado">
+        <RutaPrivada rol={["empleado", "dueño"]}>
           <RegistrarPedido />
         </RutaPrivada>
       } />
