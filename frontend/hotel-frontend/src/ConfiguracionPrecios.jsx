@@ -22,6 +22,16 @@ import {
 import { formatearSoloFecha } from "./utils/fechas";
 import AppLayout from "./components/Layout/AppLayout";
 
+const formatUSD = (valor) => {
+  if (valor === null || valor === undefined) return "—";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(valor);
+};
+
+const formatBRL = (valor) => {
+  if (valor === null || valor === undefined) return "—";
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0 }).format(valor);
+};
+
 function CalculadoraVuelto({ usdVenta, brlPerUsd, formatearMoneda }) {
   const [moneda, setMoneda] = useState("USD");
   const [cobrar, setCobrar] = useState("");
@@ -211,16 +221,6 @@ export default function ConfiguracionPrecios() {
   const convertirBRL = (ars) => {
     if (!cotizaciones.usdVenta || !cotizaciones.brlPerUsd || !ars) return null;
     return Math.round((ars / cotizaciones.usdVenta) * cotizaciones.brlPerUsd);
-  };
-
-  const formatUSD = (valor) => {
-    if (valor === null || valor === undefined) return "—";
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(valor);
-  };
-
-  const formatBRL = (valor) => {
-    if (valor === null || valor === undefined) return "—";
-    return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0 }).format(valor);
   };
 
   // Obtener rol del usuario
