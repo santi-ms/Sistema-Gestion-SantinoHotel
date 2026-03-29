@@ -22,6 +22,130 @@ import {
 import { formatearSoloFecha } from "./utils/fechas";
 import AppLayout from "./components/Layout/AppLayout";
 
+function CalculadoraVuelto({ usdVenta, brlPerUsd, formatearMoneda }) {
+  const [moneda, setMoneda] = useState("USD");
+  const [cobrar, setCobrar] = useState("");
+  const [recibio, setRecibio] = useState("");
+
+  const arsPerBrl = usdVenta / brlPerUsd;
+  const tasaARS = moneda === "USD" ? usdVenta : arsPerBrl;
+
+  const montoCobrarNum = parseFloat(cobrar) || 0;
+  const montoRecibioNum = parseFloat(recibio) || 0;
+  const diferencia = montoRecibioNum - montoCobrarNum;
+  const vueltoARS = diferencia * tasaARS;
+
+  const hayResultado = montoCobrarNum > 0 && montoRecibioNum > 0;
+  const esVuelto = diferencia > 0;
+  const esFalta = diferencia < 0;
+  const esCuadrado = diferencia === 0;
+
+  return (
+    <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="material-symbols-outlined text-blue-600 text-xl">calculate</span>
+        <h3 className="text-sm font-semibold text-slate-700">Calculadora de vuelto en pesos</h3>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+        {/* Moneda */}
+        <div>
+          <label className="block text-xs font-medium text-slate-500 mb-1">Moneda</label>
+          <div className="flex rounded-xl overflow-hidden border border-slate-300">
+            <button
+              onClick={() => setMoneda("USD")}
+              className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${
+                moneda === "USD"
+                  ? "bg-blue-600 text-white"
+                  : "bg-slate-50 text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              🇺🇸 USD
+            </button>
+            <button
+              onClick={() => setMoneda("BRL")}
+              className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${
+                moneda === "BRL"
+                  ? "bg-green-600 text-white"
+                  : "bg-slate-50 text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              🇧🇷 BRL
+            </button>
+          </div>
+        </div>
+
+        {/* A cobrar */}
+        <div>
+          <label className="block text-xs font-medium text-slate-500 mb-1">
+            A cobrar ({moneda})
+          </label>
+          <input
+            type="number"
+            min="0"
+            value={cobrar}
+            onChange={(e) => setCobrar(e.target.value)}
+            placeholder="Ej: 50"
+            className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-2.5 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        {/* Recibió */}
+        <div>
+          <label className="block text-xs font-medium text-slate-500 mb-1">
+            Recibió ({moneda})
+          </label>
+          <input
+            type="number"
+            min="0"
+            value={recibio}
+            onChange={(e) => setRecibio(e.target.value)}
+            placeholder="Ej: 100"
+            className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-2.5 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        {/* Resultado */}
+        <div>
+          <label className="block text-xs font-medium text-slate-500 mb-1">Vuelto en pesos</label>
+          {!hayResultado ? (
+            <div className="w-full bg-slate-50 border border-dashed border-slate-300 rounded-xl px-4 py-2.5 text-slate-400 text-sm">
+              Ingresá los montos
+            </div>
+          ) : esCuadrado ? (
+            <div className="w-full bg-slate-100 border border-slate-300 rounded-xl px-4 py-2.5 text-slate-600 text-sm font-semibold">
+              ✓ Exacto, sin vuelto
+            </div>
+          ) : esFalta ? (
+            <div className="w-full bg-red-50 border border-red-300 rounded-xl px-4 py-2.5 text-red-700 text-sm font-bold">
+              Falta {moneda === "USD" ? formatUSD(Math.abs(diferencia)) : formatBRL(Math.abs(diferencia))}
+            </div>
+          ) : (
+            <div className="w-full bg-green-50 border border-green-300 rounded-xl px-4 py-2.5">
+              <p className="text-xs text-green-600 leading-none mb-0.5">
+                Vuelto ({moneda === "USD" ? formatUSD(diferencia) : formatBRL(diferencia)})
+              </p>
+              <p className="text-base font-bold text-green-700 leading-tight">
+                {formatearMoneda(Math.round(vueltoARS))}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Reset */}
+      {(cobrar || recibio) && (
+        <button
+          onClick={() => { setCobrar(""); setRecibio(""); }}
+          className="mt-3 text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1 transition-colors"
+        >
+          <X className="w-3 h-3" /> Limpiar
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function ConfiguracionPrecios() {
   const navigate = useNavigate();
   const token = localStorage.getItem(TOKEN_KEY);
@@ -518,6 +642,15 @@ export default function ConfiguracionPrecios() {
             </div>
           </div>
         </div>
+
+        {/* Calculadora de vuelto */}
+        {!cotizaciones.loading && !cotizaciones.error && (
+          <CalculadoraVuelto
+            usdVenta={cotizaciones.usdVenta}
+            brlPerUsd={cotizaciones.brlPerUsd}
+            formatearMoneda={formatearMoneda}
+          />
+        )}
 
         {/* Filtros */}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
