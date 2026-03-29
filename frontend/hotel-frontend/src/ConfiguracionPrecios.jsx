@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
@@ -16,7 +16,8 @@ import {
   TrendingUp,
   TrendingDown,
   Search,
-  X
+  X,
+  RefreshCw
 } from "lucide-react";
 import { formatearSoloFecha } from "./utils/fechas";
 import AppLayout from "./components/Layout/AppLayout";
@@ -47,11 +48,66 @@ export default function ConfiguracionPrecios() {
     precio_maximo: ""
   });
 
+  const [cotizaciones, setCotizaciones] = useState({
+    usdVenta: null,
+    brlPerUsd: null,
+    loading: true,
+    error: null,
+    ultimaActualizacion: null
+  });
+
+  const fetchCotizaciones = useCallback(async () => {
+    setCotizaciones(prev => ({ ...prev, loading: true, error: null }));
+    try {
+      const [usdRes, brlRes] = await Promise.all([
+        axios.get("https://dolarapi.com/v1/dolares/oficial"),
+        axios.get("https://open.er-api.com/v6/latest/USD")
+      ]);
+      setCotizaciones({
+        usdVenta: usdRes.data.venta,
+        brlPerUsd: brlRes.data.rates.BRL,
+        loading: false,
+        error: null,
+        ultimaActualizacion: new Date()
+      });
+    } catch {
+      setCotizaciones(prev => ({
+        ...prev,
+        loading: false,
+        error: "No se pudo obtener el tipo de cambio"
+      }));
+    }
+  }, []);
+
+  const convertirUSD = (ars) => {
+    if (!cotizaciones.usdVenta || !ars) return null;
+    return Math.round(ars / cotizaciones.usdVenta);
+  };
+
+  const convertirBRL = (ars) => {
+    if (!cotizaciones.usdVenta || !cotizaciones.brlPerUsd || !ars) return null;
+    return Math.round((ars / cotizaciones.usdVenta) * cotizaciones.brlPerUsd);
+  };
+
+  const formatUSD = (valor) => {
+    if (valor === null || valor === undefined) return "—";
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(valor);
+  };
+
+  const formatBRL = (valor) => {
+    if (valor === null || valor === undefined) return "—";
+    return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 0 }).format(valor);
+  };
+
   // Obtener rol del usuario
   useEffect(() => {
     const rol = getUserRole();
     if (rol) setUserRole(rol);
   }, []);
+
+  useEffect(() => {
+    fetchCotizaciones();
+  }, [fetchCotizaciones]);
 
   // Cargar habitaciones
   useEffect(() => {
@@ -412,6 +468,57 @@ export default function ConfiguracionPrecios() {
           </div>
         </div>
 
+        {/* Banner de cotizaciones */}
+        <div className="bg-white rounded-2xl shadow-lg p-5 border border-slate-200">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-blue-600 text-xl">currency_exchange</span>
+              <span className="text-sm font-semibold text-slate-700">Tipo de cambio oficial</span>
+              {cotizaciones.ultimaActualizacion && (
+                <span className="text-xs text-slate-400">
+                  · actualizado {cotizaciones.ultimaActualizacion.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-4">
+              {cotizaciones.loading ? (
+                <span className="text-sm text-slate-400 animate-pulse">Obteniendo cotizaciones...</span>
+              ) : cotizaciones.error ? (
+                <span className="text-sm text-red-500">{cotizaciones.error}</span>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2">
+                    <span className="text-lg">🇺🇸</span>
+                    <div>
+                      <p className="text-xs text-slate-500 leading-none">USD Oficial</p>
+                      <p className="text-sm font-bold text-blue-700">
+                        1 USD = {new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 0 }).format(cotizaciones.usdVenta)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-2">
+                    <span className="text-lg">🇧🇷</span>
+                    <div>
+                      <p className="text-xs text-slate-500 leading-none">BRL Oficial</p>
+                      <p className="text-sm font-bold text-green-700">
+                        1 BRL = {new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", minimumFractionDigits: 0 }).format(cotizaciones.usdVenta / cotizaciones.brlPerUsd)}
+                      </p>
+                    </div>
+                  </div>
+                </>
+              )}
+              <button
+                onClick={fetchCotizaciones}
+                disabled={cotizaciones.loading}
+                className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all duration-200 disabled:opacity-40"
+                title="Actualizar cotizaciones"
+              >
+                <RefreshCw className={`w-4 h-4 ${cotizaciones.loading ? "animate-spin" : ""}`} />
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* Filtros */}
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -468,7 +575,13 @@ export default function ConfiguracionPrecios() {
                   <tr>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Habitación</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Tipo</th>
-                    <th className="px-6 py-4 text-right text-sm font-medium text-slate-700">Precio Actual</th>
+                    <th className="px-6 py-4 text-right text-sm font-medium text-slate-700">Precio ARS</th>
+                    <th className="px-6 py-4 text-right text-sm font-medium text-slate-700">
+                      <span className="flex items-center justify-end gap-1">🇺🇸 USD</span>
+                    </th>
+                    <th className="px-6 py-4 text-right text-sm font-medium text-slate-700">
+                      <span className="flex items-center justify-end gap-1">🇧🇷 BRL</span>
+                    </th>
                     <th className="px-6 py-4 text-right text-sm font-medium text-slate-700">Rango de Precios</th>
                     <th className="px-6 py-4 text-center text-sm font-medium text-slate-700">Capacidad</th>
                     {esDueño && (
@@ -516,6 +629,26 @@ export default function ConfiguracionPrecios() {
                             <p className="text-xs text-slate-500 mt-1">
                               {precioEnRango ? "Precio dinámico calculado" : "Precio fijo"}
                             </p>
+                          )}
+                        </td>
+                        {/* USD */}
+                        <td className="px-6 py-4 text-right">
+                          {cotizaciones.loading ? (
+                            <span className="text-xs text-slate-400 animate-pulse">...</span>
+                          ) : (
+                            <span className="text-sm font-semibold text-blue-600">
+                              {formatUSD(convertirUSD(precioActual))}
+                            </span>
+                          )}
+                        </td>
+                        {/* BRL */}
+                        <td className="px-6 py-4 text-right">
+                          {cotizaciones.loading ? (
+                            <span className="text-xs text-slate-400 animate-pulse">...</span>
+                          ) : (
+                            <span className="text-sm font-semibold text-green-700">
+                              {formatBRL(convertirBRL(precioActual))}
+                            </span>
                           )}
                         </td>
                         <td className="px-6 py-4 text-right">
