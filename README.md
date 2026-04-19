@@ -1,122 +1,110 @@
-# 🏨 Hotel Santino - Monorepo Completo
+# Hotel Santino — Sistema de Gestión Hotelera
 
-Sistema completo de gestión hotelera para el Complejo Santino.
+Sistema web integral para la gestión de alojamientos turísticos: reservas, pedidos, stock, gastos y finanzas en un solo lugar.
 
-## 📁 Estructura del Monorepo
+---
+
+## Stack Tecnológico
+
+| Capa | Tecnología |
+|---|---|
+| Frontend | React 19 + Vite + Tailwind CSS |
+| Backend | Python FastAPI |
+| Base de datos | PostgreSQL |
+| Deploy Backend | Railway |
+| Deploy Frontend | Vercel |
+| Auth | JWT con roles (dueño / empleado) |
+
+---
+
+## Funcionalidades
+
+### Panel del Dueño
+- **Dashboard** con resumen del día: ingresos, egresos y balance
+- **Analytics** con gráficos de ocupación e ingresos históricos
+- Gestión completa de habitaciones y precios dinámicos
+- **Calculadora de cambio** con cotización oficial USD y BRL en tiempo real
+- Registro y consulta de gastos operativos
+- Exportación de pedidos a CSV
+
+### Panel del Empleado
+- Registro de reservas con check-in / check-out
+- Pedidos de restobar con impresión de ticket térmico
+- Control de stock con alertas
+- Gestión de actividades y clientes
+
+### General
+- Autenticación con roles diferenciados (dueño / empleado)
+- Diseño responsive — funciona en celular, tablet y PC
+- Interfaz moderna tipo SaaS
+
+---
+
+## Estructura del Proyecto
 
 ```
-HotelGestion2/
-├── backend/                      # Backend FastAPI
-│   └── hotel-santino-backend/
-│       ├── hotel.py              # API principal (2004 líneas, 49 endpoints)
-│       ├── requirements.txt      # Dependencias Python
-│       └── README.md            # Documentación del backend
-│
-├── frontend/                     # Frontend React/Vite
-│   └── hotel-frontend/
-│       ├── src/                  # Código fuente
-│       ├── package.json          # Dependencias Node.js
-│       └── README.md            # Documentación del frontend
-│
-└── docs/                         # Documentación compartida
-    ├── DEPLOYMENT.md            # Guía de deployment
-    ├── ENDPOINTS.md             # Documentación de API
-    └── ...                      # Más documentación
+hotel-santino/
+├── backend/
+│   └── hotel-santino-backend/   # FastAPI + PostgreSQL
+│       ├── hotel.py              # API principal
+│       └── alembic/              # Migraciones de base de datos
+├── frontend/
+│   └── hotel-frontend/          # React + Vite
+│       └── src/
+│           ├── components/       # Componentes reutilizables
+│           ├── hooks/            # Custom hooks (auth, debounce)
+│           ├── utils/            # Utilidades (moneda, fechas)
+│           └── lib/              # Axios instance con interceptors
+└── infra/                        # Infraestructura (Docker, n8n)
 ```
 
-## 🚀 Quick Start
+---
+
+## Variables de Entorno
 
 ### Backend
+```env
+DATABASE_URL=postgresql://user:password@host:port/dbname
+SECRET_KEY=tu-clave-secreta-jwt
+```
 
+### Frontend
+```env
+VITE_API_URL=https://tu-backend.railway.app
+```
+
+---
+
+## Instalación Local
+
+### Backend
 ```bash
 cd backend/hotel-santino-backend
+python -m venv venv
+source venv/bin/activate   # En Windows: venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn hotel:app --reload
 ```
 
 ### Frontend
-
 ```bash
 cd frontend/hotel-frontend
 npm install
 npm run dev
 ```
 
-## 📋 Información del Proyecto
+---
 
-- **Backend**: FastAPI (Python) - Desplegado en Railway
-- **Frontend**: React + Vite - Desplegado en Vercel
-- **Base de Datos**: PostgreSQL (Railway)
-- **Autenticación**: JWT con roles (dueño/empleado)
+## Crear primer usuario administrador
 
-## ✨ Características
+Editar `crear_dueno.py` con tu email y contraseña, luego ejecutar:
 
-- ✅ **49 endpoints** REST completos
-- ✅ **Autenticación JWT** con roles
-- ✅ **Sistema de reservas** (web pública + gestión interna)
-- ✅ **Gestión de habitaciones** (15 habitaciones configuradas)
-- ✅ **Sistema de pedidos** con múltiples items
-- ✅ **Analytics y reportes** completos
-- ✅ **Check-out automático** manual
-- ✅ **Sistema de señas** pendientes
-- ✅ **Zona horaria Argentina** (UTC-3)
-
-## 📚 Documentación
-
-- **[Backend README](backend/hotel-santino-backend/README.md)**: Documentación completa del backend
-- **[Frontend README](frontend/hotel-frontend/README.md)**: Documentación del frontend
-- **[Endpoints](docs/ENDPOINTS.md)**: Documentación detallada de todos los endpoints
-- **[Deployment](docs/DEPLOYMENT.md)**: Guía de deployment en Railway y Vercel
-- **[Estructura](docs/ESTRUCTURA_PROYECTO.md)**: Estructura detallada del proyecto
-
-## 🔧 Configuración
-
-### Variables de Entorno
-
-**Backend (Railway):**
-- `DATABASE_URL`: Configurada automáticamente por Railway
-- `SECRET_KEY`: Configurar con valor seguro
-
-**Frontend (Vercel):**
-- `VITE_API_URL`: URL del backend en Railway
-
-## 🚀 Deployment
-
-- **Backend**: [Railway](https://railway.app) - Ver [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
-- **Frontend**: [Vercel](https://vercel.com)
-
-## 📊 Estadísticas
-
-- **Endpoints**: 49
-- **Endpoints públicos**: 4
-- **Modelos de datos**: 6
-- **Líneas de código backend**: ~2004
-- **Sistemas especiales**: 5
-
-## 🛠️ Tecnologías
-
-**Backend:**
-- FastAPI, SQLModel, PostgreSQL/SQLite
-- JWT, bcrypt para autenticación
-
-**Frontend:**
-- React, Vite
-- Tailwind CSS
-
-**Deployment:**
-- Railway (Backend + PostgreSQL)
-- Vercel (Frontend)
-
-## 📞 Soporte
-
-Para más información:
-- Ver [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) para problemas de deployment
-- Ver [docs/ENDPOINTS.md](docs/ENDPOINTS.md) para documentación de API
-- Revisar logs en Railway Dashboard
+```bash
+python crear_dueno.py
+```
 
 ---
 
-**Versión**: 3.0  
-**Última actualización**: 2025  
-**Zona horaria**: Argentina (UTC-3)  
-**Estructura**: Monorepo
+## Licencia
+
+Uso privado. Sistema desarrollado para Hotel Santino, Santo Tomé, Corrientes, Argentina.

@@ -79,3 +79,13 @@ dist/
 .env.test.local
 .env.production.local
 
+# Archivos locales sensibles
+CREDENCIALES_*.md
+crear_dueño.py
+hotel.db
+*.db
+
+# Claude
+.claude/
+.mcp.json
+
