@@ -3500,6 +3500,7 @@ def buscar_reservas_bot(
     reserva_id: Optional[int] = Query(None),
     incluir_canceladas: bool = Query(False),
     solo_pendientes: bool = Query(False),
+    incluir_completadas: bool = Query(False),
     db: Session = Depends(obtener_db),
     x_bot_secret: Optional[str] = Header(None, alias="X-Bot-Secret"),
 ):
@@ -3507,6 +3508,8 @@ def buscar_reservas_bot(
     Búsqueda de reservas para el bot de WhatsApp.
     Filtros: celular (LIKE parcial), dni (exacto) o reserva_id.
     Si no se pasa ninguno pero solo_pendientes=true, lista todas las pendientes.
+    Con solo_pendientes=true se restringe además a estado='activa' (a menos
+    que incluir_completadas=true).
     Devuelve hasta 10 reservas, excluyendo canceladas por default.
     """
     import logging
@@ -3543,6 +3546,8 @@ def buscar_reservas_bot(
                 ok = False
             if ok and solo_pendientes and r.forma_pago not in ESTADOS_PENDIENTES:
                 ok = False
+            if ok and solo_pendientes and not incluir_completadas and r.estado != "activa":
+                ok = False
             if ok:
                 reservas = [r]
         else:
@@ -3554,6 +3559,8 @@ def buscar_reservas_bot(
                 query = query.where(Cliente.celular.ilike(f"%{celular_limpio}%"))
             if solo_pendientes:
                 query = query.where(Reserva.forma_pago.in_(ESTADOS_PENDIENTES))
+                if not incluir_completadas:
+                    query = query.where(Reserva.estado == "activa")
             if not incluir_canceladas:
                 query = query.where(Reserva.estado != "cancelada")
             query = query.order_by(Reserva.fecha_checkin.desc()).limit(10)
@@ -3597,7 +3604,8 @@ def buscar_reservas_bot(
 
         logger.info(
             f"🔍 [Bot buscar] filtros: celular={celular} dni={dni} reserva_id={reserva_id} "
-            f"solo_pendientes={solo_pendientes} → {len(resultado)} resultado(s)"
+            f"solo_pendientes={solo_pendientes} incluir_completadas={incluir_completadas} "
+            f"→ {len(resultado)} resultado(s)"
         )
 
         return {"count": len(resultado), "reservas": resultado}
