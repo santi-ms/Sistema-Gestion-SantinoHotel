@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Query
+from fastapi import FastAPI, HTTPException, Depends, status, Query, Header
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
@@ -13,6 +13,7 @@ from pydantic import BaseModel, validator
 import json
 from collections import defaultdict
 import os
+import re
 
 app = FastAPI()
 
@@ -330,6 +331,16 @@ class ReservaBotEntrada(BaseModel):
     fecha_egreso: str   # formato: "YYYY-MM-DD"
     mascota: bool = False
     observaciones_mascota: Optional[str] = None
+
+class ActualizarSenaBotEntrada(BaseModel):
+    reserva_id: int
+    estado: str
+    monto_detectado: Optional[float] = None
+    banco_origen: Optional[str] = None
+    titular_origen: Optional[str] = None
+    fecha_transferencia: Optional[str] = None
+    comprobante_url: Optional[str] = None
+    observaciones_bot: Optional[str] = None
 
 # ─────────── SCHEMAS PARA BOT DE WHATSAPP ───────────
 class BotMessageIn(BaseModel):
@@ -3359,6 +3370,128 @@ def crear_reserva_bot(data: ReservaBotEntrada, db: Session = Depends(obtener_db)
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error al crear reserva: {str(e)}")
+
+@app.post("/api/reservas/bot/actualizar-sena")
+def actualizar_sena_bot(
+    data: ActualizarSenaBotEntrada,
+    db: Session = Depends(obtener_db),
+    x_bot_secret: Optional[str] = Header(None, alias="X-Bot-Secret"),
+):
+    """
+    Actualiza el estado de la seña de una reserva creada por el bot de WhatsApp.
+    Pensado para ser llamado cuando el cliente envía el comprobante de transferencia
+    y Claude vision lo analiza desde n8n.
+
+    Autenticación: header X-Bot-Secret validado contra env var BOT_SHARED_SECRET.
+    Si BOT_SHARED_SECRET no está seteada, se permite el request (con warning).
+    """
+    import logging
+    import traceback
+    logger = logging.getLogger(__name__)
+
+    ESTADOS_PERMITIDOS = [
+        "Seña Pendiente Verificación",
+        "Seña Recibida",
+        "Seña Pendiente",
+        "Cancelado",
+        "Pagado Completo",
+    ]
+
+    try:
+        # 1. Validar shared secret
+        expected_secret = os.getenv("BOT_SHARED_SECRET")
+        if expected_secret:
+            if not x_bot_secret or x_bot_secret != expected_secret:
+                raise HTTPException(status_code=401, detail="X-Bot-Secret inválido o ausente")
+        else:
+            logger.warning(
+                "⚠️ BOT_SHARED_SECRET no está seteada — endpoint actualizar-sena sin autenticación"
+            )
+
+        # 2. Validar estado
+        if data.estado not in ESTADOS_PERMITIDOS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Estado '{data.estado}' no permitido. Estados válidos: {ESTADOS_PERMITIDOS}",
+            )
+
+        # 3. Validar que la reserva exista
+        reserva = db.get(Reserva, data.reserva_id)
+        if not reserva:
+            raise HTTPException(status_code=404, detail=f"Reserva {data.reserva_id} no encontrada")
+
+        # 4. Validar que sea reserva del bot
+        if getattr(reserva, "origen", None) != "whatsapp":
+            raise HTTPException(
+                status_code=403,
+                detail="Esta reserva no fue creada por el bot de WhatsApp; no se puede modificar por este endpoint público",
+            )
+
+        estado_anterior = reserva.forma_pago
+
+        # 5. Actualizar estado
+        reserva.forma_pago = data.estado
+
+        # 6. Agregar bloque idempotente con info del comprobante a nombre_huesped
+        partes_sena = []
+        if data.monto_detectado is not None:
+            partes_sena.append(f"monto=${data.monto_detectado:,.0f}")
+        if data.banco_origen:
+            partes_sena.append(f"banco={data.banco_origen}")
+        if data.titular_origen:
+            partes_sena.append(f"titular={data.titular_origen}")
+        if data.fecha_transferencia:
+            partes_sena.append(f"fecha={data.fecha_transferencia}")
+        if data.comprobante_url:
+            partes_sena.append(f"comprobante={data.comprobante_url}")
+        if data.observaciones_bot:
+            partes_sena.append(f"nota={data.observaciones_bot}")
+
+        if partes_sena:
+            bloque_nuevo = f"[Seña verif.: {', '.join(partes_sena)}]"
+            nombre_actual = reserva.nombre_huesped or ""
+            patron = re.compile(r"\s*\|\s*\[Seña verif\.:[^\]]*\]|\[Seña verif\.:[^\]]*\]")
+            nombre_limpio = patron.sub("", nombre_actual).strip(" |")
+            if nombre_limpio:
+                reserva.nombre_huesped = f"{nombre_limpio} | {bloque_nuevo}"
+            else:
+                reserva.nombre_huesped = bloque_nuevo
+
+        db.add(reserva)
+        db.commit()
+        db.refresh(reserva)
+
+        logger.info(
+            f"🤖 [Bot actualizar-sena] reserva_id={data.reserva_id} "
+            f"estado: '{estado_anterior}' → '{data.estado}' "
+            f"monto_detectado={data.monto_detectado}"
+        )
+        print(
+            f"🤖 [Bot actualizar-sena] reserva_id={data.reserva_id} "
+            f"estado: '{estado_anterior}' → '{data.estado}' "
+            f"monto_detectado={data.monto_detectado}"
+        )
+
+        return {
+            "success": True,
+            "mensaje": f"Estado de seña actualizado a '{data.estado}'",
+            "reserva_id": data.reserva_id,
+            "estado_anterior": estado_anterior,
+            "estado_nuevo": data.estado,
+            "monto_detectado": data.monto_detectado,
+            "comprobante_url": data.comprobante_url,
+            "total_estadia": reserva.total_estadia,
+            "seña_esperada": reserva.seña,
+        }
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"💥 Error en actualizar-sena: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error al actualizar seña: {str(e)}")
 
 # ─────────── ENDPOINT PARA BOT DE WHATSAPP ───────────
 @app.post("/api/bot/handle-message", response_model=BotMessageOut)
