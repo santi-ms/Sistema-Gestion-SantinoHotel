@@ -3493,6 +3493,111 @@ def actualizar_sena_bot(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error al actualizar seña: {str(e)}")
 
+@app.get("/api/reservas/bot/buscar")
+def buscar_reservas_bot(
+    celular: Optional[str] = Query(None),
+    dni: Optional[str] = Query(None),
+    reserva_id: Optional[int] = Query(None),
+    incluir_canceladas: bool = Query(False),
+    db: Session = Depends(obtener_db),
+    x_bot_secret: Optional[str] = Header(None, alias="X-Bot-Secret"),
+):
+    """
+    Búsqueda de reservas para el bot de WhatsApp.
+    Filtros: celular (LIKE parcial), dni (exacto) o reserva_id.
+    Devuelve hasta 10 reservas, excluyendo canceladas por default.
+    """
+    import logging
+    import traceback
+    logger = logging.getLogger(__name__)
+
+    try:
+        # 1. Validar shared secret
+        expected_secret = os.getenv("BOT_SHARED_SECRET")
+        if expected_secret:
+            if not x_bot_secret or x_bot_secret != expected_secret:
+                raise HTTPException(status_code=401, detail="X-Bot-Secret inválido o ausente")
+        else:
+            logger.warning(
+                "⚠️ BOT_SHARED_SECRET no está seteada — endpoint buscar sin autenticación"
+            )
+
+        # 2. Validar que al menos un filtro esté presente
+        if not (celular or dni or reserva_id):
+            raise HTTPException(
+                status_code=400,
+                detail="Debe proporcionar al menos uno de: celular, dni, reserva_id",
+            )
+
+        # 3. Construir consulta
+        reservas: list[Reserva] = []
+
+        if reserva_id is not None:
+            r = db.get(Reserva, reserva_id)
+            if r and (incluir_canceladas or r.estado != "cancelada"):
+                reservas = [r]
+        else:
+            query = select(Reserva).join(Cliente, Cliente.id == Reserva.cliente_id)
+            if dni:
+                query = query.where(Cliente.dni == dni)
+            if celular:
+                celular_limpio = celular.replace("@c.us", "").strip()
+                query = query.where(Cliente.celular.ilike(f"%{celular_limpio}%"))
+            if not incluir_canceladas:
+                query = query.where(Reserva.estado != "cancelada")
+            query = query.order_by(Reserva.fecha_checkin.desc()).limit(10)
+            reservas = list(db.exec(query).all())
+
+        # 4. Construir respuesta
+        resultado = []
+        for r in reservas:
+            cliente = db.get(Cliente, r.cliente_id)
+            habitacion = db.get(Habitacion, r.habitacion_id)
+            noches = (r.fecha_checkout - r.fecha_checkin).days
+            if noches <= 0:
+                noches = 1
+            resultado.append({
+                "reserva_id": r.id,
+                "cliente": {
+                    "nombre": cliente.nombre if cliente else None,
+                    "dni": cliente.dni if cliente else None,
+                    "celular": cliente.celular if cliente else None,
+                },
+                "habitacion": {
+                    "numero": habitacion.numero if habitacion else None,
+                    "tipo": habitacion.tipo if habitacion else None,
+                    "capacidad": habitacion.capacidad if habitacion else None,
+                },
+                "fechas": {
+                    "checkin": r.fecha_checkin.strftime("%Y-%m-%d"),
+                    "checkout": r.fecha_checkout.strftime("%Y-%m-%d"),
+                    "noches": noches,
+                },
+                "precios": {
+                    "precio_total": r.total_estadia,
+                    "seña": r.seña,
+                },
+                "estado_pago": r.forma_pago,
+                "estado_reserva": r.estado,
+                "origen": r.origen,
+                "nombre_huesped": r.nombre_huesped,
+                "created_at": None,
+            })
+
+        logger.info(
+            f"🔍 [Bot buscar] filtros: celular={celular} dni={dni} reserva_id={reserva_id} "
+            f"→ {len(resultado)} resultado(s)"
+        )
+
+        return {"count": len(resultado), "reservas": resultado}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"💥 Error en buscar-reservas: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error al buscar reservas: {str(e)}")
+
 # ─────────── ENDPOINT PARA BOT DE WHATSAPP ───────────
 @app.post("/api/bot/handle-message", response_model=BotMessageOut)
 def handle_bot_message(
