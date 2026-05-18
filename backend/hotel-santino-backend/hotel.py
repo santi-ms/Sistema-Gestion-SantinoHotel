@@ -3499,17 +3499,21 @@ def buscar_reservas_bot(
     dni: Optional[str] = Query(None),
     reserva_id: Optional[int] = Query(None),
     incluir_canceladas: bool = Query(False),
+    solo_pendientes: bool = Query(False),
     db: Session = Depends(obtener_db),
     x_bot_secret: Optional[str] = Header(None, alias="X-Bot-Secret"),
 ):
     """
     Búsqueda de reservas para el bot de WhatsApp.
     Filtros: celular (LIKE parcial), dni (exacto) o reserva_id.
+    Si no se pasa ninguno pero solo_pendientes=true, lista todas las pendientes.
     Devuelve hasta 10 reservas, excluyendo canceladas por default.
     """
     import logging
     import traceback
     logger = logging.getLogger(__name__)
+
+    ESTADOS_PENDIENTES = ["PENDIENTE_SEÑA", "Seña Pendiente", "Seña Pendiente Verificación"]
 
     try:
         # 1. Validar shared secret
@@ -3522,11 +3526,11 @@ def buscar_reservas_bot(
                 "⚠️ BOT_SHARED_SECRET no está seteada — endpoint buscar sin autenticación"
             )
 
-        # 2. Validar que al menos un filtro esté presente
-        if not (celular or dni or reserva_id):
+        # 2. Validar que al menos un filtro esté presente (o solo_pendientes)
+        if not (celular or dni or reserva_id or solo_pendientes):
             raise HTTPException(
                 status_code=400,
-                detail="Debe proporcionar al menos uno de: celular, dni, reserva_id",
+                detail="Debe proporcionar al menos uno de: celular, dni, reserva_id, solo_pendientes",
             )
 
         # 3. Construir consulta
@@ -3534,7 +3538,12 @@ def buscar_reservas_bot(
 
         if reserva_id is not None:
             r = db.get(Reserva, reserva_id)
-            if r and (incluir_canceladas or r.estado != "cancelada"):
+            ok = r is not None
+            if ok and not incluir_canceladas and r.estado == "cancelada":
+                ok = False
+            if ok and solo_pendientes and r.forma_pago not in ESTADOS_PENDIENTES:
+                ok = False
+            if ok:
                 reservas = [r]
         else:
             query = select(Reserva).join(Cliente, Cliente.id == Reserva.cliente_id)
@@ -3543,6 +3552,8 @@ def buscar_reservas_bot(
             if celular:
                 celular_limpio = celular.replace("@c.us", "").strip()
                 query = query.where(Cliente.celular.ilike(f"%{celular_limpio}%"))
+            if solo_pendientes:
+                query = query.where(Reserva.forma_pago.in_(ESTADOS_PENDIENTES))
             if not incluir_canceladas:
                 query = query.where(Reserva.estado != "cancelada")
             query = query.order_by(Reserva.fecha_checkin.desc()).limit(10)
@@ -3586,7 +3597,7 @@ def buscar_reservas_bot(
 
         logger.info(
             f"🔍 [Bot buscar] filtros: celular={celular} dni={dni} reserva_id={reserva_id} "
-            f"→ {len(resultado)} resultado(s)"
+            f"solo_pendientes={solo_pendientes} → {len(resultado)} resultado(s)"
         )
 
         return {"count": len(resultado), "reservas": resultado}
