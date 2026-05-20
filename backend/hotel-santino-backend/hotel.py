@@ -507,6 +507,28 @@ def crear_tablas():
     SQLModel.metadata.create_all(engine)
     print("✅ [Startup] Tablas verificadas/creadas")
 
+    # Bootstrap de usuarios vía variables de entorno (útil cuando no hay acceso a shell).
+    # Si el email no existe, lo crea. Si existe, no toca nada.
+    def _bootstrap_user(email_var: str, pass_var: str, rol: "Rol"):
+        email = os.getenv(email_var, "").strip()
+        password = os.getenv(pass_var, "").strip()
+        if not email or not password:
+            return
+        try:
+            with Session(engine) as db:
+                existente = db.exec(select(Usuario).where(Usuario.email == email)).first()
+                if existente:
+                    print(f"ℹ️ [Bootstrap] Usuario {email} ya existe, no se modifica")
+                    return
+                db.add(Usuario(email=email, contraseña=pwd_context.hash(password), rol=rol))
+                db.commit()
+                print(f"✅ [Bootstrap] Usuario {rol.value} creado: {email}")
+        except Exception as e:
+            print(f"⚠️ [Bootstrap] Error creando {email}: {e}")
+
+    _bootstrap_user("BOOTSTRAP_OWNER_EMAIL", "BOOTSTRAP_OWNER_PASSWORD", Rol.dueño)
+    _bootstrap_user("BOOTSTRAP_EMPLOYEE_EMAIL", "BOOTSTRAP_EMPLOYEE_PASSWORD", Rol.empleado)
+
 # ─────────── UTILIDADES ───────────
 def obtener_db():
     with Session(engine) as session:
