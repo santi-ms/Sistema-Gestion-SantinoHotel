@@ -4741,3 +4741,112 @@ print("   - POST /checkout-automatico (ejecutar manualmente)")
 print("   - GET /checkout-automatico/historial (ver historial)")
 print("   - GET /checkout-automatico/proximos (próximos checkouts)")
 print("   - GET /status-checkout (estado del sistema)")
+
+
+# ─── ENDPOINT TEMPORAL: ver datos creados durante el outage de Railway ───
+# Eliminar este endpoint cuando ya no se necesite.
+from fastapi.responses import HTMLResponse
+
+@app.get("/admin/datos-outage", response_class=HTMLResponse)
+def ver_datos_outage(token: str = Query(...), db: Session = Depends(obtener_db)):
+    if token != os.getenv("DUMP_TOKEN", "outage-2026-05"):
+        raise HTTPException(status_code=403, detail="Token inválido")
+
+    desde = datetime(2026, 5, 19, 0, 0, 0, tzinfo=timezone(timedelta(hours=-3)))
+
+    clientes = {c.id: c for c in db.exec(select(Cliente)).all()}
+    habs = {h.id: h for h in db.exec(select(Habitacion)).all()}
+
+    reservas = db.exec(
+        select(Reserva).where(Reserva.fecha_checkin >= desde).order_by(Reserva.id)
+    ).all()
+    pedidos = db.exec(
+        select(Pedido).where(Pedido.fecha >= desde).order_by(Pedido.id)
+    ).all()
+
+    def esc(v):
+        if v is None:
+            return "-"
+        return str(v).replace("<", "&lt;").replace(">", "&gt;")
+
+    html = ["""<!doctype html><meta charset='utf-8'><title>Datos durante outage</title>
+    <style>
+      body{font-family:system-ui,Arial;padding:20px;max-width:1200px;margin:auto;background:#f7f7f8}
+      h2{border-bottom:2px solid #333;padding-bottom:6px;margin-top:30px}
+      table{border-collapse:collapse;width:100%;background:white;margin-bottom:20px;font-size:14px}
+      th,td{border:1px solid #ddd;padding:8px;text-align:left;vertical-align:top}
+      th{background:#333;color:white}
+      tr:nth-child(even){background:#f3f3f3}
+      .badge{display:inline-block;padding:2px 6px;border-radius:4px;background:#e0e0e0;font-size:12px}
+      .estado-activa{background:#c8e6c9}
+      .estado-completada{background:#bbdefb}
+      .estado-cancelada{background:#ffcdd2}
+      .estado-PAGADO{background:#c8e6c9}
+      .estado-PENDIENTE{background:#fff9c4}
+      pre{margin:0;font-family:inherit;white-space:pre-wrap}
+    </style>"""]
+
+    html.append(f"<h1>Datos de Render desde 19/05</h1>")
+    html.append(f"<p><b>{len(reservas)}</b> reserva(s) &nbsp;|&nbsp; <b>{len(pedidos)}</b> pedido(s)</p>")
+
+    # RESERVAS
+    html.append("<h2>📋 Reservas</h2>")
+    if not reservas:
+        html.append("<p><i>Sin reservas en el rango.</i></p>")
+    else:
+        html.append("<table><tr><th>#</th><th>Estado</th><th>Origen</th><th>Huésped / Cliente</th>"
+                    "<th>Habitación</th><th>Check-in</th><th>Check-out</th>"
+                    "<th>Total</th><th>Seña</th><th>Pago</th></tr>")
+        for r in reservas:
+            cli = clientes.get(r.cliente_id)
+            hab = habs.get(r.habitacion_id)
+            huesped = r.nombre_huesped or (cli.nombre if cli else "?")
+            cli_info = f"<br><small>{esc(cli.dni)} · {esc(cli.celular)} · pat: {esc(cli.patente)}</small>" if cli else ""
+            hab_txt = f"{hab.numero} ({esc(hab.tipo)})" if hab else f"id={r.habitacion_id}(?)"
+            html.append(f"<tr>"
+                        f"<td>{r.id}</td>"
+                        f"<td><span class='badge estado-{esc(r.estado)}'>{esc(r.estado)}</span></td>"
+                        f"<td>{esc(r.origen)}</td>"
+                        f"<td><b>{esc(huesped)}</b>{cli_info}</td>"
+                        f"<td>{esc(hab_txt)}</td>"
+                        f"<td>{esc(r.fecha_checkin)}</td>"
+                        f"<td>{esc(r.fecha_checkout)}</td>"
+                        f"<td>${r.total_estadia:.2f}</td>"
+                        f"<td>${r.seña:.2f}</td>"
+                        f"<td>{esc(r.forma_pago)}</td>"
+                        f"</tr>")
+        html.append("</table>")
+
+    # PEDIDOS
+    html.append("<h2>🍽️ Pedidos</h2>")
+    if not pedidos:
+        html.append("<p><i>Sin pedidos en el rango.</i></p>")
+    else:
+        html.append("<table><tr><th>#</th><th>Estado</th><th>Fecha</th><th>Habitación</th>"
+                    "<th>Monto</th><th>Pago</th><th>Detalle</th></tr>")
+        for p in pedidos:
+            hab = habs.get(p.habitacion_id) if p.habitacion_id else None
+            hab_txt = str(hab.numero) if hab else ("externo" if p.externo else "-")
+            try:
+                det = json.loads(p.detalle) if p.detalle else []
+                if isinstance(det, list):
+                    det_html = "<br>".join(
+                        f"• {esc(it.get('cantidad','?'))}x {esc(it.get('nombre') or it.get('producto') or '?')} @ ${esc(it.get('precio','?'))}"
+                        for it in det
+                    )
+                else:
+                    det_html = esc(p.detalle)
+            except Exception:
+                det_html = esc(p.detalle)
+            html.append(f"<tr>"
+                        f"<td>{p.id}</td>"
+                        f"<td><span class='badge estado-{esc(p.estado)}'>{esc(p.estado)}</span></td>"
+                        f"<td>{esc(p.fecha)}</td>"
+                        f"<td>{esc(hab_txt)}</td>"
+                        f"<td>${p.monto:.2f}</td>"
+                        f"<td>{esc(p.forma_pago)}</td>"
+                        f"<td><pre>{det_html}</pre></td>"
+                        f"</tr>")
+        html.append("</table>")
+
+    return "".join(html)
