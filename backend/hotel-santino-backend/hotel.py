@@ -3420,13 +3420,7 @@ def actualizar_sena_bot(
         if not reserva:
             raise HTTPException(status_code=404, detail=f"Reserva {data.reserva_id} no encontrada")
 
-        # 4. Validar que sea reserva del bot
-        if getattr(reserva, "origen", None) != "whatsapp":
-            raise HTTPException(
-                status_code=403,
-                detail="Esta reserva no fue creada por el bot de WhatsApp; no se puede modificar por este endpoint público",
-            )
-
+        # 4. Origen no restringido — el dueño puede confirmar reservas de cualquier origen
         estado_anterior = reserva.forma_pago
 
         # 5. Actualizar estado
