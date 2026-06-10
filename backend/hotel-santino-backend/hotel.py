@@ -3239,12 +3239,16 @@ def crear_reserva_bot(data: ReservaBotEntrada, db: Session = Depends(obtener_db)
             )
         
         # ✅ VALIDAR DISPONIBILIDAD - Verificar que la habitación siga libre
-        # Usar SQL directo para evitar problemas con columna 'origen' que puede no existir
+        # Filtrar por forma_pago bloqueante (mismo criterio que list_available_rooms /
+        # verificar_disponibilidad). Sin este filtro, reservas canceladas con forma_pago
+        # no bloqueante (ej. 'Cancelado') generaban "habitación ocupada" cuando en
+        # realidad estaba disponible -- inconsistencia que rechazó reservas legítimas.
         query_sql = text("""
-            SELECT id FROM reserva 
-            WHERE habitacion_id = :habitacion_id 
-            AND fecha_checkin < :fecha_checkout 
+            SELECT id FROM reserva
+            WHERE habitacion_id = :habitacion_id
+            AND fecha_checkin < :fecha_checkout
             AND fecha_checkout > :fecha_checkin
+            AND forma_pago IN ('PENDIENTE_SEÑA', 'CONFIRMADA', 'Seña Pendiente', 'Seña Recibida')
         """)
         result = db.execute(
             query_sql,
