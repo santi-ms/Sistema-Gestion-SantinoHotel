@@ -331,6 +331,7 @@ class ReservaBotEntrada(BaseModel):
     fecha_egreso: str   # formato: "YYYY-MM-DD"
     mascota: bool = False
     observaciones_mascota: Optional[str] = None
+    precio_override: Optional[float] = None  # precio acordado por el bot (ej. tarifa 1 persona, tarifa trabajo)
 
 class ActualizarSenaBotEntrada(BaseModel):
     reserva_id: int
@@ -3295,12 +3296,13 @@ def crear_reserva_bot(data: ReservaBotEntrada, db: Session = Depends(obtener_db)
         if noches <= 0:
             noches = 1
         
-        # Calcular precios
-        precio_por_noche = habitacion.precio if habitacion.precio else 0
+        # Calcular precios (precio_override permite al bot aplicar tarifas especiales:
+        # 1 persona, viajante de trabajo, etc. sin tocar el precio base del cuarto)
+        precio_por_noche = data.precio_override if data.precio_override else (habitacion.precio if habitacion.precio else 0)
         precio_base = precio_por_noche * noches
         extra_mascota = 7000 * noches if data.mascota else 0
         precio_total = precio_base + extra_mascota
-        
+
         # Calcular seña (50% del total)
         seña = precio_total * 0.5
         
