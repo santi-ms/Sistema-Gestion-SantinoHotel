@@ -284,6 +284,7 @@ class ReservaWeb(BaseModel):
     guests: int
     requests: Optional[str] = None
     pet: bool = False
+    dni: Optional[str] = None  # DNI del cliente (si se solicita en el formulario web)
     # NUEVOS CAMPOS PARA MANEJAR LA SEÑA
     tipoPago: Optional[str] = "transferencia"  # Tipo de pago desde el frontend
     montoSeña: Optional[float] = None  # Monto de la seña calculado en el frontend
@@ -2982,8 +2983,8 @@ def crear_reserva_desde_web(data: ReservaWeb, db: Session = Depends(obtener_db))
             cliente = cliente_existente
             print(f"✅ Cliente existente encontrado: {cliente.nombre}")
         else:
-            # Crear nuevo cliente con DNI único basado en teléfono
-            dni_web = f"WEB-{data.phone[-8:]}"
+            # Crear nuevo cliente: usar DNI real si lo mandó la web, sino placeholder
+            dni_web = data.dni if data.dni else f"WEB-{data.phone[-8:]}"
             cliente = Cliente(
                 nombre=nombre_completo,
                 dni=dni_web,
