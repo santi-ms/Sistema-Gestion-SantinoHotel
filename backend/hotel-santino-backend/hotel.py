@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Query, Header
+from fastapi import FastAPI, HTTPException, Depends, status, Query, Header, BackgroundTasks
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
@@ -14,6 +14,7 @@ import json
 from collections import defaultdict
 import os
 import re
+import httpx
 
 app = FastAPI()
 
@@ -1160,7 +1161,7 @@ def descontar_stock_de_pedido(items: List[ItemPedido], db: Session, pedido_id: O
     db.commit()
 
 @app.post("/pedidos")
-def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+def registrar_pedido_con_items(pedido: PedidoConItems, background_tasks: BackgroundTasks, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     monto_total = sum(item.cantidad * item.precio for item in pedido.items)
     items_json = json.dumps([item.dict() for item in pedido.items])
 
@@ -1214,7 +1215,19 @@ def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obt
     
     # Normalizar fecha a zona horaria de Argentina antes de serializar
     fecha_normalizada = normalizar_fecha_argentina(nuevo_pedido.fecha)
-    
+
+    if nuevo_pedido.estado == "PAGADO":
+        background_tasks.add_task(
+            notificar_ingreso,
+            origen_entidad="pedido",
+            origen_id=nuevo_pedido.id,
+            tipo="restobar",
+            monto=float(nuevo_pedido.monto),
+            forma_pago=nuevo_pedido.forma_pago or "no especificado",
+            fecha=(nuevo_pedido.pagado_at or nuevo_pedido.fecha).isoformat(),
+            descripcion=f"Pedido #{nuevo_pedido.id}" + (f" hab {nuevo_pedido.habitacion_id}" if nuevo_pedido.habitacion_id else (" externo" if nuevo_pedido.externo else "")),
+        )
+
     return {
         "mensaje": "Pedido registrado correctamente",
         "id": nuevo_pedido.id,
@@ -1437,6 +1450,7 @@ def actualizar_pedido_con_items(
 def pagar_pedido(
     pedido_id: int,
     data: PedidoCobrarEntrada,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(obtener_db),
     token: dict = Depends(verificar_token)
 ):
@@ -1454,6 +1468,18 @@ def pagar_pedido(
     db.add(pedido)
     db.commit()
     db.refresh(pedido)
+
+    background_tasks.add_task(
+        notificar_ingreso,
+        origen_entidad="pedido",
+        origen_id=pedido.id,
+        tipo="restobar",
+        monto=float(pedido.monto),
+        forma_pago=pedido.forma_pago or "no especificado",
+        fecha=(pedido.pagado_at or pedido.fecha).isoformat(),
+        descripcion=f"Pedido #{pedido.id}" + (f" hab {pedido.habitacion_id}" if pedido.habitacion_id else (" externo" if pedido.externo else "")),
+    )
+
     return {
         "mensaje": "Pedido marcado como pagado",
         "id": pedido.id,
@@ -2104,7 +2130,7 @@ def obtener_estadisticas_stock(
 
 # ─────────── ENDPOINTS DE RESERVAS ───────────
 @app.post("/reservas")
-def crear_reserva_simple(data: ReservaEntrada, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+def crear_reserva_simple(data: ReservaEntrada, background_tasks: BackgroundTasks, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     # ✅ VALIDAR DISPONIBILIDAD DE LA HABITACIÓN ANTES DE CREAR LA RESERVA
     reservas_solapadas = db.exec(
         select(Reserva).where(
@@ -2140,11 +2166,25 @@ def crear_reserva_simple(data: ReservaEntrada, db: Session = Depends(obtener_db)
     )
     db.add(reserva)
     db.commit()
+    db.refresh(reserva)
+
+    if reserva.seña and reserva.seña > 0:
+        background_tasks.add_task(
+            notificar_ingreso,
+            origen_entidad="reserva",
+            origen_id=reserva.id,
+            tipo="reserva",
+            monto=float(reserva.seña),
+            forma_pago=reserva.forma_pago or "no especificado",
+            fecha=(reserva.fecha_checkin or obtener_fecha_argentina()).isoformat(),
+            descripcion=f"Seña reserva #{reserva.id}" + (f" — {reserva.nombre_huesped}" if reserva.nombre_huesped else ""),
+        )
+
     return {"mensaje": "Reserva registrada"}
 
 # ─────────── ENDPOINT PARA RESERVAS DESDE SISTEMA DE GESTIÓN ───────────
 @app.post("/reservas-gestion")
-def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+def crear_reserva_desde_gestion(data: ReservaGestion, background_tasks: BackgroundTasks, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     try:
         print(f"📥 Datos recibidos del sistema de gestión: {data}")
         print(f"🔑 habitacion_id recibido: {data.habitacion_id} (tipo: {type(data.habitacion_id)})")
@@ -2259,7 +2299,19 @@ def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obte
         
         mascota_msg = " (con mascota)" if data.mascota else ""
         print(f"🎉 Reserva creada desde sistema de gestión - ID: {reserva.id}{mascota_msg}")
-        
+
+        if reserva.seña and reserva.seña > 0:
+            background_tasks.add_task(
+                notificar_ingreso,
+                origen_entidad="reserva",
+                origen_id=reserva.id,
+                tipo="reserva",
+                monto=float(reserva.seña),
+                forma_pago=reserva.forma_pago or "no especificado",
+                fecha=(reserva.fecha_checkin or obtener_fecha_argentina()).isoformat(),
+                descripcion=f"Seña reserva #{reserva.id}" + (f" — {reserva.nombre_huesped}" if reserva.nombre_huesped else ""),
+            )
+
         return {
             "mensaje": f"Reserva registrada desde sistema de gestión{mascota_msg}",
             "reserva_id": reserva.id,
@@ -2518,20 +2570,35 @@ def realizar_checkout(reserva_id: int, db: Session = Depends(obtener_db), token:
     return {"mensaje": "Checkout realizado", "estado": "completada"}
 
 @app.patch("/reservas/{reserva_id}/pago")
-def actualizar_forma_pago(reserva_id: int, data: ActualizarPagoEntrada, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+def actualizar_forma_pago(reserva_id: int, data: ActualizarPagoEntrada, background_tasks: BackgroundTasks, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     reserva = db.get(Reserva, reserva_id)
     if not reserva:
         raise HTTPException(status_code=404, detail="Reserva no encontrada")
     reserva.forma_pago = data.forma_pago
     db.add(reserva)
     db.commit()
+    db.refresh(reserva)
+
+    if reserva.seña and reserva.seña > 0 and reserva.estado != "cancelada":
+        background_tasks.add_task(
+            notificar_ingreso,
+            origen_entidad="reserva",
+            origen_id=reserva.id,
+            tipo="reserva",
+            monto=float(reserva.seña),
+            forma_pago=reserva.forma_pago or "no especificado",
+            fecha=(reserva.fecha_checkin or obtener_fecha_argentina()).isoformat(),
+            descripcion=f"Actualización pago reserva #{reserva.id}" + (f" — {reserva.nombre_huesped}" if reserva.nombre_huesped else ""),
+        )
+
     return {"mensaje": "Forma de pago actualizada"}
 
 @app.patch("/reservas/{reserva_id}/actualizar-sena")
 def actualizar_estado_sena(
-    reserva_id: int, 
+    reserva_id: int,
+    background_tasks: BackgroundTasks,
     estado: str = Query(..., description="'Seña Recibida' o 'Seña Pendiente'"),
-    db: Session = Depends(obtener_db), 
+    db: Session = Depends(obtener_db),
     token: dict = Depends(verificar_token)
 ):
     """
@@ -2551,12 +2618,27 @@ def actualizar_estado_sena(
     
     estado_anterior = reserva.forma_pago
     reserva.forma_pago = estado
-    
+
     db.add(reserva)
     db.commit()
-    
+    db.refresh(reserva)
+
     print(f"📋 Reserva {reserva_id}: Estado actualizado de '{estado_anterior}' a '{estado}'")
-    
+
+    # Solo notificar cuando se confirma el cobro, no en transiciones a pendiente/cancelado
+    if estado in ("Seña Recibida", "Pagado Completo") and reserva.seña and reserva.seña > 0:
+        monto = float(reserva.total_estadia) if estado == "Pagado Completo" else float(reserva.seña)
+        background_tasks.add_task(
+            notificar_ingreso,
+            origen_entidad="reserva",
+            origen_id=reserva.id,
+            tipo="reserva",
+            monto=monto,
+            forma_pago=estado,
+            fecha=(reserva.fecha_checkin or obtener_fecha_argentina()).isoformat(),
+            descripcion=f"{estado} — Reserva #{reserva.id}" + (f" — {reserva.nombre_huesped}" if reserva.nombre_huesped else ""),
+        )
+
     return {
         "mensaje": f"Estado de seña actualizado correctamente",
         "reserva_id": reserva_id,
@@ -4850,3 +4932,142 @@ def ver_datos_outage(token: str = Query(...), db: Session = Depends(obtener_db))
         html.append("</table>")
 
     return "".join(html)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#                    INTEGRACIÓN CON SISTEMA DE FINANZAS
+# ═══════════════════════════════════════════════════════════════════════
+# Dos mecanismos:
+#   1) PUSH: webhook outbound al registrar un pago (notificar_ingreso)
+#   2) PULL: GET /finanzas/ingresos para sync periódico / backfill
+# ═══════════════════════════════════════════════════════════════════════
+
+FINANZAS_WEBHOOK_URL = os.getenv("FINANZAS_WEBHOOK_URL", "")
+FINANZAS_WEBHOOK_SECRET = os.getenv("FINANZAS_WEBHOOK_SECRET", "")
+FINANZAS_API_KEY = os.getenv("FINANZAS_API_KEY", "")
+
+
+async def notificar_ingreso(
+    origen_entidad: str,   # "pedido" | "reserva"
+    origen_id: int,
+    tipo: str,             # descripción legible del tipo
+    monto: float,
+    forma_pago: str,
+    fecha: str,            # ISO-8601
+    descripcion: str = "",
+):
+    """Webhook outbound al sistema de finanzas. No bloquea ni rompe si falla."""
+    if not FINANZAS_WEBHOOK_URL or not FINANZAS_WEBHOOK_SECRET:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(
+                f"{FINANZAS_WEBHOOK_URL.rstrip('/')}/api/webhook/hotel",
+                json={
+                    "origen_entidad": origen_entidad,
+                    "origen_id": origen_id,
+                    "tipo": tipo,
+                    "monto": float(monto),
+                    "forma_pago": forma_pago or "no especificado",
+                    "fecha": fecha,
+                    "descripcion": descripcion,
+                },
+                headers={"X-Webhook-Secret": FINANZAS_WEBHOOK_SECRET},
+            )
+    except Exception as e:
+        print(f"⚠️ [Webhook finanzas] error notificando {origen_entidad}#{origen_id}: {e}")
+
+
+def verificar_finanzas_api_key(x_api_key: str = Header(..., alias="X-Api-Key")):
+    if not FINANZAS_API_KEY or x_api_key != FINANZAS_API_KEY:
+        raise HTTPException(status_code=401, detail="API key inválida")
+
+
+@app.get("/finanzas/ingresos")
+def listar_ingresos_finanzas(
+    desde: str = Query(..., description="Fecha desde YYYY-MM-DD (inclusive)"),
+    hasta: str = Query(..., description="Fecha hasta YYYY-MM-DD (inclusive)"),
+    db: Session = Depends(obtener_db),
+    _: None = Depends(verificar_finanzas_api_key),
+):
+    """
+    Retorna ingresos en [desde, hasta] inclusive. Usado por el sistema
+    de finanzas para sync periódico y backfill.
+
+    Incluye:
+      - Pedidos con estado PAGADO, filtrados por pagado_at (o fecha si pagado_at es null).
+      - Reservas con seña > 0 y estado != cancelada, filtradas por fecha_checkin
+        (el modelo no guarda fecha de cobro de la seña; usamos check-in como proxy).
+    """
+    try:
+        d_desde = datetime.strptime(desde, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        d_hasta_excl = (datetime.strptime(hasta, "%Y-%m-%d") + timedelta(days=1)).replace(tzinfo=ARGENTINA_TZ)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de fecha inválido. Usá YYYY-MM-DD")
+
+    ingresos = []
+
+    # ── Pedidos PAGADOS ─────────────────────────────────────────────
+    pedidos = db.exec(
+        select(Pedido).where(
+            Pedido.estado == "PAGADO",
+            Pedido.fecha >= d_desde,
+            Pedido.fecha < d_hasta_excl,
+        )
+    ).all()
+    for p in pedidos:
+        fecha_pago = p.pagado_at or p.fecha
+        # Descripción legible a partir del JSON de detalle
+        try:
+            items = json.loads(p.detalle) if p.detalle else []
+            if isinstance(items, list) and items:
+                resumen = ", ".join(
+                    f"{it.get('cantidad', '?')}x {it.get('nombre') or it.get('producto') or 'item'}"
+                    for it in items[:4]
+                )
+                if len(items) > 4:
+                    resumen += "…"
+            else:
+                resumen = ""
+        except Exception:
+            resumen = ""
+        descripcion = f"Pedido #{p.id}"
+        if p.habitacion_id:
+            descripcion += f" — hab {p.habitacion_id}"
+        elif p.externo:
+            descripcion += " — externo"
+        if resumen:
+            descripcion += f" ({resumen})"
+
+        ingresos.append({
+            "id": f"pedido_{p.id}",
+            "tipo": "restobar",
+            "monto": float(p.monto),
+            "forma_pago": (p.forma_pago or "no especificado").strip() or "no especificado",
+            "fecha": fecha_pago.isoformat() if fecha_pago else None,
+            "descripcion": descripcion,
+        })
+
+    # ── Reservas con seña > 0 (no canceladas) ───────────────────────
+    reservas = db.exec(
+        select(Reserva).where(
+            Reserva.seña > 0,
+            Reserva.estado != "cancelada",
+            Reserva.fecha_checkin >= d_desde,
+            Reserva.fecha_checkin < d_hasta_excl,
+        )
+    ).all()
+    for r in reservas:
+        descripcion = f"Seña reserva #{r.id}"
+        if r.nombre_huesped:
+            descripcion += f" — {r.nombre_huesped}"
+        ingresos.append({
+            "id": f"reserva_{r.id}",
+            "tipo": "reserva",
+            "monto": float(r.seña),
+            "forma_pago": (r.forma_pago or "no especificado").strip() or "no especificado",
+            "fecha": r.fecha_checkin.isoformat() if r.fecha_checkin else None,
+            "descripcion": descripcion,
+        })
+
+    return {"desde": desde, "hasta": hasta, "ingresos": ingresos}
