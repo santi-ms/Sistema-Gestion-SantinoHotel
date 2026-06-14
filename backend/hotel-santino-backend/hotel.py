@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Query, Header
+from fastapi import FastAPI, HTTPException, Depends, status, Query, Header, BackgroundTasks
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
@@ -14,6 +14,7 @@ import json
 from collections import defaultdict
 import os
 import re
+import httpx
 
 app = FastAPI()
 
@@ -508,6 +509,28 @@ def crear_tablas():
     # Crear tablas solo si no existen (create_all es seguro, no elimina datos)
     SQLModel.metadata.create_all(engine)
     print("✅ [Startup] Tablas verificadas/creadas")
+
+    # Bootstrap de usuarios vía variables de entorno (útil cuando no hay acceso a shell).
+    # Si el email no existe, lo crea. Si existe, no toca nada.
+    def _bootstrap_user(email_var: str, pass_var: str, rol: "Rol"):
+        email = os.getenv(email_var, "").strip()
+        password = os.getenv(pass_var, "").strip()
+        if not email or not password:
+            return
+        try:
+            with Session(engine) as db:
+                existente = db.exec(select(Usuario).where(Usuario.email == email)).first()
+                if existente:
+                    print(f"ℹ️ [Bootstrap] Usuario {email} ya existe, no se modifica")
+                    return
+                db.add(Usuario(email=email, contraseña=pwd_context.hash(password), rol=rol))
+                db.commit()
+                print(f"✅ [Bootstrap] Usuario {rol.value} creado: {email}")
+        except Exception as e:
+            print(f"⚠️ [Bootstrap] Error creando {email}: {e}")
+
+    _bootstrap_user("BOOTSTRAP_OWNER_EMAIL", "BOOTSTRAP_OWNER_PASSWORD", Rol.dueño)
+    _bootstrap_user("BOOTSTRAP_EMPLOYEE_EMAIL", "BOOTSTRAP_EMPLOYEE_PASSWORD", Rol.empleado)
 
 # ─────────── UTILIDADES ───────────
 def obtener_db():
@@ -1140,7 +1163,7 @@ def descontar_stock_de_pedido(items: List[ItemPedido], db: Session, pedido_id: O
     db.commit()
 
 @app.post("/pedidos")
-def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+def registrar_pedido_con_items(pedido: PedidoConItems, background_tasks: BackgroundTasks, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     monto_total = sum(item.cantidad * item.precio for item in pedido.items)
     items_json = json.dumps([item.dict() for item in pedido.items])
 
@@ -1194,7 +1217,19 @@ def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obt
     
     # Normalizar fecha a zona horaria de Argentina antes de serializar
     fecha_normalizada = normalizar_fecha_argentina(nuevo_pedido.fecha)
-    
+
+    if nuevo_pedido.estado == "PAGADO":
+        background_tasks.add_task(
+            notificar_ingreso,
+            origen_entidad="pedido",
+            origen_id=nuevo_pedido.id,
+            tipo="restobar",
+            monto=float(nuevo_pedido.monto),
+            forma_pago=nuevo_pedido.forma_pago or "no especificado",
+            fecha=(nuevo_pedido.pagado_at or nuevo_pedido.fecha).isoformat(),
+            descripcion=f"Pedido #{nuevo_pedido.id}" + (f" hab {nuevo_pedido.habitacion_id}" if nuevo_pedido.habitacion_id else (" externo" if nuevo_pedido.externo else "")),
+        )
+
     return {
         "mensaje": "Pedido registrado correctamente",
         "id": nuevo_pedido.id,
@@ -1417,6 +1452,7 @@ def actualizar_pedido_con_items(
 def pagar_pedido(
     pedido_id: int,
     data: PedidoCobrarEntrada,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(obtener_db),
     token: dict = Depends(verificar_token)
 ):
@@ -1434,6 +1470,18 @@ def pagar_pedido(
     db.add(pedido)
     db.commit()
     db.refresh(pedido)
+
+    background_tasks.add_task(
+        notificar_ingreso,
+        origen_entidad="pedido",
+        origen_id=pedido.id,
+        tipo="restobar",
+        monto=float(pedido.monto),
+        forma_pago=pedido.forma_pago or "no especificado",
+        fecha=(pedido.pagado_at or pedido.fecha).isoformat(),
+        descripcion=f"Pedido #{pedido.id}" + (f" hab {pedido.habitacion_id}" if pedido.habitacion_id else (" externo" if pedido.externo else "")),
+    )
+
     return {
         "mensaje": "Pedido marcado como pagado",
         "id": pedido.id,
@@ -2084,7 +2132,7 @@ def obtener_estadisticas_stock(
 
 # ─────────── ENDPOINTS DE RESERVAS ───────────
 @app.post("/reservas")
-def crear_reserva_simple(data: ReservaEntrada, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+def crear_reserva_simple(data: ReservaEntrada, background_tasks: BackgroundTasks, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     # ✅ VALIDAR DISPONIBILIDAD DE LA HABITACIÓN ANTES DE CREAR LA RESERVA
     reservas_solapadas = db.exec(
         select(Reserva).where(
@@ -2120,11 +2168,25 @@ def crear_reserva_simple(data: ReservaEntrada, db: Session = Depends(obtener_db)
     )
     db.add(reserva)
     db.commit()
+    db.refresh(reserva)
+
+    if reserva.seña and reserva.seña > 0:
+        background_tasks.add_task(
+            notificar_ingreso,
+            origen_entidad="reserva",
+            origen_id=reserva.id,
+            tipo="reserva",
+            monto=float(reserva.seña),
+            forma_pago=reserva.forma_pago or "no especificado",
+            fecha=(reserva.fecha_checkin or obtener_fecha_argentina()).isoformat(),
+            descripcion=f"Seña reserva #{reserva.id}" + (f" — {reserva.nombre_huesped}" if reserva.nombre_huesped else ""),
+        )
+
     return {"mensaje": "Reserva registrada"}
 
 # ─────────── ENDPOINT PARA RESERVAS DESDE SISTEMA DE GESTIÓN ───────────
 @app.post("/reservas-gestion")
-def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+def crear_reserva_desde_gestion(data: ReservaGestion, background_tasks: BackgroundTasks, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     try:
         print(f"📥 Datos recibidos del sistema de gestión: {data}")
         print(f"🔑 habitacion_id recibido: {data.habitacion_id} (tipo: {type(data.habitacion_id)})")
@@ -2239,7 +2301,19 @@ def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obte
         
         mascota_msg = " (con mascota)" if data.mascota else ""
         print(f"🎉 Reserva creada desde sistema de gestión - ID: {reserva.id}{mascota_msg}")
-        
+
+        if reserva.seña and reserva.seña > 0:
+            background_tasks.add_task(
+                notificar_ingreso,
+                origen_entidad="reserva",
+                origen_id=reserva.id,
+                tipo="reserva",
+                monto=float(reserva.seña),
+                forma_pago=reserva.forma_pago or "no especificado",
+                fecha=(reserva.fecha_checkin or obtener_fecha_argentina()).isoformat(),
+                descripcion=f"Seña reserva #{reserva.id}" + (f" — {reserva.nombre_huesped}" if reserva.nombre_huesped else ""),
+            )
+
         return {
             "mensaje": f"Reserva registrada desde sistema de gestión{mascota_msg}",
             "reserva_id": reserva.id,
@@ -2498,20 +2572,35 @@ def realizar_checkout(reserva_id: int, db: Session = Depends(obtener_db), token:
     return {"mensaje": "Checkout realizado", "estado": "completada"}
 
 @app.patch("/reservas/{reserva_id}/pago")
-def actualizar_forma_pago(reserva_id: int, data: ActualizarPagoEntrada, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+def actualizar_forma_pago(reserva_id: int, data: ActualizarPagoEntrada, background_tasks: BackgroundTasks, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     reserva = db.get(Reserva, reserva_id)
     if not reserva:
         raise HTTPException(status_code=404, detail="Reserva no encontrada")
     reserva.forma_pago = data.forma_pago
     db.add(reserva)
     db.commit()
+    db.refresh(reserva)
+
+    if reserva.seña and reserva.seña > 0 and reserva.estado != "cancelada":
+        background_tasks.add_task(
+            notificar_ingreso,
+            origen_entidad="reserva",
+            origen_id=reserva.id,
+            tipo="reserva",
+            monto=float(reserva.seña),
+            forma_pago=reserva.forma_pago or "no especificado",
+            fecha=(reserva.fecha_checkin or obtener_fecha_argentina()).isoformat(),
+            descripcion=f"Actualización pago reserva #{reserva.id}" + (f" — {reserva.nombre_huesped}" if reserva.nombre_huesped else ""),
+        )
+
     return {"mensaje": "Forma de pago actualizada"}
 
 @app.patch("/reservas/{reserva_id}/actualizar-sena")
 def actualizar_estado_sena(
-    reserva_id: int, 
+    reserva_id: int,
+    background_tasks: BackgroundTasks,
     estado: str = Query(..., description="'Seña Recibida' o 'Seña Pendiente'"),
-    db: Session = Depends(obtener_db), 
+    db: Session = Depends(obtener_db),
     token: dict = Depends(verificar_token)
 ):
     """
@@ -2531,12 +2620,27 @@ def actualizar_estado_sena(
     
     estado_anterior = reserva.forma_pago
     reserva.forma_pago = estado
-    
+
     db.add(reserva)
     db.commit()
-    
+    db.refresh(reserva)
+
     print(f"📋 Reserva {reserva_id}: Estado actualizado de '{estado_anterior}' a '{estado}'")
-    
+
+    # Solo notificar cuando se confirma el cobro, no en transiciones a pendiente/cancelado
+    if estado in ("Seña Recibida", "Pagado Completo") and reserva.seña and reserva.seña > 0:
+        monto = float(reserva.total_estadia) if estado == "Pagado Completo" else float(reserva.seña)
+        background_tasks.add_task(
+            notificar_ingreso,
+            origen_entidad="reserva",
+            origen_id=reserva.id,
+            tipo="reserva",
+            monto=monto,
+            forma_pago=estado,
+            fecha=(reserva.fecha_checkin or obtener_fecha_argentina()).isoformat(),
+            descripcion=f"{estado} — Reserva #{reserva.id}" + (f" — {reserva.nombre_huesped}" if reserva.nombre_huesped else ""),
+        )
+
     return {
         "mensaje": f"Estado de seña actualizado correctamente",
         "reserva_id": reserva_id,
@@ -4720,3 +4824,251 @@ print("   - POST /checkout-automatico (ejecutar manualmente)")
 print("   - GET /checkout-automatico/historial (ver historial)")
 print("   - GET /checkout-automatico/proximos (próximos checkouts)")
 print("   - GET /status-checkout (estado del sistema)")
+
+
+# ─── ENDPOINT TEMPORAL: ver datos creados durante el outage de Railway ───
+# Eliminar este endpoint cuando ya no se necesite.
+from fastapi.responses import HTMLResponse
+
+@app.get("/admin/datos-outage", response_class=HTMLResponse)
+def ver_datos_outage(token: str = Query(...), db: Session = Depends(obtener_db)):
+    if token != os.getenv("DUMP_TOKEN", "outage-2026-05"):
+        raise HTTPException(status_code=403, detail="Token inválido")
+
+    desde = datetime(2026, 5, 19, 0, 0, 0, tzinfo=timezone(timedelta(hours=-3)))
+
+    clientes = {c.id: c for c in db.exec(select(Cliente)).all()}
+    habs = {h.id: h for h in db.exec(select(Habitacion)).all()}
+
+    reservas = db.exec(
+        select(Reserva).where(Reserva.fecha_checkin >= desde).order_by(Reserva.id)
+    ).all()
+    pedidos = db.exec(
+        select(Pedido).where(Pedido.fecha >= desde).order_by(Pedido.id)
+    ).all()
+
+    def esc(v):
+        if v is None:
+            return "-"
+        return str(v).replace("<", "&lt;").replace(">", "&gt;")
+
+    html = ["""<!doctype html><meta charset='utf-8'><title>Datos durante outage</title>
+    <style>
+      body{font-family:system-ui,Arial;padding:20px;max-width:1200px;margin:auto;background:#f7f7f8}
+      h2{border-bottom:2px solid #333;padding-bottom:6px;margin-top:30px}
+      table{border-collapse:collapse;width:100%;background:white;margin-bottom:20px;font-size:14px}
+      th,td{border:1px solid #ddd;padding:8px;text-align:left;vertical-align:top}
+      th{background:#333;color:white}
+      tr:nth-child(even){background:#f3f3f3}
+      .badge{display:inline-block;padding:2px 6px;border-radius:4px;background:#e0e0e0;font-size:12px}
+      .estado-activa{background:#c8e6c9}
+      .estado-completada{background:#bbdefb}
+      .estado-cancelada{background:#ffcdd2}
+      .estado-PAGADO{background:#c8e6c9}
+      .estado-PENDIENTE{background:#fff9c4}
+      pre{margin:0;font-family:inherit;white-space:pre-wrap}
+    </style>"""]
+
+    html.append(f"<h1>Datos de Render desde 19/05</h1>")
+    html.append(f"<p><b>{len(reservas)}</b> reserva(s) &nbsp;|&nbsp; <b>{len(pedidos)}</b> pedido(s)</p>")
+
+    # RESERVAS
+    html.append("<h2>📋 Reservas</h2>")
+    if not reservas:
+        html.append("<p><i>Sin reservas en el rango.</i></p>")
+    else:
+        html.append("<table><tr><th>#</th><th>Estado</th><th>Origen</th><th>Huésped / Cliente</th>"
+                    "<th>Habitación</th><th>Check-in</th><th>Check-out</th>"
+                    "<th>Total</th><th>Seña</th><th>Pago</th></tr>")
+        for r in reservas:
+            cli = clientes.get(r.cliente_id)
+            hab = habs.get(r.habitacion_id)
+            huesped = r.nombre_huesped or (cli.nombre if cli else "?")
+            cli_info = f"<br><small>{esc(cli.dni)} · {esc(cli.celular)} · pat: {esc(cli.patente)}</small>" if cli else ""
+            hab_txt = f"{hab.numero} ({esc(hab.tipo)})" if hab else f"id={r.habitacion_id}(?)"
+            html.append(f"<tr>"
+                        f"<td>{r.id}</td>"
+                        f"<td><span class='badge estado-{esc(r.estado)}'>{esc(r.estado)}</span></td>"
+                        f"<td>{esc(r.origen)}</td>"
+                        f"<td><b>{esc(huesped)}</b>{cli_info}</td>"
+                        f"<td>{esc(hab_txt)}</td>"
+                        f"<td>{esc(r.fecha_checkin)}</td>"
+                        f"<td>{esc(r.fecha_checkout)}</td>"
+                        f"<td>${r.total_estadia:.2f}</td>"
+                        f"<td>${r.seña:.2f}</td>"
+                        f"<td>{esc(r.forma_pago)}</td>"
+                        f"</tr>")
+        html.append("</table>")
+
+    # PEDIDOS
+    html.append("<h2>🍽️ Pedidos</h2>")
+    if not pedidos:
+        html.append("<p><i>Sin pedidos en el rango.</i></p>")
+    else:
+        html.append("<table><tr><th>#</th><th>Estado</th><th>Fecha</th><th>Habitación</th>"
+                    "<th>Monto</th><th>Pago</th><th>Detalle</th></tr>")
+        for p in pedidos:
+            hab = habs.get(p.habitacion_id) if p.habitacion_id else None
+            hab_txt = str(hab.numero) if hab else ("externo" if p.externo else "-")
+            try:
+                det = json.loads(p.detalle) if p.detalle else []
+                if isinstance(det, list):
+                    det_html = "<br>".join(
+                        f"• {esc(it.get('cantidad','?'))}x {esc(it.get('nombre') or it.get('producto') or '?')} @ ${esc(it.get('precio','?'))}"
+                        for it in det
+                    )
+                else:
+                    det_html = esc(p.detalle)
+            except Exception:
+                det_html = esc(p.detalle)
+            html.append(f"<tr>"
+                        f"<td>{p.id}</td>"
+                        f"<td><span class='badge estado-{esc(p.estado)}'>{esc(p.estado)}</span></td>"
+                        f"<td>{esc(p.fecha)}</td>"
+                        f"<td>{esc(hab_txt)}</td>"
+                        f"<td>${p.monto:.2f}</td>"
+                        f"<td>{esc(p.forma_pago)}</td>"
+                        f"<td><pre>{det_html}</pre></td>"
+                        f"</tr>")
+        html.append("</table>")
+
+    return "".join(html)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#                    INTEGRACIÓN CON SISTEMA DE FINANZAS
+# ═══════════════════════════════════════════════════════════════════════
+# Dos mecanismos:
+#   1) PUSH: webhook outbound al registrar un pago (notificar_ingreso)
+#   2) PULL: GET /finanzas/ingresos para sync periódico / backfill
+# ═══════════════════════════════════════════════════════════════════════
+
+FINANZAS_WEBHOOK_URL = os.getenv("FINANZAS_WEBHOOK_URL", "")
+FINANZAS_WEBHOOK_SECRET = os.getenv("FINANZAS_WEBHOOK_SECRET", "")
+FINANZAS_API_KEY = os.getenv("FINANZAS_API_KEY", "")
+
+
+async def notificar_ingreso(
+    origen_entidad: str,   # "pedido" | "reserva"
+    origen_id: int,
+    tipo: str,             # descripción legible del tipo
+    monto: float,
+    forma_pago: str,
+    fecha: str,            # ISO-8601
+    descripcion: str = "",
+):
+    """Webhook outbound al sistema de finanzas. No bloquea ni rompe si falla."""
+    if not FINANZAS_WEBHOOK_URL or not FINANZAS_WEBHOOK_SECRET:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(
+                f"{FINANZAS_WEBHOOK_URL.rstrip('/')}/api/webhook/hotel",
+                json={
+                    "origen_entidad": origen_entidad,
+                    "origen_id": origen_id,
+                    "tipo": tipo,
+                    "monto": float(monto),
+                    "forma_pago": forma_pago or "no especificado",
+                    "fecha": fecha,
+                    "descripcion": descripcion,
+                },
+                headers={"X-Webhook-Secret": FINANZAS_WEBHOOK_SECRET},
+            )
+    except Exception as e:
+        print(f"⚠️ [Webhook finanzas] error notificando {origen_entidad}#{origen_id}: {e}")
+
+
+def verificar_finanzas_api_key(x_api_key: str = Header(..., alias="X-Api-Key")):
+    if not FINANZAS_API_KEY or x_api_key != FINANZAS_API_KEY:
+        raise HTTPException(status_code=401, detail="API key inválida")
+
+
+@app.get("/finanzas/ingresos")
+def listar_ingresos_finanzas(
+    desde: str = Query(..., description="Fecha desde YYYY-MM-DD (inclusive)"),
+    hasta: str = Query(..., description="Fecha hasta YYYY-MM-DD (inclusive)"),
+    db: Session = Depends(obtener_db),
+    _: None = Depends(verificar_finanzas_api_key),
+):
+    """
+    Retorna ingresos en [desde, hasta] inclusive. Usado por el sistema
+    de finanzas para sync periódico y backfill.
+
+    Incluye:
+      - Pedidos con estado PAGADO, filtrados por pagado_at (o fecha si pagado_at es null).
+      - Reservas con seña > 0 y estado != cancelada, filtradas por fecha_checkin
+        (el modelo no guarda fecha de cobro de la seña; usamos check-in como proxy).
+    """
+    try:
+        d_desde = datetime.strptime(desde, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+        d_hasta_excl = (datetime.strptime(hasta, "%Y-%m-%d") + timedelta(days=1)).replace(tzinfo=ARGENTINA_TZ)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de fecha inválido. Usá YYYY-MM-DD")
+
+    ingresos = []
+
+    # ── Pedidos PAGADOS ─────────────────────────────────────────────
+    pedidos = db.exec(
+        select(Pedido).where(
+            Pedido.estado == "PAGADO",
+            Pedido.fecha >= d_desde,
+            Pedido.fecha < d_hasta_excl,
+        )
+    ).all()
+    for p in pedidos:
+        fecha_pago = p.pagado_at or p.fecha
+        # Descripción legible a partir del JSON de detalle
+        try:
+            items = json.loads(p.detalle) if p.detalle else []
+            if isinstance(items, list) and items:
+                resumen = ", ".join(
+                    f"{it.get('cantidad', '?')}x {it.get('nombre') or it.get('producto') or 'item'}"
+                    for it in items[:4]
+                )
+                if len(items) > 4:
+                    resumen += "…"
+            else:
+                resumen = ""
+        except Exception:
+            resumen = ""
+        descripcion = f"Pedido #{p.id}"
+        if p.habitacion_id:
+            descripcion += f" — hab {p.habitacion_id}"
+        elif p.externo:
+            descripcion += " — externo"
+        if resumen:
+            descripcion += f" ({resumen})"
+
+        ingresos.append({
+            "id": f"pedido_{p.id}",
+            "tipo": "restobar",
+            "monto": float(p.monto),
+            "forma_pago": (p.forma_pago or "no especificado").strip() or "no especificado",
+            "fecha": fecha_pago.isoformat() if fecha_pago else None,
+            "descripcion": descripcion,
+        })
+
+    # ── Reservas con seña > 0 (no canceladas) ───────────────────────
+    reservas = db.exec(
+        select(Reserva).where(
+            Reserva.seña > 0,
+            Reserva.estado != "cancelada",
+            Reserva.fecha_checkin >= d_desde,
+            Reserva.fecha_checkin < d_hasta_excl,
+        )
+    ).all()
+    for r in reservas:
+        descripcion = f"Seña reserva #{r.id}"
+        if r.nombre_huesped:
+            descripcion += f" — {r.nombre_huesped}"
+        ingresos.append({
+            "id": f"reserva_{r.id}",
+            "tipo": "reserva",
+            "monto": float(r.seña),
+            "forma_pago": (r.forma_pago or "no especificado").strip() or "no especificado",
+            "fecha": r.fecha_checkin.isoformat() if r.fecha_checkin else None,
+            "descripcion": descripcion,
+        })
+
+    return {"desde": desde, "hasta": hasta, "ingresos": ingresos}
