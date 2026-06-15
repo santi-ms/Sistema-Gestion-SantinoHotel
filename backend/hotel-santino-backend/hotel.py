@@ -4991,13 +4991,18 @@ def listar_ingresos_finanzas(
     _: None = Depends(verificar_finanzas_api_key),
 ):
     """
-    Retorna ingresos en [desde, hasta] inclusive. Usado por el sistema
-    de finanzas para sync periódico y backfill.
+    Retorna ingresos en [desde, hasta] inclusive, alineado con la lógica de
+    /analytics/dashboard (facturación, no cash-flow real).
 
     Incluye:
-      - Pedidos con estado PAGADO, filtrados por pagado_at (o fecha si pagado_at es null).
-      - Reservas con seña > 0 y estado != cancelada, filtradas por fecha_checkin
-        (el modelo no guarda fecha de cobro de la seña; usamos check-in como proxy).
+      - TODOS los pedidos en el rango (PENDIENTE + PAGADO), sumando `monto`,
+        filtrados por `fecha` (creación). Pedidos cancelados quedan fuera.
+      - Reservas con `estado != "cancelada"`, sumando `total_estadia`,
+        filtradas por `fecha_checkin`.
+
+    Nota: este criterio cuenta lo facturado / comprometido, no lo
+    efectivamente cobrado. El webhook push, en cambio, dispara cuando se
+    confirma un cobro real (seña recibida, pedido pagado).
     """
     try:
         d_desde = datetime.strptime(desde, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
@@ -5007,17 +5012,16 @@ def listar_ingresos_finanzas(
 
     ingresos = []
 
-    # ── Pedidos PAGADOS ─────────────────────────────────────────────
+    # ── Pedidos en el rango (PENDIENTE + PAGADO, no CANCELADO) ──────
     pedidos = db.exec(
         select(Pedido).where(
-            Pedido.estado == "PAGADO",
+            Pedido.estado != "CANCELADO",
             Pedido.fecha >= d_desde,
             Pedido.fecha < d_hasta_excl,
         )
     ).all()
     for p in pedidos:
-        fecha_pago = p.pagado_at or p.fecha
-        # Descripción legible a partir del JSON de detalle
+        fecha_evento = p.pagado_at or p.fecha
         try:
             items = json.loads(p.detalle) if p.detalle else []
             if isinstance(items, list) and items:
@@ -5036,6 +5040,8 @@ def listar_ingresos_finanzas(
             descripcion += f" — hab {p.habitacion_id}"
         elif p.externo:
             descripcion += " — externo"
+        if p.estado and p.estado != "PAGADO":
+            descripcion += f" [{p.estado}]"
         if resumen:
             descripcion += f" ({resumen})"
 
@@ -5044,27 +5050,28 @@ def listar_ingresos_finanzas(
             "tipo": "restobar",
             "monto": float(p.monto),
             "forma_pago": (p.forma_pago or "no especificado").strip() or "no especificado",
-            "fecha": fecha_pago.isoformat() if fecha_pago else None,
+            "fecha": fecha_evento.isoformat() if fecha_evento else None,
             "descripcion": descripcion,
         })
 
-    # ── Reservas con seña > 0 (no canceladas) ───────────────────────
+    # ── Reservas no canceladas, total_estadia, filtradas por check-in ─
     reservas = db.exec(
         select(Reserva).where(
-            Reserva.seña > 0,
             Reserva.estado != "cancelada",
             Reserva.fecha_checkin >= d_desde,
             Reserva.fecha_checkin < d_hasta_excl,
         )
     ).all()
     for r in reservas:
-        descripcion = f"Seña reserva #{r.id}"
+        descripcion = f"Reserva #{r.id}"
         if r.nombre_huesped:
             descripcion += f" — {r.nombre_huesped}"
+        if r.habitacion_id:
+            descripcion += f" — hab {r.habitacion_id}"
         ingresos.append({
             "id": f"reserva_{r.id}",
             "tipo": "reserva",
-            "monto": float(r.seña),
+            "monto": float(r.total_estadia),
             "forma_pago": (r.forma_pago or "no especificado").strip() or "no especificado",
             "fecha": r.fecha_checkin.isoformat() if r.fecha_checkin else None,
             "descripcion": descripcion,
