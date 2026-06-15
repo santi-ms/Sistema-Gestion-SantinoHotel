@@ -38,7 +38,8 @@ export default function VerReservas() {
   const [cargando, setCargando] = useState(true);
   const [filtroTexto, setFiltroTexto] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("todas");
-  const [filtroFecha, setFiltroFecha] = useState("");
+  const [filtroFechaDesde, setFiltroFechaDesde] = useState("");
+  const [filtroFechaHasta, setFiltroFechaHasta] = useState("");
   const [paginaActual, setPaginaActual] = useState(1);
   const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
   const [reservaEliminarId, setReservaEliminarId] = useState(null);
@@ -254,17 +255,19 @@ export default function VerReservas() {
       });
     }
 
-    // Filtro por fecha
-    if (filtroFecha) {
+    // Filtro por rango de fecha de check-in (desde / hasta, ambos opcionales)
+    if (filtroFechaDesde || filtroFechaHasta) {
       filtradas = filtradas.filter(reserva => {
         const fechaReserva = new Date(reserva.fecha_checkin).toISOString().split('T')[0];
-        return fechaReserva === filtroFecha;
+        if (filtroFechaDesde && fechaReserva < filtroFechaDesde) return false;
+        if (filtroFechaHasta && fechaReserva > filtroFechaHasta) return false;
+        return true;
       });
     }
 
     setReservasFiltradas(filtradas);
     setPaginaActual(1); // Resetear página al filtrar
-  }, [reservas, filtroTexto, filtroEstado, filtroFecha]);
+  }, [reservas, filtroTexto, filtroEstado, filtroFechaDesde, filtroFechaHasta]);
 
   const getEstadoColor = (estado) => {
     switch (estado) {
@@ -438,7 +441,7 @@ export default function VerReservas() {
             <h3 className="text-lg font-semibold text-slate-800">Filtros</h3>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Búsqueda por texto */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -474,27 +477,87 @@ export default function VerReservas() {
               </select>
             </div>
 
-            {/* Filtro por fecha */}
+            {/* Filtro por fecha — desde */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
-                Fecha de check-in
+                Check-in desde
               </label>
-                <input
-                  type="date"
-                  value={filtroFecha}
-                  onChange={(e) => setFiltroFecha(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 hover:border-slate-400 cursor-pointer"
-                />
+              <input
+                type="date"
+                value={filtroFechaDesde}
+                max={filtroFechaHasta || undefined}
+                onChange={(e) => setFiltroFechaDesde(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 hover:border-slate-400 cursor-pointer"
+              />
+            </div>
+
+            {/* Filtro por fecha — hasta */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Check-in hasta
+              </label>
+              <input
+                type="date"
+                value={filtroFechaHasta}
+                min={filtroFechaDesde || undefined}
+                onChange={(e) => setFiltroFechaHasta(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 hover:border-slate-400 cursor-pointer"
+              />
             </div>
           </div>
 
+          {/* Atajos rápidos de fecha */}
+          <div className="flex flex-wrap gap-2 mt-3">
+            <button
+              onClick={() => {
+                const hoy = new Date();
+                const y = hoy.getFullYear();
+                const m = String(hoy.getMonth() + 1).padStart(2, '0');
+                const d = String(hoy.getDate()).padStart(2, '0');
+                setFiltroFechaDesde(`${y}-${m}-01`);
+                setFiltroFechaHasta(`${y}-${m}-${d}`);
+              }}
+              className="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg transition-all duration-200 border border-blue-200"
+            >
+              Este mes
+            </button>
+            <button
+              onClick={() => {
+                const hoy = new Date();
+                const primero = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+                const ultimo = new Date(hoy.getFullYear(), hoy.getMonth(), 0);
+                const fmt = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                setFiltroFechaDesde(fmt(primero));
+                setFiltroFechaHasta(fmt(ultimo));
+              }}
+              className="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg transition-all duration-200 border border-blue-200"
+            >
+              Mes pasado
+            </button>
+            <button
+              onClick={() => {
+                const hoy = new Date();
+                const y = hoy.getFullYear();
+                const m = String(hoy.getMonth() + 1).padStart(2, '0');
+                const d = String(hoy.getDate()).padStart(2, '0');
+                const fecha = `${y}-${m}-${d}`;
+                setFiltroFechaDesde(fecha);
+                setFiltroFechaHasta(fecha);
+              }}
+              className="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg transition-all duration-200 border border-blue-200"
+            >
+              Hoy
+            </button>
+          </div>
+
           {/* Botón limpiar filtros */}
-          {(filtroTexto || filtroEstado !== "todas" || filtroFecha) && (
+          {(filtroTexto || filtroEstado !== "todas" || filtroFechaDesde || filtroFechaHasta) && (
             <button
               onClick={() => {
                 setFiltroTexto("");
                 setFiltroEstado("todas");
-                setFiltroFecha("");
+                setFiltroFechaDesde("");
+                setFiltroFechaHasta("");
               }}
               className="mt-4 px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all duration-200"
             >
@@ -522,7 +585,7 @@ export default function VerReservas() {
             <EmptyState
               icon={Calendar}
               title="No se encontraron reservas"
-              description={filtroTexto || filtroEstado !== "todas" || filtroFecha 
+              description={filtroTexto || filtroEstado !== "todas" || filtroFechaDesde || filtroFechaHasta
                 ? "Intenta ajustar los filtros para ver más resultados"
                 : "Aún no hay reservas registradas en el sistema"}
             />
