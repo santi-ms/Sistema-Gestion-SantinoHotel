@@ -4053,30 +4053,55 @@ def resumen_del_dia(fecha: str, db: Session = Depends(obtener_db), token: dict =
     }
 
 # ─────────── ENDPOINTS DE ANALYTICS ───────────
+
+# Estados internos que se guardan en Reserva.forma_pago pero NO son métodos
+# de pago reales (vienen del flow del bot o del UI de seña). En analytics
+# los mostramos agrupados como "No especificado" para no ensuciar la torta.
+_ESTADOS_NO_METODO = {
+    "Seña Recibida", "Seña Pendiente", "Pagado Completo", "Cancelado",
+    "Seña Pendiente Verificación",
+    "PENDIENTE_SEÑA", "PAGADO_SEÑA",
+}
+
+
+def _normalizar_forma_pago(forma):
+    """Devuelve la forma de pago lista para mostrar. Si está vacía o es
+    un estado interno (no un método real), retorna 'No especificado'."""
+    if not forma:
+        return "No especificado"
+    forma_clean = str(forma).strip()
+    if not forma_clean or forma_clean in _ESTADOS_NO_METODO:
+        return "No especificado"
+    return forma_clean
+
+
 @app.get("/analytics/dashboard")
 def dashboard_analytics(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     hoy = obtener_fecha_argentina()
     inicio_mes = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    
+    # Fin del día de hoy: así se incluyen reservas/pedidos cuya hora exacta
+    # es posterior al momento de la consulta pero dentro del mismo día.
+    fin_hoy = hoy.replace(hour=23, minute=59, second=59, microsecond=999999)
+
     reservas_mes = db.exec(
         select(Reserva).where(
             Reserva.fecha_checkin >= inicio_mes,
-            Reserva.fecha_checkin <= hoy,
+            Reserva.fecha_checkin <= fin_hoy,
             Reserva.estado != "cancelada"  # Excluir reservas canceladas
         )
     ).all()
-    
+
     pedidos_mes = db.exec(
         select(Pedido).where(
             Pedido.fecha >= inicio_mes,
-            Pedido.fecha <= hoy
+            Pedido.fecha <= fin_hoy
         )
     ).all()
-    
+
     gastos_mes = db.exec(
         select(GastoAdicional).where(
             GastoAdicional.fecha >= inicio_mes,
-            GastoAdicional.fecha <= hoy
+            GastoAdicional.fecha <= fin_hoy
         )
     ).all()
     
@@ -4113,17 +4138,18 @@ def ingresos_por_dia(
     db: Session = Depends(obtener_db),
     token: dict = Depends(verificar_token)
 ):
-    fecha_fin = obtener_fecha_argentina()
-    fecha_inicio = fecha_fin - timedelta(days=dias)
-    
+    hoy = obtener_fecha_argentina()
+    fecha_fin = hoy.replace(hour=23, minute=59, second=59, microsecond=999999)
+    fecha_inicio = (hoy - timedelta(days=dias)).replace(hour=0, minute=0, second=0, microsecond=0)
+
     reservas = db.exec(
         select(Reserva).where(
             Reserva.fecha_checkin >= fecha_inicio,
             Reserva.fecha_checkin <= fecha_fin,
-            Reserva.estado != "cancelada"  # Excluir reservas canceladas
+            Reserva.estado != "cancelada"  # Excluir reservas canceladas (no son ingreso)
         )
     ).all()
-    
+
     pedidos = db.exec(
         select(Pedido).where(
             Pedido.fecha >= fecha_inicio,
@@ -4162,31 +4188,32 @@ def ingresos_por_dia(
 def analisis_formas_pago(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     hoy = obtener_fecha_argentina()
     inicio_mes = hoy.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    
+    fin_hoy = hoy.replace(hour=23, minute=59, second=59, microsecond=999999)
+
     reservas = db.exec(
         select(Reserva).where(
             Reserva.fecha_checkin >= inicio_mes,
-            Reserva.fecha_checkin <= hoy,
+            Reserva.fecha_checkin <= fin_hoy,
             Reserva.estado != "cancelada"  # Excluir reservas canceladas
         )
     ).all()
-    
+
     pedidos = db.exec(
         select(Pedido).where(
             Pedido.fecha >= inicio_mes,
-            Pedido.fecha <= hoy
+            Pedido.fecha <= fin_hoy
         )
     ).all()
-    
+
     formas_pago = defaultdict(lambda: {"cantidad": 0, "monto": 0})
-    
+
     for reserva in reservas:
-        forma = reserva.forma_pago or "No especificado"
+        forma = _normalizar_forma_pago(reserva.forma_pago)
         formas_pago[forma]["cantidad"] += 1
         formas_pago[forma]["monto"] += reserva.total_estadia
-    
+
     for pedido in pedidos:
-        forma = pedido.forma_pago or "No especificado"
+        forma = _normalizar_forma_pago(pedido.forma_pago)
         formas_pago[forma]["cantidad"] += 1
         formas_pago[forma]["monto"] += pedido.monto
     
@@ -4254,17 +4281,17 @@ def detalle_diario_analytics(
         for reserva in reservas:
             fecha_str = reserva.fecha_checkin.strftime("%Y-%m-%d")
             datos_por_dia[fecha_str]["fecha"] = fecha_str
-            
+
             # Monto total de reservas
             datos_por_dia[fecha_str]["reservas"]["monto_total"] += reserva.total_estadia
             datos_por_dia[fecha_str]["reservas"]["cantidad"] += 1
-            
+
             # Habitaciones ocupadas (agregar todas las habitaciones de las reservas de ese día)
             if reserva.habitacion_id:
                 datos_por_dia[fecha_str]["reservas"]["habitaciones_ocupadas"].add(reserva.habitacion_id)
-            
-            # Formas de pago
-            forma_pago = reserva.forma_pago or "No especificado"
+
+            # Formas de pago (normalizadas — los estados internos van a "No especificado")
+            forma_pago = _normalizar_forma_pago(reserva.forma_pago)
             datos_por_dia[fecha_str]["reservas"]["formas_pago"][forma_pago] += reserva.total_estadia
         
         # Procesar pedidos
@@ -4290,14 +4317,14 @@ def detalle_diario_analytics(
                 fecha_str = fecha_argentina.strftime("%Y-%m-%d")
             
             datos_por_dia[fecha_str]["fecha"] = fecha_str
-            
-            # Solo contar pedidos pagados
-            if pedido.estado == "PAGADO":
+
+            # Contar TODOS los pedidos no cancelados (consistente con dashboard / ingresos-por-dia)
+            # Un pedido sin forma_pago igual cuenta como ingreso, solo que se etiqueta "No especificado"
+            if (pedido.estado or "").upper() != "CANCELADO":
                 datos_por_dia[fecha_str]["pedidos"]["monto_total"] += pedido.monto
                 datos_por_dia[fecha_str]["pedidos"]["cantidad"] += 1
-                
-                # Formas de pago
-                forma_pago = pedido.forma_pago or "No especificado"
+
+                forma_pago = _normalizar_forma_pago(pedido.forma_pago)
                 datos_por_dia[fecha_str]["pedidos"]["formas_pago"][forma_pago] += pedido.monto
         
         # Convertir a lista y formatear
