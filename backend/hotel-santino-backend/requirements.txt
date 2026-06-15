@@ -8,4 +8,3 @@ pydantic
 psycopg2-binary>=2.9
 alembic
 pytest
-httpx
