@@ -320,6 +320,7 @@ class DisponibilidadInteligenteEntrada(BaseModel):
     checkout: str  # formato: "YYYY-MM-DD"
     personas: int
     mascota: bool = False
+    exclude_habitacion_ids: Optional[List[int]] = []  # IDs a excluir (para búsquedas de múltiples habitaciones)
 
 class ReservaBotEntrada(BaseModel):
     nombre_completo: str
@@ -3147,7 +3148,11 @@ def disponibilidad_inteligente(data: DisponibilidadInteligenteEntrada, db: Sessi
             checkout=fecha_checkout,
             personas=data.personas
         )
-        
+
+        # Excluir habitaciones ya asignadas en consultas anteriores (multi-habitación)
+        if data.exclude_habitacion_ids:
+            habitaciones_disponibles = [h for h in habitaciones_disponibles if h.id not in data.exclude_habitacion_ids]
+
         logger.info(f"Habitaciones candidatas encontradas: {len(habitaciones_disponibles)}")
         
         # Seleccionar la mejor habitación
