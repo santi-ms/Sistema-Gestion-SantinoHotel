@@ -4910,17 +4910,17 @@ def listar_ingresos_finanzas(
 ):
     """
     Retorna ingresos en [desde, hasta] inclusive, alineado con la lógica de
-    /analytics/dashboard (facturación, no cash-flow real).
+    /analytics/detalle-diario (facturación, no cash-flow real).
 
-    Incluye:
-      - TODOS los pedidos en el rango (PENDIENTE + PAGADO), sumando `monto`,
-        filtrados por `fecha` (creación). Pedidos cancelados quedan fuera.
-      - Reservas con `estado != "cancelada"`, sumando `total_estadia`,
-        filtradas por `fecha_checkin`.
-
-    Nota: este criterio cuenta lo facturado / comprometido, no lo
-    efectivamente cobrado. El webhook push, en cambio, dispara cuando se
-    confirma un cobro real (seña recibida, pedido pagado).
+    Criterio EXACTO (debe coincidir con el panel de análisis diario):
+      - Pedidos en el rango (filtrados por `fecha` de creación), excluyendo
+        los cancelados (comparación case-insensitive sobre `estado`).
+      - Reservas en el rango (filtradas por `fecha_checkin`), excluyendo
+        `estado == "cancelada"`. Se suma `total_estadia`.
+      - `forma_pago` normalizada: estados internos como "Seña Recibida",
+        "PENDIENTE_SEÑA", "Pagado Completo" → "No especificado".
+      - `fecha` en la respuesta normalizada a hora Argentina y bucketeada
+        por la fecha de creación del pedido (no por `pagado_at`).
     """
     try:
         d_desde = datetime.strptime(desde, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
@@ -4930,16 +4930,23 @@ def listar_ingresos_finanzas(
 
     ingresos = []
 
-    # ── Pedidos en el rango (PENDIENTE + PAGADO, no CANCELADO) ──────
+    # ── Pedidos en el rango (excluir cancelados case-insensitive) ──────
     pedidos = db.exec(
         select(Pedido).where(
-            Pedido.estado != "CANCELADO",
             Pedido.fecha >= d_desde,
             Pedido.fecha < d_hasta_excl,
         )
     ).all()
     for p in pedidos:
-        fecha_evento = p.pagado_at or p.fecha
+        # Mismo check que /analytics/detalle-diario (case-insensitive,
+        # tolerante a None / "")
+        if (p.estado or "").upper() == "CANCELADO":
+            continue
+
+        # Bucketear por fecha de creación normalizada a ART (consistente
+        # con analytics)
+        fecha_norm = normalizar_fecha_argentina(p.fecha) or p.fecha
+
         try:
             items = json.loads(p.detalle) if p.detalle else []
             if isinstance(items, list) and items:
@@ -4958,7 +4965,7 @@ def listar_ingresos_finanzas(
             descripcion += f" — hab {p.habitacion_id}"
         elif p.externo:
             descripcion += " — externo"
-        if p.estado and p.estado != "PAGADO":
+        if p.estado and p.estado.upper() != "PAGADO":
             descripcion += f" [{p.estado}]"
         if resumen:
             descripcion += f" ({resumen})"
@@ -4967,8 +4974,8 @@ def listar_ingresos_finanzas(
             "id": f"pedido_{p.id}",
             "tipo": "restobar",
             "monto": float(p.monto),
-            "forma_pago": (p.forma_pago or "no especificado").strip() or "no especificado",
-            "fecha": fecha_evento.isoformat() if fecha_evento else None,
+            "forma_pago": _normalizar_forma_pago(p.forma_pago),
+            "fecha": fecha_norm.isoformat() if fecha_norm else None,
             "descripcion": descripcion,
         })
 
@@ -4981,6 +4988,7 @@ def listar_ingresos_finanzas(
         )
     ).all()
     for r in reservas:
+        fecha_norm = normalizar_fecha_argentina(r.fecha_checkin) or r.fecha_checkin
         descripcion = f"Reserva #{r.id}"
         if r.nombre_huesped:
             descripcion += f" — {r.nombre_huesped}"
@@ -4990,8 +4998,8 @@ def listar_ingresos_finanzas(
             "id": f"reserva_{r.id}",
             "tipo": "reserva",
             "monto": float(r.total_estadia),
-            "forma_pago": (r.forma_pago or "no especificado").strip() or "no especificado",
-            "fecha": r.fecha_checkin.isoformat() if r.fecha_checkin else None,
+            "forma_pago": _normalizar_forma_pago(r.forma_pago),
+            "fecha": fecha_norm.isoformat() if fecha_norm else None,
             "descripcion": descripcion,
         })
 
