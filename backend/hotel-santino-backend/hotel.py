@@ -4257,6 +4257,10 @@ def detalle_diario_analytics(
                 Reserva.estado != "cancelada"  # Excluir reservas canceladas
             )
         ).all()
+
+        # Mapa de habitacion_id → numero para mostrar el número real (no el ID interno)
+        habitaciones_all = db.exec(select(Habitacion)).all()
+        id_a_numero = {h.id: h.numero for h in habitaciones_all}
         
         # Obtener pedidos en el rango
         pedidos = db.exec(
@@ -4291,9 +4295,10 @@ def detalle_diario_analytics(
             datos_por_dia[fecha_str]["reservas"]["monto_total"] += reserva.total_estadia
             datos_por_dia[fecha_str]["reservas"]["cantidad"] += 1
 
-            # Habitaciones ocupadas (agregar todas las habitaciones de las reservas de ese día)
+            # Habitaciones ocupadas — guardar el número real (no el ID interno)
             if reserva.habitacion_id:
-                datos_por_dia[fecha_str]["reservas"]["habitaciones_ocupadas"].add(reserva.habitacion_id)
+                numero = id_a_numero.get(reserva.habitacion_id, reserva.habitacion_id)
+                datos_por_dia[fecha_str]["reservas"]["habitaciones_ocupadas"].add(numero)
 
             # Formas de pago (normalizadas — los estados internos van a "No especificado")
             forma_pago = _normalizar_forma_pago(reserva.forma_pago)
@@ -4339,8 +4344,8 @@ def detalle_diario_analytics(
             fecha_str = fecha_actual.strftime("%Y-%m-%d")
             datos = datos_por_dia[fecha_str]
             
-            # Convertir set de habitaciones a lista y contar
-            habitaciones_ocupadas_list = list(datos["reservas"]["habitaciones_ocupadas"])
+            # Convertir set de habitaciones a lista ordenada (números reales de habitación)
+            habitaciones_ocupadas_list = sorted(datos["reservas"]["habitaciones_ocupadas"])
             
             # Convertir defaultdict de formas de pago a lista
             formas_pago_reservas = [
