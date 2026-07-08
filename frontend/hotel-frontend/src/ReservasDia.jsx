@@ -592,16 +592,28 @@ export default function ReservasDia() {
                   <input
                     type="date"
                     value={ingreso}
-                    onChange={(e) => setIngreso(e.target.value)}
+                    onChange={(e) => {
+                      const nuevaFecha = e.target.value;
+                      setIngreso(nuevaFecha);
+                      // Si el egreso ya está cargado y es igual o anterior al nuevo ingreso, lo borra
+                      if (egreso && egreso <= nuevaFecha) {
+                        setEgreso("");
+                      }
+                    }}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Fecha de egreso *</label>
                   <input
                     type="date"
                     value={egreso}
+                    min={ingreso ? (() => {
+                      const d = new Date(ingreso + "T00:00:00");
+                      d.setDate(d.getDate() + 1);
+                      return d.toISOString().split("T")[0];
+                    })() : undefined}
                     onChange={(e) => setEgreso(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />

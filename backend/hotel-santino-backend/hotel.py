@@ -2163,7 +2163,10 @@ def crear_reserva_desde_gestion(data: ReservaGestion, db: Session = Depends(obte
         # Convertir fechas formato dd/mm/aaaa a datetime
         fecha_checkin = datetime.strptime(data.fecha_ingreso, "%d/%m/%Y").replace(tzinfo=ARGENTINA_TZ)
         fecha_checkout = datetime.strptime(data.fecha_egreso, "%d/%m/%Y").replace(tzinfo=ARGENTINA_TZ)
-        
+
+        if fecha_checkout <= fecha_checkin:
+            raise HTTPException(status_code=400, detail="La fecha de egreso debe ser posterior a la fecha de ingreso")
+
         # ✅ VALIDAR DISPONIBILIDAD DE LA HABITACIÓN ANTES DE CREAR LA RESERVA
         reservas_solapadas = db.exec(
             select(Reserva).where(
@@ -2388,7 +2391,10 @@ def actualizar_reserva_completa(
     habitacion_id_final = data.habitacion_id if data.habitacion_id is not None else reserva.habitacion_id
     fecha_checkin_final = data.fecha_checkin if data.fecha_checkin is not None else reserva.fecha_checkin
     fecha_checkout_final = data.fecha_checkout if data.fecha_checkout is not None else reserva.fecha_checkout
-    
+
+    if fecha_checkout_final <= fecha_checkin_final:
+        raise HTTPException(status_code=400, detail="La fecha de egreso debe ser posterior a la fecha de ingreso")
+
     # ✅ VALIDAR DISPONIBILIDAD si cambió habitación o fechas (excluyendo la reserva actual)
     reservas_solapadas = db.exec(
         select(Reserva).where(
