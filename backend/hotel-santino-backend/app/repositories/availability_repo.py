@@ -61,67 +61,43 @@ def list_available_rooms(
     checkin: datetime,
     checkout: datetime,
     min_capacity: int,
-    blocking_states: Optional[List[str]] = None
+    non_blocking_states: Optional[List[str]] = None,
+    blocking_states: Optional[List[str]] = None  # legacy, ignorado si se pasa non_blocking_states
 ) -> List[Habitacion]:
     """
     Lista habitaciones disponibles que:
     - Tienen capacidad >= min_capacity
-    - No tienen reservas solapadas en estados bloqueantes
-    
-    Lógica de solapamiento:
-    Una reserva bloquea si: r.checkin < checkout AND r.checkout > checkin
-    
-    Args:
-        session: Sesión de base de datos
-        checkin: Fecha de check-in solicitada
-        checkout: Fecha de check-out solicitada
-        min_capacity: Capacidad mínima requerida
-        blocking_states: Estados de reserva que bloquean disponibilidad.
-                        Si es None, se usan los estados por defecto.
-    
-    Returns:
-        Lista de habitaciones disponibles
+    - No tienen reservas solapadas en estados NO cancelados/completados
+
+    Usa blacklist (non_blocking_states) en lugar de whitelist para capturar
+    cualquier estado del panel ("pendiente", etc.) automáticamente.
     """
-    if blocking_states is None:
-        blocking_states = ["PENDIENTE_SEÑA", "CONFIRMADA", "Seña Pendiente", "Seña Recibida"]
-    
-    # Construir condiciones OR para compatibilidad con SQLite y PostgreSQL
-    if len(blocking_states) == 0:
-        # Si no hay estados bloqueantes, todas las habitaciones están disponibles
-        query = text("""
-            SELECT DISTINCT h.id, h.numero, h.tipo, h.precio, h.capacidad, h.descripcion
-            FROM habitacion h
-            WHERE h.capacidad >= :min_capacity
-            ORDER BY h.capacidad ASC, h.precio ASC, h.numero ASC
-        """)
-        params = {
-            "min_capacity": min_capacity
-        }
-    else:
-        # Usar múltiples OR para compatibilidad con ambos motores
-        estados_conditions = " OR ".join([f"r.forma_pago = :estado_{i}" for i in range(len(blocking_states))])
-        estados_params = {f"estado_{i}": estado for i, estado in enumerate(blocking_states)}
-        
-        query = text(f"""
-            SELECT DISTINCT h.id, h.numero, h.tipo, h.precio, h.capacidad, h.descripcion
-            FROM habitacion h
-            WHERE h.capacidad >= :min_capacity
-            AND h.id NOT IN (
-                SELECT DISTINCT r.habitacion_id
-                FROM reserva r
-                WHERE r.fecha_checkin < :checkout
-                AND r.fecha_checkout > :checkin
-                AND ({estados_conditions})
-            )
-            ORDER BY h.capacidad ASC, h.precio ASC, h.numero ASC
-        """)
-        
-        params = {
-            "min_capacity": min_capacity,
-            "checkin": checkin,
-            "checkout": checkout,
-            **estados_params
-        }
+    if non_blocking_states is None:
+        non_blocking_states = ["cancelada", "Cancelado", "completada"]
+
+    non_blocking_conditions = " OR ".join([f"r.forma_pago = :nb_{i}" for i in range(len(non_blocking_states))])
+    nb_params = {f"nb_{i}": estado for i, estado in enumerate(non_blocking_states)}
+
+    query = text(f"""
+        SELECT DISTINCT h.id, h.numero, h.tipo, h.precio, h.capacidad, h.descripcion
+        FROM habitacion h
+        WHERE h.capacidad >= :min_capacity
+        AND h.id NOT IN (
+            SELECT DISTINCT r.habitacion_id
+            FROM reserva r
+            WHERE r.fecha_checkin < :checkout
+            AND r.fecha_checkout > :checkin
+            AND NOT ({non_blocking_conditions})
+        )
+        ORDER BY h.capacidad ASC, h.precio ASC, h.numero ASC
+    """)
+
+    params = {
+        "min_capacity": min_capacity,
+        "checkin": checkin,
+        "checkout": checkout,
+        **nb_params
+    }
     
     result = session.execute(query, params)
     rows = result.fetchall()

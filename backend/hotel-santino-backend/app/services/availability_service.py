@@ -19,8 +19,9 @@ from hotel import Habitacion
 
 logger = logging.getLogger(__name__)
 
-# Estados que bloquean disponibilidad
-BLOCKING_STATES = ["PENDIENTE_SEÑA", "CONFIRMADA", "Seña Pendiente", "Seña Recibida"]
+# Estados que NO bloquean disponibilidad (cancelado o checkout completado)
+# Cualquier otro estado SÍ bloquea — así los estados del panel ("pendiente", etc.) también bloquean.
+NON_BLOCKING_STATES = ["cancelada", "Cancelado", "completada"]
 
 # Extra por mascota por noche
 EXTRA_MASCOTA_POR_NOCHE = 7000
@@ -49,7 +50,7 @@ def get_available_rooms(
         checkin=checkin,
         checkout=checkout,
         min_capacity=personas,
-        blocking_states=BLOCKING_STATES
+        non_blocking_states=NON_BLOCKING_STATES
     )
 
 
