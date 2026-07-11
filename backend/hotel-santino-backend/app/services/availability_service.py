@@ -19,10 +19,6 @@ from hotel import Habitacion
 
 logger = logging.getLogger(__name__)
 
-# Estados que NO bloquean disponibilidad (cancelado o checkout completado)
-# Cualquier otro estado SÍ bloquea — así los estados del panel ("pendiente", etc.) también bloquean.
-NON_BLOCKING_STATES = ["cancelada", "Cancelado", "completada"]
-
 # Extra por mascota por noche
 EXTRA_MASCOTA_POR_NOCHE = 7000
 
@@ -35,22 +31,13 @@ def get_available_rooms(
 ) -> List[Habitacion]:
     """
     Obtiene habitaciones disponibles para un rango de fechas y número de personas.
-    
-    Args:
-        session: Sesión de base de datos
-        checkin: Fecha de check-in
-        checkout: Fecha de check-out
-        personas: Número de personas
-        
-    Returns:
-        Lista de habitaciones disponibles, ordenadas por capacidad y precio
+    Filtra por r.estado NOT IN ('cancelada','completada') — ver availability_repo.py.
     """
     return list_available_rooms(
         session=session,
         checkin=checkin,
         checkout=checkout,
         min_capacity=personas,
-        non_blocking_states=NON_BLOCKING_STATES
     )
 
 

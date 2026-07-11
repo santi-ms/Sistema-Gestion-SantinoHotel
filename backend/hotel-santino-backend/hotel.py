@@ -3278,7 +3278,7 @@ def crear_reserva_bot(data: ReservaBotEntrada, db: Session = Depends(obtener_db)
             WHERE habitacion_id = :habitacion_id
             AND fecha_checkin < :fecha_checkout
             AND fecha_checkout > :fecha_checkin
-            AND forma_pago NOT IN ('cancelada', 'Cancelado', 'completada')
+            AND estado NOT IN ('cancelada', 'completada')
         """)
         result = db.execute(
             query_sql,

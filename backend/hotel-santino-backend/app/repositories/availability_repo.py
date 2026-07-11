@@ -62,23 +62,18 @@ def list_available_rooms(
     checkout: datetime,
     min_capacity: int,
     non_blocking_states: Optional[List[str]] = None,
-    blocking_states: Optional[List[str]] = None  # legacy, ignorado si se pasa non_blocking_states
+    blocking_states: Optional[List[str]] = None  # legacy, ignorado
 ) -> List[Habitacion]:
     """
     Lista habitaciones disponibles que:
     - Tienen capacidad >= min_capacity
-    - No tienen reservas solapadas en estados NO cancelados/completados
+    - No tienen reservas solapadas en estado 'activa'
 
-    Usa blacklist (non_blocking_states) en lugar de whitelist para capturar
-    cualquier estado del panel ("pendiente", etc.) automáticamente.
+    Filtra por r.estado ('activa' | 'completada' | 'cancelada'), NO por forma_pago.
+    Esto evita el bug donde forma_pago='Cancelado' (seña revertida) pero
+    estado='activa' hace que la habitación aparezca disponible cuando no lo está.
     """
-    if non_blocking_states is None:
-        non_blocking_states = ["cancelada", "Cancelado", "completada"]
-
-    non_blocking_conditions = " OR ".join([f"r.forma_pago = :nb_{i}" for i in range(len(non_blocking_states))])
-    nb_params = {f"nb_{i}": estado for i, estado in enumerate(non_blocking_states)}
-
-    query = text(f"""
+    query = text("""
         SELECT DISTINCT h.id, h.numero, h.tipo, h.precio, h.capacidad, h.descripcion
         FROM habitacion h
         WHERE h.capacidad >= :min_capacity
@@ -87,7 +82,7 @@ def list_available_rooms(
             FROM reserva r
             WHERE r.fecha_checkin < :checkout
             AND r.fecha_checkout > :checkin
-            AND NOT ({non_blocking_conditions})
+            AND r.estado NOT IN ('cancelada', 'completada')
         )
         ORDER BY h.capacidad ASC, h.precio ASC, h.numero ASC
     """)
@@ -96,7 +91,6 @@ def list_available_rooms(
         "min_capacity": min_capacity,
         "checkin": checkin,
         "checkout": checkout,
-        **nb_params
     }
     
     result = session.execute(query, params)
