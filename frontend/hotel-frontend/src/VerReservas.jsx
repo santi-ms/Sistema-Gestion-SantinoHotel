@@ -5,6 +5,13 @@ import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { getUserRole } from "./hooks/useAuth";
 import { useToast } from "./components/ToastContainer";
 import {
+  obtenerFechaISOArgentina,
+  obtenerHoyArgentinaISO,
+  formatearSoloFecha,
+  formatearFechaLarga,
+  formatearSoloHora
+} from "./utils/fechas";
+import {
   Calendar,
   User,
   Home,
@@ -105,15 +112,16 @@ export default function VerReservas() {
       return "cancelada";
     }
     
-    // Calcular estado basado en fechas primero
-    const hoy = new Date();
-    const checkin = new Date(reserva.fecha_checkin);
-    const checkout = new Date(reserva.fecha_checkout);
-    
-    // Normalizar fechas para comparación (solo día, mes, año)
-    hoy.setHours(0, 0, 0, 0);
-    checkin.setHours(0, 0, 0, 0);
-    checkout.setHours(0, 0, 0, 0);
+    // Comparar por día calendario argentino (strings YYYY-MM-DD, comparables
+    // lexicográficamente). Usar objetos Date locales haría depender el estado
+    // de la zona horaria del navegador.
+    const hoy = obtenerHoyArgentinaISO();
+    const checkin = obtenerFechaISOArgentina(reserva.fecha_checkin);
+    const checkout = obtenerFechaISOArgentina(reserva.fecha_checkout);
+
+    if (!checkin || !checkout) {
+      return reserva.estado || "pendiente";
+    }
 
     // Si ya pasó la fecha de checkout, debe ser completada o finalizada
     if (hoy >= checkout) {
@@ -258,7 +266,8 @@ export default function VerReservas() {
     // Filtro por rango de fecha de check-in (desde / hasta, ambos opcionales)
     if (filtroFechaDesde || filtroFechaHasta) {
       filtradas = filtradas.filter(reserva => {
-        const fechaReserva = new Date(reserva.fecha_checkin).toISOString().split('T')[0];
+        const fechaReserva = obtenerFechaISOArgentina(reserva.fecha_checkin);
+        if (!fechaReserva) return false;
         if (filtroFechaDesde && fechaReserva < filtroFechaDesde) return false;
         if (filtroFechaHasta && fechaReserva > filtroFechaHasta) return false;
         return true;
@@ -308,8 +317,8 @@ export default function VerReservas() {
         r.id,
         r.nombre_huesped || r.cliente_id,
         r.habitacion_numero || r.habitacion_id,
-        new Date(r.fecha_checkin).toLocaleDateString('es-ES'),
-        new Date(r.fecha_checkout).toLocaleDateString('es-ES'),
+        formatearSoloFecha(r.fecha_checkin),
+        formatearSoloFecha(r.fecha_checkout),
         obtenerEstadoReserva(r),
         r.total_estadia || "N/A"
       ])
@@ -319,7 +328,7 @@ export default function VerReservas() {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `reservas_${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `reservas_${obtenerHoyArgentinaISO()}.csv`;
     a.click();
   };
 
@@ -510,12 +519,10 @@ export default function VerReservas() {
           <div className="flex flex-wrap gap-2 mt-3">
             <button
               onClick={() => {
-                const hoy = new Date();
-                const y = hoy.getFullYear();
-                const m = String(hoy.getMonth() + 1).padStart(2, '0');
-                const d = String(hoy.getDate()).padStart(2, '0');
+                const [y, m] = obtenerHoyArgentinaISO().split('-');
+                const ultimoDia = String(new Date(Number(y), Number(m), 0).getDate()).padStart(2, '0');
                 setFiltroFechaDesde(`${y}-${m}-01`);
-                setFiltroFechaHasta(`${y}-${m}-${d}`);
+                setFiltroFechaHasta(`${y}-${m}-${ultimoDia}`);
               }}
               className="px-3 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg transition-all duration-200 border border-blue-200"
             >
@@ -523,9 +530,9 @@ export default function VerReservas() {
             </button>
             <button
               onClick={() => {
-                const hoy = new Date();
-                const primero = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
-                const ultimo = new Date(hoy.getFullYear(), hoy.getMonth(), 0);
+                const [y, m] = obtenerHoyArgentinaISO().split('-').map(Number);
+                const primero = new Date(y, m - 2, 1);
+                const ultimo = new Date(y, m - 1, 0);
                 const fmt = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
                 setFiltroFechaDesde(fmt(primero));
                 setFiltroFechaHasta(fmt(ultimo));
@@ -536,11 +543,7 @@ export default function VerReservas() {
             </button>
             <button
               onClick={() => {
-                const hoy = new Date();
-                const y = hoy.getFullYear();
-                const m = String(hoy.getMonth() + 1).padStart(2, '0');
-                const d = String(hoy.getDate()).padStart(2, '0');
-                const fecha = `${y}-${m}-${d}`;
+                const fecha = obtenerHoyArgentinaISO();
                 setFiltroFechaDesde(fecha);
                 setFiltroFechaHasta(fecha);
               }}
@@ -635,7 +638,7 @@ export default function VerReservas() {
                           <div className="flex items-center gap-2">
                             <CalendarDays className="w-4 h-4 text-slate-500" />
                             <span className="text-sm text-slate-700">
-                              {new Date(reserva.fecha_checkin).toLocaleDateString('es-ES')}
+                              {formatearSoloFecha(reserva.fecha_checkin)}
                             </span>
                           </div>
                         </td>
@@ -643,7 +646,7 @@ export default function VerReservas() {
                           <div className="flex items-center gap-2">
                             <CalendarDays className="w-4 h-4 text-slate-500" />
                             <span className="text-sm text-slate-700">
-                              {new Date(reserva.fecha_checkout).toLocaleDateString('es-ES')}
+                              {formatearSoloFecha(reserva.fecha_checkout)}
                             </span>
                           </div>
                         </td>
@@ -812,18 +815,10 @@ export default function VerReservas() {
                   <h3 className="text-sm font-semibold text-purple-700">Check-in</h3>
                 </div>
                 <p className="text-lg font-medium text-slate-900">
-                  {new Date(reservaDetalle.fecha_checkin).toLocaleDateString('es-ES', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                  })}
+                  {formatearFechaLarga(reservaDetalle.fecha_checkin)}
                 </p>
                 <p className="text-sm text-slate-600 mt-1">
-                  {new Date(reservaDetalle.fecha_checkin).toLocaleTimeString('es-ES', {
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  })}
+                  {formatearSoloHora(reservaDetalle.fecha_checkin)}
                 </p>
               </div>
 
@@ -833,18 +828,10 @@ export default function VerReservas() {
                   <h3 className="text-sm font-semibold text-orange-700">Check-out</h3>
                 </div>
                 <p className="text-lg font-medium text-slate-900">
-                  {new Date(reservaDetalle.fecha_checkout).toLocaleDateString('es-ES', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                  })}
+                  {formatearFechaLarga(reservaDetalle.fecha_checkout)}
                 </p>
                 <p className="text-sm text-slate-600 mt-1">
-                  {new Date(reservaDetalle.fecha_checkout).toLocaleTimeString('es-ES', {
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  })}
+                  {formatearSoloHora(reservaDetalle.fecha_checkout)}
                 </p>
               </div>
             </div>
@@ -966,7 +953,7 @@ export default function VerReservas() {
                 }
               </p>
               <p className="text-sm text-slate-600">
-                <strong>Fechas:</strong> {new Date(reservaCambiarHabitacion.fecha_checkin).toLocaleDateString('es-ES')} - {new Date(reservaCambiarHabitacion.fecha_checkout).toLocaleDateString('es-ES')}
+                <strong>Fechas:</strong> {formatearSoloFecha(reservaCambiarHabitacion.fecha_checkin)} - {formatearSoloFecha(reservaCambiarHabitacion.fecha_checkout)}
               </p>
             </div>
 

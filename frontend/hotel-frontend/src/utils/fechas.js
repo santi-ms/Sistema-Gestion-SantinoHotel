@@ -73,65 +73,68 @@ export function obtenerHoyArgentinaISO() {
 }
 
 /**
- * Formatea solo la fecha (sin hora) en zona horaria de Argentina
- * SOLUCIÓN: Extraer fecha directamente del string ISO y usar Date local para evitar timezone issues
+ * Devuelve el día calendario argentino (YYYY-MM-DD) de una fecha del backend.
+ *
+ * El backend guarda los timestamps en columnas sin timezone, con la hora de
+ * pared de Argentina. Por eso un string SIN offset explícito ya está en hora
+ * argentina y hay que tomarlo literal: reinterpretarlo como UTC (lo que hace
+ * `new Date(...).toISOString()`) corre el día para los horarios cercanos a
+ * medianoche. Si el string sí trae offset (o Z), se convierte a Argentina.
+ *
+ * @param {string|Date} fecha
+ * @returns {string|null} - "YYYY-MM-DD" o null si la fecha es inválida
  */
-export function formatearSoloFecha(fecha) {
-  if (!fecha) return "N/A";
-  
-  // Si es string ISO, extraer fecha directamente
+export function obtenerFechaISOArgentina(fecha) {
+  if (!fecha) return null;
+
   if (typeof fecha === "string") {
-    const match = fecha.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (match) {
-      const año = match[1];
-      const mes = match[2];
-      const dia = match[3];
-      
-      // Extraer también la hora para verificar si es temprano y podría estar en día anterior
-      const matchHora = fecha.match(/T(\d{2}):(\d{2})/);
-      
-      // Si tiene timezone -03:00, la fecha está en hora de Argentina
-      // PERO JavaScript puede estar parseándola como UTC, causando que aparezca 1 día adelantado
-      if (fecha.includes('-03:00') || fecha.includes('+03:00')) {
-        // Usar la fecha directamente del string (ya está correcta)
-        return `${dia}/${mes}/${año}`;
-      }
-      
-      // Si viene sin timezone o con Z, puede estar en UTC
-      // Crear Date en UTC y luego convertir a hora local de Argentina
-      if (fecha.includes('Z') || !fecha.match(/[+-]\d{2}:\d{2}$/)) {
-        // Parsear como UTC
-        const fechaUTC = new Date(fecha + (fecha.includes('Z') ? '' : 'Z'));
-        // Convertir a hora de Argentina (UTC-3) usando toLocaleDateString
-        return fechaUTC.toLocaleDateString('es-AR', {
-          timeZone: 'America/Argentina/Buenos_Aires',
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit'
-        });
-      }
-      
-      // Si tiene otro timezone, extraer directamente
-      return `${dia}/${mes}/${año}`;
+    const tieneOffset = /(?:Z|[+-]\d{2}:?\d{2})$/.test(fecha.trim());
+    const soloFecha = fecha.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (!tieneOffset && soloFecha) {
+      return soloFecha[1];
     }
   }
 
-  // Fallback: convertir a Date y formatear
-  try {
-    const fechaObj = typeof fecha === "string" ? new Date(fecha) : fecha;
-    if (fechaObj && !isNaN(fechaObj.getTime())) {
-      return fechaObj.toLocaleDateString('es-AR', {
-        timeZone: 'America/Argentina/Buenos_Aires',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-      });
-    }
-  } catch (e) {
-    console.error("Error formateando fecha:", e);
-  }
-  
-  return "N/A";
+  const fechaObj = typeof fecha === "string" ? new Date(fecha) : fecha;
+  if (!fechaObj || isNaN(fechaObj.getTime())) return null;
+
+  // en-CA produce directamente YYYY-MM-DD
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(fechaObj);
+}
+
+/**
+ * Formatea solo la fecha (sin hora) como DD/MM/AAAA en día calendario argentino.
+ * Comparte la lógica de `obtenerFechaISOArgentina`, así lo que se muestra y lo
+ * que se filtra nunca pueden diferir en un día.
+ */
+export function formatearSoloFecha(fecha) {
+  const iso = obtenerFechaISOArgentina(fecha);
+  if (!iso) return "N/A";
+  const [anio, mes, dia] = iso.split('-');
+  return `${dia}/${mes}/${anio}`;
+}
+
+/**
+ * Formatea la fecha en formato largo ("viernes, 12 de septiembre de 2026")
+ * usando el día calendario argentino.
+ */
+export function formatearFechaLarga(fecha) {
+  const iso = obtenerFechaISOArgentina(fecha);
+  if (!iso) return "N/A";
+  const [anio, mes, dia] = iso.split('-').map(Number);
+  // Se construye con componentes locales al mediodía: así ningún offset
+  // horario puede correr el día al formatear.
+  return new Date(anio, mes - 1, dia, 12).toLocaleDateString('es-ES', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
 }
 
 /**

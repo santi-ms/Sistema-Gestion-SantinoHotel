@@ -105,6 +105,20 @@ def normalizar_fecha_argentina(fecha):
         return fecha.astimezone(ARGENTINA_TZ)
     return fecha
 
+def dia_argentina(fecha):
+    """Día calendario argentino (date) de un timestamp de la BD.
+
+    Las columnas datetime del modelo no llevan timezone, así que Postgres
+    guarda la hora de pared de Argentina con la que se escribieron. Un valor
+    naive ya está en hora argentina y hay que leerlo literal — reinterpretarlo
+    como UTC correría el día para los horarios cercanos a medianoche.
+    """
+    if fecha is None:
+        return None
+    if fecha.tzinfo is not None:
+        fecha = fecha.astimezone(ARGENTINA_TZ)
+    return fecha.date()
+
 # ─────────── MODELOS ACTUALIZADOS ───────────
 class Rol(str, Enum):
     dueño = "dueño"
@@ -4120,7 +4134,32 @@ def dashboard_analytics(db: Session = Depends(obtener_db), token: dict = Depends
     
     dias_mes = (hoy - inicio_mes).days + 1
     ocupacion_total_posible = len(total_habitaciones) * dias_mes
-    dias_ocupados = sum((r.fecha_checkout - r.fecha_checkin).days for r in reservas_mes)
+
+    # La ocupación se cuenta sobre las reservas que se SUPERPONEN con el mes
+    # corrido, no sólo las que empezaron en él, y sólo por las noches que caen
+    # dentro del período. (reservas_mes sigue siendo por check-in porque de ahí
+    # salen los ingresos, que se imputan al día de check-in.)
+    reservas_ocupacion = db.exec(
+        select(Reserva).where(
+            Reserva.fecha_checkin <= fin_hoy,
+            Reserva.fecha_checkout >= inicio_mes,
+            Reserva.estado != "cancelada"
+        )
+    ).all()
+
+    dia_inicio_mes = inicio_mes.date()
+    dia_hoy = hoy.date()
+    dias_ocupados = 0
+    for r in reservas_ocupacion:
+        dia_checkin = dia_argentina(r.fecha_checkin)
+        dia_checkout = dia_argentina(r.fecha_checkout)
+        if dia_checkin is None or dia_checkout is None:
+            continue
+        primera_noche = max(dia_checkin, dia_inicio_mes)
+        ultima_noche = min(max(dia_checkout - timedelta(days=1), dia_checkin), dia_hoy)
+        if ultima_noche >= primera_noche:
+            dias_ocupados += (ultima_noche - primera_noche).days + 1
+
     tasa_ocupacion = (dias_ocupados / ocupacion_total_posible * 100) if ocupacion_total_posible > 0 else 0
     
     return {
@@ -4249,11 +4288,12 @@ def detalle_diario_analytics(
         fecha_fin_dt = datetime.strptime(fecha_fin, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
         fecha_fin_dt = fecha_fin_dt.replace(hour=23, minute=59, second=59)
         
-        # Obtener reservas en el rango (excluir canceladas)
+        # Reservas que se superponen con el rango (no sólo las que empiezan
+        # dentro): una estadía que arrancó antes ocupa habitación igual.
         reservas = db.exec(
             select(Reserva).where(
-                Reserva.fecha_checkin >= fecha_inicio_dt,
                 Reserva.fecha_checkin <= fecha_fin_dt,
+                Reserva.fecha_checkout >= fecha_inicio_dt,
                 Reserva.estado != "cancelada"  # Excluir reservas canceladas
             )
         ).all()
@@ -4283,21 +4323,40 @@ def detalle_diario_analytics(
         })
         
         # Procesar reservas
+        dia_inicio = fecha_inicio_dt.date()
+        dia_fin = fecha_fin_dt.date()
+
         for reserva in reservas:
-            fecha_str = reserva.fecha_checkin.strftime("%Y-%m-%d")
-            datos_por_dia[fecha_str]["fecha"] = fecha_str
+            dia_checkin = dia_argentina(reserva.fecha_checkin)
+            dia_checkout = dia_argentina(reserva.fecha_checkout)
+            if dia_checkin is None or dia_checkout is None:
+                continue
 
-            # Monto total de reservas
-            datos_por_dia[fecha_str]["reservas"]["monto_total"] += reserva.total_estadia
-            datos_por_dia[fecha_str]["reservas"]["cantidad"] += 1
+            # Facturación: se imputa íntegra al día de check-in, igual que
+            # /finanzas/ingresos. Repartirla por noche duplicaría ingresos.
+            if dia_inicio <= dia_checkin <= dia_fin:
+                fecha_str = dia_checkin.strftime("%Y-%m-%d")
+                datos_por_dia[fecha_str]["fecha"] = fecha_str
 
-            # Habitaciones ocupadas (agregar todas las habitaciones de las reservas de ese día)
+                datos_por_dia[fecha_str]["reservas"]["monto_total"] += reserva.total_estadia
+                datos_por_dia[fecha_str]["reservas"]["cantidad"] += 1
+
+                # Formas de pago (normalizadas — los estados internos van a "No especificado")
+                forma_pago = _normalizar_forma_pago(reserva.forma_pago)
+                datos_por_dia[fecha_str]["reservas"]["formas_pago"][forma_pago] += reserva.total_estadia
+
+            # Ocupación: la habitación está ocupada todas las noches de la
+            # estadía, desde el check-in hasta la noche previa al check-out.
+            # Una reserva que entra y sale el mismo día ocupa ese día.
             if reserva.habitacion_id:
-                datos_por_dia[fecha_str]["reservas"]["habitaciones_ocupadas"].add(reserva.habitacion_id)
-
-            # Formas de pago (normalizadas — los estados internos van a "No especificado")
-            forma_pago = _normalizar_forma_pago(reserva.forma_pago)
-            datos_por_dia[fecha_str]["reservas"]["formas_pago"][forma_pago] += reserva.total_estadia
+                ultima_noche = max(dia_checkout - timedelta(days=1), dia_checkin)
+                noche = max(dia_checkin, dia_inicio)
+                ultima_noche = min(ultima_noche, dia_fin)
+                while noche <= ultima_noche:
+                    fecha_str = noche.strftime("%Y-%m-%d")
+                    datos_por_dia[fecha_str]["fecha"] = fecha_str
+                    datos_por_dia[fecha_str]["reservas"]["habitaciones_ocupadas"].add(reserva.habitacion_id)
+                    noche += timedelta(days=1)
         
         # Procesar pedidos
         for pedido in pedidos:
