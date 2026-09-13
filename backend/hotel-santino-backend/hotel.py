@@ -2522,18 +2522,52 @@ def eliminar_reserva(
 # ─────────── ENDPOINTS EXISTENTES DE RESERVAS ───────────
 @app.patch("/reservas/{reserva_id}/checkout")
 def realizar_checkout(reserva_id: int, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+    """Marca la salida del huésped.
+
+    Lo que define que la reserva terminó es `estado`, no la fecha. Antes acá se
+    pisaba `fecha_checkout` con la fecha de AYER, lo que borraba para siempre la
+    salida real y descontaba una noche que el huésped sí había dormido.
+
+    Ahora la fecha sólo se toca cuando el huésped se va ANTES de lo previsto, y
+    se acorta hasta HOY (el día en que efectivamente deja la habitación), nunca
+    más atrás. Si se va el día previsto, o más tarde, la fecha queda intacta.
+    """
     reserva = db.get(Reserva, reserva_id)
     if not reserva:
         raise HTTPException(status_code=404, detail="Reserva no encontrada")
 
-    fecha_argentina = obtener_fecha_argentina() - timedelta(days=1)
-    reserva.fecha_checkout = datetime.combine(fecha_argentina.date(), datetime.min.time()).replace(tzinfo=ARGENTINA_TZ)
-    # ✅ Marcar reserva como completada
+    if reserva.estado == "cancelada":
+        raise HTTPException(
+            status_code=400, detail="La reserva está cancelada: no corresponde check-out"
+        )
+
+    hoy = obtener_fecha_argentina().date()
+    dia_checkin = dia_argentina(reserva.fecha_checkin)
+    dia_checkout = dia_argentina(reserva.fecha_checkout)
+
+    salida_anticipada = False
+    if dia_checkin is not None and dia_checkout is not None:
+        # Nunca por debajo de una noche: una reserva no puede terminar el mismo
+        # día que empieza sin dejar la estadía en cero noches.
+        nuevo_dia = max(hoy, dia_checkin + timedelta(days=1))
+        if nuevo_dia < dia_checkout:
+            reserva.fecha_checkout = datetime.combine(
+                nuevo_dia, datetime.min.time()
+            ).replace(tzinfo=ARGENTINA_TZ)
+            salida_anticipada = True
+
     reserva.estado = "completada"
 
     db.add(reserva)
     db.commit()
-    return {"mensaje": "Checkout realizado", "estado": "completada"}
+    db.refresh(reserva)
+
+    return {
+        "mensaje": "Checkout realizado",
+        "estado": "completada",
+        "salida_anticipada": salida_anticipada,
+        "fecha_checkout": reserva.fecha_checkout.isoformat(),
+    }
 
 @app.patch("/reservas/{reserva_id}/pago")
 def actualizar_forma_pago(reserva_id: int, data: ActualizarPagoEntrada, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
