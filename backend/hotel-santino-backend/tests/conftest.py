@@ -5,12 +5,17 @@ Define fixtures comunes para testing.
 import pytest
 from sqlmodel import Session, create_engine, SQLModel
 from datetime import datetime, timezone, timedelta
+import os
 import sys
 from pathlib import Path
 
 # Agregar el directorio raíz al path
 ROOT_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT_DIR))
+
+# El servidor se niega a arrancar sin SECRET_KEY (ver verificar_configuracion_obligatoria).
+# Los tests necesitan una cualquiera: no se firma nada que salga de la suite.
+os.environ.setdefault("SECRET_KEY", "clave-solo-para-tests")
 
 from hotel import Habitacion, Reserva, Cliente, ARGENTINA_TZ
 

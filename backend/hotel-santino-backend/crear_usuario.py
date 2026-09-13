@@ -30,7 +30,9 @@ def crear_usuario():
         print("❌ Opción inválida")
         return
 
-    email = input("📧 Email: ").strip()
+    # La API guarda y busca el email en minúsculas: este script tiene que hacer
+    # lo mismo o crearía una cuenta con la que después no se puede entrar.
+    email = input("📧 Email: ").strip().lower()
     if not email:
         print("❌ El email es obligatorio")
         return

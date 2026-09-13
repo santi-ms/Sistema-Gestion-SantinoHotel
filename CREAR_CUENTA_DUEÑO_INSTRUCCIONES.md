@@ -1,5 +1,19 @@
 # 👑 Crear Cuenta de Dueño - Instrucciones Simples
 
+> ⚠️ **Desactualizado.** El endpoint `POST /registro` ya no es público: sólo lo
+> puede usar un dueño autenticado, y la única excepción es la primera cuenta del
+> sistema (cuando la tabla `usuario` está vacía).
+>
+> Para crear usuarios o cambiar una contraseña, usá el script que escribe directo
+> en la base:
+>
+> ```bash
+> cd backend/hotel-santino-backend
+> python crear_usuario.py
+> ```
+>
+> Si el email ya existe, el script ofrece actualizarle la contraseña y el rol.
+
 ## ✅ El Sistema Ya Está Implementado
 
 El sistema de roles ya está funcionando. El dueño tiene acceso a:

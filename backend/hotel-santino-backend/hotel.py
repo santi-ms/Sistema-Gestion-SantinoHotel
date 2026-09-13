@@ -66,14 +66,38 @@ engine = create_engine(
 )
 
 
-# SECRET_KEY: En producción, usar variable de entorno. En desarrollo local, usar valor por defecto.
-# IMPORTANTE: Cambiar en producción por seguridad
-SECRET_KEY = os.getenv("SECRET_KEY", "clave-secreta-desarrollo-local-cambiar-en-produccion")
+# SECRET_KEY: se toma SIEMPRE del entorno y no tiene valor por defecto.
+# Un default en el código significa que, si la variable no está cargada, el
+# servidor arranca igual firmando tokens con una clave que está publicada en el
+# repositorio — y cualquiera puede fabricarse un token de dueño. Sin default, la
+# única forma de que eso pase es que alguien la configure mal a propósito.
+#
+# La validación vive en el evento de startup (no acá) para que los scripts de
+# mantenimiento puedan importar los modelos de este módulo sin necesitar la
+# clave; el servidor, en cambio, se niega a levantar sin ella.
+SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 120
 
+
+@app.on_event("startup")
+def verificar_configuracion_obligatoria():
+    """Aborta el arranque si falta configuración sin la cual el sistema no es seguro."""
+    if not SECRET_KEY:
+        raise RuntimeError(
+            "SECRET_KEY no está configurada. El servidor no arranca sin ella.\n"
+            "  • En Render/Railway: agregala como variable de entorno del servicio.\n"
+            "  • En local: export SECRET_KEY=\"$(python -c 'import secrets;print(secrets.token_urlsafe(48))')\"\n"
+            "Al cambiar el valor, todos los tokens emitidos antes dejan de ser válidos "
+            "y los usuarios tienen que volver a iniciar sesión."
+        )
+
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+# Variante que NO falla sola cuando no viene token: la usa el registro de
+# usuarios, que necesita distinguir "sin token" de "token inválido".
+oauth2_scheme_opcional = OAuth2PasswordBearer(tokenUrl="login", auto_error=False)
 
 # ─────────── CONFIGURACIÓN DE ZONA HORARIA ───────────
 # Zona horaria de Argentina (UTC-3)
@@ -570,6 +594,40 @@ def verificar_admin(token: dict = Depends(verificar_token)):
         raise HTTPException(status_code=403, detail="Solo los administradores pueden realizar esta acción")
     return token
 
+def verificar_admin_o_primer_usuario(
+    db: Session = Depends(obtener_db),
+    token: Optional[str] = Depends(oauth2_scheme_opcional),
+):
+    """Permite crear usuarios sólo a un dueño autenticado.
+
+    Única excepción: cuando la tabla `usuario` está vacía, para poder dar de
+    alta la primera cuenta del sistema. Apenas existe un usuario, el endpoint
+    queda cerrado. Para crear cuentas sin pasar por la API está
+    `crear_usuario.py`, que escribe directo en la base.
+    """
+    sistema_sin_usuarios = db.exec(select(Usuario)).first() is None
+    if sistema_sin_usuarios:
+        return None
+
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="Necesitás iniciar sesión como dueño para crear usuarios",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token inválido")
+
+    if payload.get("rol") != "dueño":
+        raise HTTPException(
+            status_code=403, detail="Solo el dueño puede crear usuarios"
+        )
+    return payload
+
+
 # ─────────── ENDPOINT PARA ARREGLAR LA BASE DE DATOS ───────────
 @app.get("/reservas/reporte-habitaciones")
 def reporte_habitaciones_reservas(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
@@ -815,9 +873,26 @@ class UsuarioRegistro(BaseModel):
     rol: Rol
 
 @app.post("/registro")
-def registrar_usuario(data: UsuarioRegistro, db: Session = Depends(obtener_db)):
+def registrar_usuario(
+    data: UsuarioRegistro,
+    db: Session = Depends(obtener_db),
+    _: dict = Depends(verificar_admin_o_primer_usuario),
+):
+    """Da de alta un usuario. Reservado al dueño (ver verificar_admin_o_primer_usuario)."""
+    email = data.email.strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="El email es obligatorio")
+
+    # El email identifica al usuario en el login, que resuelve con .first():
+    # dos filas con el mismo email hacen que cuál entra dependa del orden de la
+    # tabla, y con roles distintos eso es un agujero de permisos.
+    if db.exec(select(Usuario).where(Usuario.email == email)).first():
+        raise HTTPException(
+            status_code=409, detail="Ya existe un usuario con ese email"
+        )
+
     hashed = pwd_context.hash(data.contraseña)
-    usuario = Usuario(email=data.email, contraseña=hashed, rol=data.rol)
+    usuario = Usuario(email=email, contraseña=hashed, rol=data.rol)
     db.add(usuario)
     db.commit()
     db.refresh(usuario)
@@ -830,7 +905,10 @@ async def login_options():
 
 @app.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(obtener_db)):
-    usuario = db.exec(select(Usuario).where(Usuario.email == form_data.username)).first()
+    # El alta normaliza el email a minúsculas: el login tiene que buscar igual,
+    # si no una cuenta creada como "Dueño@Hotel.com" no podría entrar nunca.
+    email = (form_data.username or "").strip().lower()
+    usuario = db.exec(select(Usuario).where(Usuario.email == email)).first()
     if not usuario or not pwd_context.verify(form_data.password, usuario.contraseña):
         raise HTTPException(status_code=400, detail="Credenciales incorrectas")
     token = crear_token({"sub": usuario.email, "rol": usuario.rol})
