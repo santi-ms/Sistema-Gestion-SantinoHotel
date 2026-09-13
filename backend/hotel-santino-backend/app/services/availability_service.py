@@ -54,19 +54,31 @@ def pick_best_room(
     3. Si hay empate, menor número de habitación
     
     Args:
-        rooms: Lista de habitaciones disponibles (ya ordenadas)
+        rooms: Lista de habitaciones disponibles (en cualquier orden)
         personas: Número de personas requeridas
         
     Returns:
-        La mejor habitación o None si la lista está vacía
+        La mejor habitación o None si ninguna cumple la capacidad
     """
     if not rooms:
         return None
-    
-    # Las habitaciones ya vienen ordenadas del repositorio
-    # (capacidad ASC, precio ASC, numero ASC)
-    # La primera es la mejor opción
-    return rooms[0]
+
+    # El criterio se aplica acá y no se confía en el orden que traiga el
+    # llamador: antes esta función devolvía rooms[0] asumiendo que venían
+    # ordenadas del repositorio. Con una lista armada en otro lado (o un
+    # ORDER BY que cambie) el huésped terminaba en una habitación más grande
+    # y más cara de la que necesitaba, sin que nada lo indicara.
+    candidatas = [
+        h for h in rooms
+        if h.capacidad is not None and h.capacidad >= personas
+    ]
+    if not candidatas:
+        return None
+
+    return min(
+        candidatas,
+        key=lambda h: (h.capacidad, h.precio if h.precio is not None else 0, h.numero),
+    )
 
 
 def calculate_pricing(

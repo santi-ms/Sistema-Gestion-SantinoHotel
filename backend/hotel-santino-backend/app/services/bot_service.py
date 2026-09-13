@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-from hotel import ChatSession, ARGENTINA_TZ
+from hotel import ChatSession, ARGENTINA_TZ, formatear_pesos
 
 logger = logging.getLogger(__name__)
 
@@ -224,13 +224,13 @@ def procesar_mensaje(
 🏨 Habitación {hab['numero']} ({hab['tipo']})
 👥 Capacidad: {hab['capacidad']} personas
 🌙 Noches: {precios['noches']}
-💰 Precio por noche: ${precios['precio_por_noche']:,.0f}
-💵 Total estadía: ${precios['precio_base']:,.0f}"""
+💰 Precio por noche: {formatear_pesos(precios['precio_por_noche'])}
+💵 Total estadía: {formatear_pesos(precios['precio_base'])}"""
                 
                 if precios.get("extra_mascota", 0) > 0:
-                    respuesta += f"\n🐾 Extra mascota: ${precios['extra_mascota']:,.0f}"
+                    respuesta += f"\n🐾 Extra mascota: {formatear_pesos(precios['extra_mascota'])}"
                 
-                respuesta += f"\n💳 Total: ${precios['precio_total']:,.0f}"
+                respuesta += f"\n💳 Total: {formatear_pesos(precios['precio_total'])}"
                 respuesta += "\n\n¿Querés que te la reserve? Respondé 'confirmo' para crear la reserva (queda pendiente de seña)."
                 
                 return (
@@ -291,7 +291,7 @@ def generar_respuesta_confirmacion_reserva(reserva_id: int, seña: float) -> str
 
 Tu reserva está PENDIENTE DE SEÑA (50% del total).
 
-💰 Seña a pagar: ${seña:,.0f}
+💰 Seña a pagar: {formatear_pesos(seña)}
 
 💳 Datos para transferencia:
 Alias: santinocasitas

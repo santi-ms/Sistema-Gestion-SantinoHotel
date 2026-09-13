@@ -2,7 +2,8 @@
 Tests unitarios para el service del bot de WhatsApp.
 """
 import pytest
-from datetime import datetime
+from datetime import datetime, timedelta
+from hotel import ARGENTINA_TZ
 from app.services.bot_service import (
     procesar_mensaje,
     generar_respuesta_confirmacion_reserva,
@@ -102,15 +103,20 @@ def test_estado_esperando_checkin_fecha_invalida():
 
 
 def test_estado_esperando_checkin_fecha_valida():
-    """Test: Fecha válida avanza a checkout"""
+    """Test: Fecha válida avanza a checkout.
+
+    La fecha se calcula relativa a hoy: el bot rechaza check-ins en el pasado,
+    así que una fecha fija hace que el test empiece a fallar solo cuando el
+    calendario la alcanza."""
     session = MockChatSession()
     session.estado = ESTADO_ESPERANDO_CHECKIN
-    
-    reply, nuevo_estado, datos = procesar_mensaje(session, "2025-02-15")
-    
+    manana = (datetime.now(ARGENTINA_TZ).date() + timedelta(days=1)).isoformat()
+
+    reply, nuevo_estado, datos = procesar_mensaje(session, manana)
+
     assert nuevo_estado == ESTADO_ESPERANDO_CHECKOUT
     assert "check-out" in reply.lower()
-    assert datos.get("checkin") == "2025-02-15"
+    assert datos.get("checkin") == manana
 
 
 def test_estado_esperando_checkout_invalido():
@@ -177,7 +183,10 @@ def test_generar_respuesta_confirmacion():
     respuesta = generar_respuesta_confirmacion_reserva(123, 50000.0)
     
     assert "Reserva creada" in respuesta
-    assert "50000" in respuesta
+    # Formato argentino: punto como separador de miles. "$50,000" se lee como
+    # cincuenta pesos.
+    assert "$50.000" in respuesta
+    assert "50,000" not in respuesta
     assert "santinocasitas" in respuesta
     assert "CVU" in respuesta
 

@@ -79,6 +79,20 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 # Zona horaria de Argentina (UTC-3)
 ARGENTINA_TZ = timezone(timedelta(hours=-3))
 
+def formatear_pesos(monto) -> str:
+    """Formatea un monto en pesos con la convención argentina: $1.234.567
+
+    El formato de Python (`f"{x:,.0f}"`) usa la coma como separador de miles,
+    que acá se lee como separador decimal: "$50,000" para un huésped argentino
+    son cincuenta pesos, no cincuenta mil. Es el mismo criterio que usa
+    `formatARS` en el frontend (utils/moneda.js).
+    """
+    try:
+        return f"${float(monto):,.0f}".replace(",", ".")
+    except (TypeError, ValueError):
+        return "$0"
+
+
 def obtener_fecha_argentina():
     """Obtiene la fecha y hora actual en zona horaria de Argentina"""
     # Usar UTC como base y convertir a Argentina para evitar problemas cuando el servidor está en otra zona horaria
@@ -2914,7 +2928,7 @@ def seleccionar_mejor_habitacion(habitaciones_disponibles, huespedes, tipo_prefe
     
     return {
         "habitacion_recomendada": mejor_habitacion,
-        "razon": f"Mejor opción para {huespedes} huéspedes: capacidad {mejor_habitacion['capacidad']}, precio ${mejor_habitacion['precio']:,}"
+        "razon": f"Mejor opción para {huespedes} huéspedes: capacidad {mejor_habitacion['capacidad']}, precio {formatear_pesos(mejor_habitacion['precio'])}"
     }
 
 
