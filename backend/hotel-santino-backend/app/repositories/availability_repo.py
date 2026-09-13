@@ -2,7 +2,7 @@
 Repository para consultas de disponibilidad de habitaciones.
 ÚNICO lugar con SQL crudo. Encapsula todas las queries relacionadas con disponibilidad.
 """
-from sqlmodel import Session, text
+from sqlmodel import Session, select, text
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import sys
@@ -13,7 +13,7 @@ ROOT_DIR = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 # Importar modelos
-from hotel import Habitacion
+from hotel import Habitacion, Reserva, fecha_para_sql
 
 
 def list_rooms_with_capacity(
@@ -67,57 +67,50 @@ def list_available_rooms(
     """
     Lista habitaciones disponibles que:
     - Tienen capacidad >= min_capacity
-    - No tienen reservas solapadas en estado 'activa'
+    - No tienen reservas solapadas que bloqueen
 
-    Filtra por r.estado ('activa' | 'completada' | 'cancelada'), NO por forma_pago.
-    Esto evita el bug donde forma_pago='Cancelado' (seña revertida) pero
-    estado='activa' hace que la habitación aparezca disponible cuando no lo está.
+    Filtra por r.estado, NO por forma_pago. Esto evita el bug donde
+    forma_pago='Cancelado' (seña revertida) pero estado='activa' hacía que la
+    habitación apareciera disponible cuando no lo estaba.
+
+    Sólo la reserva cancelada libera la habitación — mismo criterio que el
+    panel y que POST /reservas-gestion. Antes acá se excluían también las
+    'completada', así que el bot podía ofrecer una habitación que el panel
+    daba por ocupada. Una reserva completada ya tiene su fecha de salida
+    ajustada al día real (ver PATCH /reservas/{id}/checkout), así que el
+    solape de fechas alcanza.
+
+    Se usa el ORM y no SQL crudo a propósito: con `text()` los datetime van
+    directo al driver y en SQLite terminan comparándose como strings, donde
+    "2026-04-10 00:00:00.000000" (guardado) resulta mayor que el parámetro
+    "2026-04-10 00:00:00". Con eso, una habitación que se desocupa el mismo
+    día que otro huésped entra figuraba ocupada — la rotación más común de un
+    hotel. El ORM aplica el mismo formato al guardar y al comparar. Además
+    devuelve la habitación completa, con precio_minimo y precio_maximo, que
+    `calcular_precio_dinamico` necesita para no caer al precio fijo.
     """
-    query = text("""
-        SELECT DISTINCT h.id, h.numero, h.tipo, h.precio, h.capacidad, h.descripcion
-        FROM habitacion h
-        WHERE h.capacidad >= :min_capacity
-        AND h.id NOT IN (
-            SELECT DISTINCT r.habitacion_id
-            FROM reserva r
-            WHERE r.fecha_checkin < :checkout
-            AND r.fecha_checkout > :checkin
-            AND r.estado NOT IN ('cancelada', 'completada')
+    habitaciones_ocupadas = (
+        select(Reserva.habitacion_id)
+        .where(
+            Reserva.fecha_checkin < checkout,
+            Reserva.fecha_checkout > checkin,
+            Reserva.estado != "cancelada",
+            # Sin esto, una sola fila con habitacion_id NULL haría que el
+            # NOT IN no devuelva ninguna habitación.
+            Reserva.habitacion_id.is_not(None),
         )
-        ORDER BY h.capacidad ASC, h.precio ASC, h.numero ASC
-    """)
+    )
 
-    params = {
-        "min_capacity": min_capacity,
-        "checkin": checkin,
-        "checkout": checkout,
-    }
-    
-    result = session.execute(query, params)
-    rows = result.fetchall()
-    
-    # Convertir rows a objetos Habitacion
-    habitaciones = []
-    for row in rows:
-        # Manejar tanto Row como tupla
-        row_id = row.id if hasattr(row, 'id') else row[0]
-        row_numero = row.numero if hasattr(row, 'numero') else row[1]
-        row_tipo = row.tipo if hasattr(row, 'tipo') else row[2]
-        row_precio = row.precio if hasattr(row, 'precio') else (row[3] if len(row) > 3 else None)
-        row_capacidad = row.capacidad if hasattr(row, 'capacidad') else (row[4] if len(row) > 4 else None)
-        row_descripcion = row.descripcion if hasattr(row, 'descripcion') else (row[5] if len(row) > 5 else None)
-        
-        habitacion = Habitacion(
-            id=row_id,
-            numero=row_numero,
-            tipo=row_tipo,
-            precio=row_precio if row_precio is not None else 0,
-            capacidad=row_capacidad,
-            descripcion=row_descripcion
+    consulta = (
+        select(Habitacion)
+        .where(
+            Habitacion.capacidad >= min_capacity,
+            Habitacion.id.not_in(habitaciones_ocupadas),
         )
-        habitaciones.append(habitacion)
-    
-    return habitaciones
+        .order_by(Habitacion.capacidad, Habitacion.precio, Habitacion.numero)
+    )
+
+    return list(session.exec(consulta).all())
 
 
 def count_overlapping_reservations(
@@ -161,8 +154,8 @@ def count_overlapping_reservations(
     
     params = {
         "habitacion_id": habitacion_id,
-        "checkin": checkin,
-        "checkout": checkout,
+        "checkin": fecha_para_sql(checkin),
+        "checkout": fecha_para_sql(checkout),
         **estados_params
     }
     

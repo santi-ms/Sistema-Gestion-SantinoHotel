@@ -99,6 +99,27 @@ def reserva_cuenta_como_ingreso(reserva) -> bool:
     return (getattr(reserva, "estado", None) or "").strip().lower() != "cancelada"
 
 
+def fecha_para_sql(fecha):
+    """Prepara un datetime para usarlo como parámetro de una query cruda.
+
+    Las columnas datetime se guardan SIN timezone (hora de pared argentina).
+    El ORM ya adapta los parámetros a ese formato, pero en las queries de
+    `text()` el datetime va directo al driver: con timezone, SQLite lo
+    serializa como "2026-04-10 00:00:00-03:00" y lo compara como texto contra
+    el "2026-04-10 00:00:00.000000" guardado. Como "-" ordena antes que ".",
+    una salida y una entrada el MISMO DÍA se leían como solape y la habitación
+    quedaba bloqueada — justo la rotación más común de un hotel.
+
+    Postgres castea el parámetro a timestamp y descarta el offset, así que ahí
+    la comparación daba bien; esto hace que los dos motores coincidan.
+    """
+    if fecha is None:
+        return None
+    if fecha.tzinfo is not None:
+        fecha = fecha.astimezone(ARGENTINA_TZ).replace(tzinfo=None)
+    return fecha
+
+
 def formatear_pesos(monto) -> str:
     """Formatea un monto en pesos con la convención argentina: $1.234.567
 
@@ -931,6 +952,42 @@ def calcular_precio_dinamico(habitacion: Habitacion, fecha_checkin: datetime, fe
     
     # Redondear a número entero para facilitar el manejo de cambio
     return int(round(precio_dinamico))
+
+def cotizar_estadia(habitacion, fecha_checkin, fecha_checkout, mascota, db):
+    """Cotiza una estadía. Único camino de precio del sistema.
+
+    El bot cotizaba con `habitacion.precio` (el precio fijo) mientras el panel
+    usaba `calcular_precio_dinamico`, así que para las mismas fechas el huésped
+    de WhatsApp veía un número y el panel otro — y la reserva que creaba el bot
+    quedaba guardada con el precio fijo.
+
+    `calcular_precio_dinamico` necesita `precio_minimo`/`precio_maximo`, que no
+    vienen en las habitaciones que arma el repositorio de disponibilidad: por
+    eso se relee la habitación de la base cuando faltan. Sin eso la función
+    cortaba en su primer `if` y devolvía el precio fijo igual.
+    """
+    from app.services.availability_service import calculate_nights, calculate_pricing
+    from types import SimpleNamespace
+
+    if getattr(habitacion, "precio_minimo", None) is None and getattr(habitacion, "id", None):
+        completa = db.get(Habitacion, habitacion.id)
+        if completa is not None:
+            habitacion = completa
+
+    noches = calculate_nights(fecha_checkin, fecha_checkout)
+    precio_noche = calcular_precio_dinamico(habitacion, fecha_checkin, fecha_checkout, db)
+
+    return calculate_pricing(
+        habitacion=SimpleNamespace(
+            precio=precio_noche,
+            numero=habitacion.numero,
+            capacidad=habitacion.capacidad,
+            tipo=habitacion.tipo,
+        ),
+        noches=noches,
+        mascota=bool(mascota),
+    )
+
 
 @app.post("/habitaciones")
 def agregar_habitacion(data: HabitacionEntrada, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
@@ -3258,26 +3315,9 @@ def disponibilidad_inteligente(data: DisponibilidadInteligenteEntrada, db: Sessi
         
         logger.info(f"Mejor habitación seleccionada: Hab {mejor_habitacion.numero} (capacidad={mejor_habitacion.capacidad})")
         
-        # Calcular noches
         noches = calculate_nights(fecha_checkin, fecha_checkout)
-        
-        # Calcular precio dinámico basado en disponibilidad
-        precio_dinamico = calcular_precio_dinamico(mejor_habitacion, fecha_checkin, fecha_checkout, db)
-        
-        # Crear una copia temporal de la habitación con el precio dinámico para el service
-        from types import SimpleNamespace
-        habitacion_con_precio = SimpleNamespace(
-            precio=precio_dinamico,
-            numero=mejor_habitacion.numero,
-            capacidad=mejor_habitacion.capacidad,
-            tipo=mejor_habitacion.tipo
-        )
-        
-        # Calcular precios usando el service (con precio dinámico)
-        precios = calculate_pricing(
-            habitacion=habitacion_con_precio,
-            noches=noches,
-            mascota=data.mascota
+        precios = cotizar_estadia(
+            mejor_habitacion, fecha_checkin, fecha_checkout, data.mascota, db
         )
         
         # Preparar extras
@@ -3356,27 +3396,22 @@ def crear_reserva_bot(data: ReservaBotEntrada, db: Session = Depends(obtener_db)
                 detail=f"La habitación {habitacion.numero} tiene capacidad para {habitacion.capacidad} personas, se solicitaron {data.cantidad_personas}"
             )
         
-        # ✅ VALIDAR DISPONIBILIDAD - Verificar que la habitación siga libre
-        # Filtrar por forma_pago bloqueante (mismo criterio que list_available_rooms /
-        # verificar_disponibilidad). Sin este filtro, reservas canceladas con forma_pago
-        # no bloqueante (ej. 'Cancelado') generaban "habitación ocupada" cuando en
-        # realidad estaba disponible -- inconsistencia que rechazó reservas legítimas.
-        query_sql = text("""
-            SELECT id FROM reserva
-            WHERE habitacion_id = :habitacion_id
-            AND fecha_checkin < :fecha_checkout
-            AND fecha_checkout > :fecha_checkin
-            AND estado NOT IN ('cancelada', 'completada')
-        """)
-        result = db.execute(
-            query_sql,
-            {
-                "habitacion_id": data.habitacion_id,
-                "fecha_checkout": fecha_checkout,
-                "fecha_checkin": fecha_checkin
-            }
-        )
-        reservas_solapadas = result.fetchall()
+        # ✅ VALIDAR DISPONIBILIDAD - Verificar que la habitación siga libre.
+        # Sólo una reserva cancelada libera la habitación: el mismo criterio que
+        # usan el panel y list_available_rooms. Una reserva "completada" ya tiene
+        # su fecha de salida ajustada al día real (ver PATCH /checkout), así que
+        # el solape de fechas alcanza para saber si la habitación está libre.
+        # Con el ORM y no con text(): en SQL crudo los datetime van directo al
+        # driver y en SQLite se comparan como strings, con lo que una salida y
+        # una entrada el mismo día se leen como solape (ver fecha_para_sql).
+        reservas_solapadas = db.exec(
+            select(Reserva.id).where(
+                Reserva.habitacion_id == data.habitacion_id,
+                Reserva.fecha_checkin < fecha_checkout,
+                Reserva.fecha_checkout > fecha_checkin,
+                Reserva.estado != "cancelada",
+            )
+        ).all()
         
         if reservas_solapadas:
             raise HTTPException(
@@ -3851,10 +3886,9 @@ def handle_bot_message(
                 
                 if mejor_habitacion:
                     noches = calculate_nights(fecha_checkin, fecha_checkout)
-                    precios = calculate_pricing(
-                        habitacion=mejor_habitacion,
-                        noches=noches,
-                        mascota=chat_session.mascota
+                    precios = cotizar_estadia(
+                        mejor_habitacion, fecha_checkin, fecha_checkout,
+                        chat_session.mascota, db
                     )
                     
                     disponibilidad_data = {
@@ -3947,7 +3981,10 @@ def handle_bot_message(
                     habitacion = db.get(Habitacion, habitacion_id)
                     if habitacion:
                         noches = calculate_nights(fecha_checkin, fecha_checkout)
-                        precios = calculate_pricing(habitacion, noches, chat_session.mascota)
+                        precios = cotizar_estadia(
+                            habitacion, fecha_checkin, fecha_checkout,
+                            chat_session.mascota, db
+                        )
                         seña = precios["precio_total"] * 0.5
                         
                         nueva_reserva = Reserva(
