@@ -79,6 +79,26 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 # Zona horaria de Argentina (UTC-3)
 ARGENTINA_TZ = timezone(timedelta(hours=-3))
 
+def pedido_cuenta_como_ingreso(pedido) -> bool:
+    """Un pedido suma a los ingresos salvo que esté cancelado.
+
+    Único lugar donde se decide esto. Antes el criterio estaba escrito cuatro
+    veces y había divergido: /analytics/detalle-diario y /finanzas/ingresos
+    descartaban los cancelados, pero /analytics/dashboard y
+    /analytics/ingresos-por-dia los sumaban igual. Para el mismo día, el número
+    grande del panel no coincidía con la tabla del detalle diario.
+
+    La comparación es tolerante a None, "" y mayúsculas porque el estado se
+    escribió desde varios lugares a lo largo del tiempo.
+    """
+    return (getattr(pedido, "estado", None) or "").strip().upper() != "CANCELADO"
+
+
+def reserva_cuenta_como_ingreso(reserva) -> bool:
+    """Una reserva suma a los ingresos salvo que esté cancelada."""
+    return (getattr(reserva, "estado", None) or "").strip().lower() != "cancelada"
+
+
 def formatear_pesos(monto) -> str:
     """Formatea un monto en pesos con la convención argentina: $1.234.567
 
@@ -106,16 +126,22 @@ def convertir_a_argentina(fecha_utc):
     return fecha_utc.astimezone(ARGENTINA_TZ)
 
 def normalizar_fecha_argentina(fecha):
-    """Asegura que una fecha tenga timezone de Argentina"""
+    """Devuelve la fecha con timezone de Argentina, sin correrle la hora.
+
+    Las columnas datetime de los modelos no declaran timezone, así que la base
+    guarda la hora de pared de Argentina con la que se escribieron (todas las
+    escrituras usan `obtener_fecha_argentina()`). Una fecha naive que viene de
+    la base YA ES hora argentina: sólo hay que etiquetarla.
+
+    Antes esta función la interpretaba como UTC y le restaba 3 horas. Como se
+    usa para mostrar horarios y para agrupar por día, un pedido de la 01:30 se
+    mostraba a las 22:30 y se contabilizaba en el día anterior.
+    """
     if fecha is None:
         return None
     if fecha.tzinfo is None:
-        # Si no tiene timezone, PostgreSQL probablemente lo guardó como UTC
-        # Asumir UTC y convertir a Argentina
-        fecha_utc = fecha.replace(tzinfo=timezone.utc)
-        return fecha_utc.astimezone(ARGENTINA_TZ)
-    elif fecha.tzinfo != ARGENTINA_TZ:
-        # Si tiene otro timezone, convertir a Argentina
+        return fecha.replace(tzinfo=ARGENTINA_TZ)
+    if fecha.tzinfo != ARGENTINA_TZ:
         return fecha.astimezone(ARGENTINA_TZ)
     return fecha
 
@@ -4174,6 +4200,11 @@ def dashboard_analytics(db: Session = Depends(obtener_db), token: dict = Depends
     
     total_habitaciones = db.exec(select(Habitacion)).all()
     
+    # Mismo criterio que detalle-diario y /finanzas/ingresos: los cancelados
+    # no son ingreso. Antes acá se sumaban igual y el dashboard no cerraba
+    # contra la tabla del análisis diario.
+    pedidos_mes = [p for p in pedidos_mes if pedido_cuenta_como_ingreso(p)]
+
     ingresos_reservas = sum(r.total_estadia for r in reservas_mes)
     ingresos_pedidos = sum(p.monto for p in pedidos_mes)
     total_gastos = sum(g.monto for g in gastos_mes)
@@ -4252,12 +4283,21 @@ def ingresos_por_dia(
     ingresos_diarios = defaultdict(lambda: {"reservas": 0, "pedidos": 0, "total": 0})
     
     for reserva in reservas:
-        fecha_str = reserva.fecha_checkin.strftime("%Y-%m-%d")
+        dia = dia_argentina(reserva.fecha_checkin)
+        if dia is None:
+            continue
+        fecha_str = dia.strftime("%Y-%m-%d")
         ingresos_diarios[fecha_str]["reservas"] += reserva.total_estadia
         ingresos_diarios[fecha_str]["total"] += reserva.total_estadia
-    
+
     for pedido in pedidos:
-        fecha_str = pedido.fecha.strftime("%Y-%m-%d")
+        # Los cancelados no son ingreso (mismo criterio que el resto).
+        if not pedido_cuenta_como_ingreso(pedido):
+            continue
+        dia = dia_argentina(pedido.fecha)
+        if dia is None:
+            continue
+        fecha_str = dia.strftime("%Y-%m-%d")
         ingresos_diarios[fecha_str]["pedidos"] += pedido.monto
         ingresos_diarios[fecha_str]["total"] += pedido.monto
     
@@ -4408,36 +4448,22 @@ def detalle_diario_analytics(
         
         # Procesar pedidos
         for pedido in pedidos:
-            # Normalizar fecha a zona horaria de Argentina y extraer solo la fecha (sin hora)
-            fecha_normalizada = normalizar_fecha_argentina(pedido.fecha)
-            if fecha_normalizada:
-                # Extraer la fecha en formato YYYY-MM-DD usando la fecha normalizada
-                fecha_str = fecha_normalizada.strftime("%Y-%m-%d")
-            else:
-                # Fallback: si no se puede normalizar, usar la fecha directamente
-                # pero asegurarse de que esté en zona horaria de Argentina
-                if pedido.fecha.tzinfo is None:
-                    # Si no tiene timezone, asumir que está en UTC y convertir
-                    fecha_utc = pedido.fecha.replace(tzinfo=timezone.utc)
-                    fecha_argentina = fecha_utc.astimezone(ARGENTINA_TZ)
-                elif pedido.fecha.tzinfo != ARGENTINA_TZ:
-                    # Si tiene otro timezone, convertir a Argentina
-                    fecha_argentina = pedido.fecha.astimezone(ARGENTINA_TZ)
-                else:
-                    # Ya está en zona horaria de Argentina
-                    fecha_argentina = pedido.fecha
-                fecha_str = fecha_argentina.strftime("%Y-%m-%d")
-            
+            # Un pedido sin forma_pago igual cuenta como ingreso: se etiqueta
+            # "No especificado". Lo que no cuenta es el cancelado.
+            if not pedido_cuenta_como_ingreso(pedido):
+                continue
+
+            dia_pedido = dia_argentina(pedido.fecha)
+            if dia_pedido is None:
+                continue
+            fecha_str = dia_pedido.strftime("%Y-%m-%d")
             datos_por_dia[fecha_str]["fecha"] = fecha_str
 
-            # Contar TODOS los pedidos no cancelados (consistente con dashboard / ingresos-por-dia)
-            # Un pedido sin forma_pago igual cuenta como ingreso, solo que se etiqueta "No especificado"
-            if (pedido.estado or "").upper() != "CANCELADO":
-                datos_por_dia[fecha_str]["pedidos"]["monto_total"] += pedido.monto
-                datos_por_dia[fecha_str]["pedidos"]["cantidad"] += 1
+            datos_por_dia[fecha_str]["pedidos"]["monto_total"] += pedido.monto
+            datos_por_dia[fecha_str]["pedidos"]["cantidad"] += 1
 
-                forma_pago = _normalizar_forma_pago(pedido.forma_pago)
-                datos_por_dia[fecha_str]["pedidos"]["formas_pago"][forma_pago] += pedido.monto
+            forma_pago = _normalizar_forma_pago(pedido.forma_pago)
+            datos_por_dia[fecha_str]["pedidos"]["formas_pago"][forma_pago] += pedido.monto
         
         # Convertir a lista y formatear
         resultado = []
@@ -5045,9 +5071,7 @@ def listar_ingresos_finanzas(
         )
     ).all()
     for p in pedidos:
-        # Mismo check que /analytics/detalle-diario (case-insensitive,
-        # tolerante a None / "")
-        if (p.estado or "").upper() == "CANCELADO":
+        if not pedido_cuenta_como_ingreso(p):
             continue
 
         # Bucketear por fecha de creación normalizada a ART (consistente
