@@ -445,6 +445,139 @@ class BotMessageOut(BaseModel):
     reply: Optional[str] = None
     action: Optional[str] = None  # Acción opcional (ej: "PAUSADO", "PEDIR_CHECKIN")
 
+# ─────────── MIGRACIÓN AUTOMÁTICA DE FECHAS A timestamptz ───────────
+# Columnas de "cuándo pasó algo". Nunca pueden tener fecha futura, y de eso
+# depende la detección de abajo. `reserva.fecha_checkin` queda afuera a
+# propósito: una reserva SÍ puede ser para el mes que viene.
+COLUMNAS_DE_EVENTO = [
+    ("pedido", "fecha"),
+    ("pedido", "pagado_at"),
+    ("gastoadicional", "fecha"),
+    ("actividad", "fecha_creacion"),
+    ("stock", "fecha_actualizacion"),
+    ("chatsession", "updated_at"),
+    ("movimientostock", "fecha"),
+]
+
+COLUMNAS_A_MIGRAR = [
+    ("reserva", "fecha_checkin"),
+    ("reserva", "fecha_checkout"),
+    ("pedido", "fecha"),
+    ("pedido", "pagado_at"),
+    ("gastoadicional", "fecha"),
+    ("actividad", "fecha_creacion"),
+    ("actividad", "fecha_vencimiento"),
+    ("stock", "fecha_actualizacion"),
+    ("chatsession", "updated_at"),
+    ("movimientostock", "fecha"),
+]
+
+
+def decidir_si_migrar(max_evento, ahora_utc, ahora_ar):
+    """¿Se puede PROBAR que lo guardado está en UTC? (decisión, motivo)
+
+    El razonamiento es por descarte, no por estimación: una columna de evento
+    nunca puede contener una fecha futura. Si el valor más nuevo es POSTERIOR
+    a la hora argentina de ahora, entonces no puede estar medido en hora
+    argentina — sería del futuro. Sólo queda UTC.
+
+    Requiere actividad en las últimas 3 horas. Si no la hay, no se puede
+    probar nada y NO se migra: se reintenta en el próximo arranque. Nunca se
+    adivina, porque migrar con la zona equivocada corre todos los datos.
+    """
+    if max_evento is None:
+        return False, "no hay registros con fecha para comparar"
+
+    if max_evento > ahora_utc + timedelta(minutes=5):
+        return False, (
+            f"hay fechas en el futuro (máxima: {max_evento}, ahora UTC: {ahora_utc}); "
+            "no se puede determinar la zona de forma segura"
+        )
+
+    if max_evento > ahora_ar:
+        return True, (
+            f"el registro más nuevo ({max_evento}) es posterior a la hora argentina "
+            f"actual ({ahora_ar}): no puede estar en hora argentina, está en UTC"
+        )
+
+    return False, (
+        f"sin actividad en las últimas 3 horas (registro más nuevo: {max_evento}); "
+        "no se puede probar la zona. Se reintenta en el próximo arranque"
+    )
+
+
+def migrar_fechas_a_timestamptz():
+    """Convierte las columnas de fecha a timestamptz, si puede probarlo.
+
+    Ver MIGRACION_FECHAS.md. Es idempotente y no corre en SQLite.
+
+    Si no logra determinar la zona con certeza, NO toca nada y lo dice. El
+    código funciona igual sin la migración (normalizar_fecha_argentina trata
+    las fechas sin zona como UTC), así que no migrar no rompe nada: sólo deja
+    el dato ambiguo un rato más.
+    """
+    if not DATABASE_URL.startswith("postgres"):
+        return
+
+    try:
+        with engine.begin() as con:
+            pendientes = con.execute(text("""
+                SELECT table_name, column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND data_type = 'timestamp without time zone'
+            """)).fetchall()
+            pendientes = [(t, c) for t, c in pendientes if (t, c) in COLUMNAS_A_MIGRAR]
+
+            if not pendientes:
+                print("✅ [Fechas] Las columnas ya declaran zona horaria")
+                return
+
+            existentes = {
+                (t, c) for t, c in con.execute(text("""
+                    SELECT table_name, column_name FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                """)).fetchall()
+            }
+
+            # Máximo global sobre las columnas de evento que existan
+            partes = [
+                f"SELECT MAX({col}) AS m FROM {tab}"
+                for tab, col in COLUMNAS_DE_EVENTO
+                if (tab, col) in existentes
+            ]
+            max_evento = None
+            if partes:
+                max_evento = con.execute(
+                    text(f"SELECT MAX(m) FROM ({' UNION ALL '.join(partes)}) AS t")
+                ).scalar()
+
+            ahora_utc = con.execute(text("SELECT now() AT TIME ZONE 'UTC'")).scalar()
+            ahora_ar = con.execute(text(
+                "SELECT now() AT TIME ZONE 'America/Argentina/Buenos_Aires'"
+            )).scalar()
+
+            migrar, motivo = decidir_si_migrar(max_evento, ahora_utc, ahora_ar)
+            if not migrar:
+                print(f"⏸️  [Fechas] Migración pospuesta: {motivo}")
+                print(f"    Quedan {len(pendientes)} columnas sin zona horaria. "
+                      "El sistema funciona igual mientras tanto.")
+                return
+
+            print(f"🕐 [Fechas] Zona determinada: UTC — {motivo}")
+            for tabla, columna in pendientes:
+                con.execute(text(
+                    f"ALTER TABLE {tabla} ALTER COLUMN {columna} "
+                    f"TYPE timestamptz USING {columna} AT TIME ZONE 'UTC'"
+                ))
+                print(f"   ✅ {tabla}.{columna} -> timestamptz")
+            print(f"✅ [Fechas] {len(pendientes)} columnas migradas")
+
+    except Exception as e:
+        # Nunca impedir el arranque por esto: sin migrar, el sistema anda igual.
+        print(f"⚠️  [Fechas] No se pudo migrar (el sistema sigue funcionando): {e}")
+
+
 @app.on_event("startup")
 def crear_tablas():
     """
@@ -600,6 +733,8 @@ def crear_tablas():
     # Crear tablas solo si no existen (create_all es seguro, no elimina datos)
     SQLModel.metadata.create_all(engine)
     print("✅ [Startup] Tablas verificadas/creadas")
+
+    migrar_fechas_a_timestamptz()
 
     # Bootstrap de usuarios vía variables de entorno (útil cuando no hay acceso a shell).
     # Si el email no existe, lo crea. Si existe, no toca nada.

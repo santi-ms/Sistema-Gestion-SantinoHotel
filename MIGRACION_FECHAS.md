@@ -1,122 +1,116 @@
-# Migración de fechas a `timestamptz`
+# Fechas con zona horaria (`timestamptz`)
 
-Pasos para eliminar de raíz los errores de zona horaria. Leelo entero antes de
-empezar: son unos 15 minutos y hay un punto donde hay que parar a verificar.
+**No hay nada que hacer a mano.** La migración se aplica sola al desplegar.
+Este documento explica qué hace y cómo verificar que salió bien.
 
-## Por qué
+## El problema que resuelve
 
-Las columnas de fecha eran `timestamp without time zone`. Guardaban un instante
-sin decir en qué zona estaba medido, así que el código tenía que asumirlo.
+Las columnas de fecha eran `timestamp without time zone`: guardaban un instante
+sin decir en qué zona estaba medido. El código tenía que asumirlo, y una
+asunción equivocada corre las fechas un día entero — un pedido cargado a las
+21:30 aparecía con fecha del día siguiente y desaparecía del listado de hoy.
 
-Asumir mal corre las fechas un día entero: un pedido cargado a las 21:30
-aparecía con fecha del día siguiente y desaparecía del listado de hoy. Ya pasó
-una vez, y mientras el dato no diga su zona puede volver a pasar con cualquier
-cambio futuro.
+Con `timestamptz` el dato deja de ser ambiguo: Postgres guarda el instante y
+devuelve la hora con su zona. No queda nada que adivinar, ni en el código, ni
+en una consulta suelta de psql, ni en cualquier herramienta que lea la base más
+adelante.
 
-Con `timestamptz` el dato deja de ser ambiguo. Postgres guarda el instante y
-devuelve un datetime con zona horaria — no queda nada que adivinar, ni en el
-código, ni en una consulta suelta de psql, ni en cualquier herramienta que lea
-la base más adelante.
+## Cómo se aplica
 
-## Paso 1 — Conseguir la URL de la base
+Al arrancar, el backend llama a `migrar_fechas_a_timestamptz()`. La función:
 
-En Railway: servicio de Postgres → pestaña **Variables** → `DATABASE_URL`.
+1. Si las columnas ya tienen zona horaria, no hace nada.
+2. Determina en qué zona están medidos los valores guardados.
+3. Si —y sólo si— puede **probarlo**, convierte las 10 columnas.
+
+### Cómo lo prueba
+
+Por descarte, no por estimación. Las columnas de evento (cuándo se cargó un
+pedido, cuándo se pagó, cuándo se movió stock) **nunca pueden tener fecha
+futura**. Si el registro más nuevo es posterior a la hora argentina actual,
+entonces no puede estar medido en hora argentina: sería del futuro. Sólo queda
+UTC.
+
+Eso requiere que haya habido actividad en las últimas 3 horas. Si no la hubo,
+no se puede probar nada y **no se migra**: se reintenta en el próximo arranque.
+Nunca se adivina — migrar con la zona equivocada correría todos los datos.
+
+`reserva.fecha_checkin` queda afuera de la detección a propósito: una reserva sí
+puede ser para el mes que viene.
+
+### Si no migra, no pasa nada
+
+El código funciona igual con o sin la migración: `normalizar_fecha_argentina()`
+trata las fechas sin zona como UTC, que es exactamente lo que hace hoy. No
+migrar sólo deja el dato ambiguo un rato más. Tampoco puede impedir el arranque:
+cualquier error se registra y el servidor levanta igual.
+
+## Cómo verificar que salió bien
+
+En los logs de Railway, al desplegar, buscá:
+
+```
+🕐 [Fechas] Zona determinada: UTC — el registro más nuevo (...) es posterior a
+   la hora argentina actual (...): no puede estar en hora argentina, está en UTC
+   ✅ pedido.fecha -> timestamptz
+   ... (10 columnas)
+✅ [Fechas] 10 columnas migradas
+```
+
+Si en cambio dice `⏸️ Migración pospuesta`, no pasó nada malo: no había
+actividad reciente para probar la zona. Se reintenta en el próximo arranque, o
+se fuerza cargando un pedido y redeployando.
+
+En el sistema: cargá un pedido y confirmá que la hora que muestra coincide con
+el reloj. La fecha y la hora salen del mismo cálculo.
+
+## Cómo se probó
+
+Contra un PostgreSQL 16 real con `TimeZone=UTC` (igual que Railway), no sólo
+contra SQLite — que fue justamente el error que causó el incidente original:
+SQLite guarda la hora local tal cual y Postgres la convierte a UTC, así que un
+test sobre SQLite no dice nada sobre producción.
+
+Se verificó:
+
+- Que Postgres guarda en UTC un datetime escrito con offset `-03:00`.
+- La migración completa: 10 columnas convertidas, instante y día preservados,
+  una reserva de diciembre sin correrse, idempotente al correr dos veces, y
+  pedidos nuevos leyéndose bien después.
+- Los cuatro casos en que **no** debe migrar: sin actividad reciente, base
+  vacía, sólo reservas futuras, y —el importante— datos guardados en hora
+  argentina, donde migrar sería destructivo. En los cuatro deja los datos
+  intactos.
+
+## Control manual (opcional)
+
+También existe la migración de Alembic `003_timestamptz`, con el mismo efecto,
+por si alguna vez querés aplicarla o revertirla a mano:
 
 ```bash
 cd backend/hotel-santino-backend
-export DATABASE_URL="postgresql://..."
+export DATABASE_URL="postgresql://..."   # Railway → Postgres → Variables
+
+alembic upgrade head     # aplicar
+alembic downgrade -1     # revertir
 ```
 
-## Paso 2 — Diagnóstico (no escribe nada)
+El `downgrade` devuelve las columnas a `timestamp` con los valores en UTC, o
+sea exactamente como estaban. La conversión es de ida y vuelta sin pérdida.
 
-```bash
-python diagnostico_fechas.py
-```
+`diagnostico_fechas.py` (solo lectura) muestra el tipo de cada columna, la zona
+del servidor y los últimos pedidos leídos de las dos formas, por si querés
+inspeccionar el estado en cualquier momento.
 
-Mirá la sección **3. Veredicto**. Tiene que decir:
+## Qué cambió en el código
 
-```
-✅ VEREDICTO: lo guardado está en UTC.
-```
-
-**Si dice que están en hora de Argentina, PARÁ.** Avisame y cambio la
-migración: hay que editar `ZONA_DE_ORIGEN` en
-`alembic/versions/003_timestamptz.py`. Aplicarla con la zona equivocada corre
-todos los datos 3 horas.
-
-El veredicto se calcula comparando el pedido más reciente contra el reloj del
-servidor, así que vale si ese pedido es de hoy. Si es viejo, cargá uno de
-prueba y volvé a correr el diagnóstico.
-
-En la sección **4** podés contrastar los últimos 5 pedidos con la hora real a
-la que los cargaste. Es la verificación más directa.
-
-## Paso 3 — Backup
-
-No lo saltees. La migración convierte datos y `downgrade` los devuelve al
-formato anterior, pero un backup es lo único que cubre un error inesperado.
-
-```bash
-pg_dump "$DATABASE_URL" > backup_antes_timestamptz.sql
-```
-
-Si no tenés `pg_dump` a mano, Railway permite crear un backup desde el panel
-del servicio de Postgres.
-
-## Paso 4 — Aplicar la migración
-
-Conviene hacerlo en un horario sin movimiento (no a las 21:00, que es cuando
-hay pedidos).
-
-```bash
-alembic upgrade head
-```
-
-Tiene que imprimir una línea por columna:
-
-```
-✅ reserva.fecha_checkin -> timestamptz
-✅ reserva.fecha_checkout -> timestamptz
-...
-```
-
-Son 10 columnas en 7 tablas. Con el volumen de datos del hotel tarda segundos.
-
-## Paso 5 — Desplegar el código
-
-Mergeá la rama `claude/fechas-timestamptz` a `main`. Railway redeploya solo.
-
-El orden importa: **primero la migración, después el código.** El código nuevo
-espera columnas con zona horaria.
-
-## Paso 6 — Verificar
-
-```bash
-python diagnostico_fechas.py
-```
-
-La sección 1 tiene que mostrar las 10 columnas con `✅ con zona`.
-
-Después, en el sistema: cargá un pedido y confirmá que **la hora que muestra
-coincide con el reloj**. La fecha y la hora salen del mismo cálculo, así que si
-una está bien la otra también.
-
-## Si algo sale mal
-
-```bash
-alembic downgrade -1
-```
-
-Vuelve las columnas a `timestamp` sin zona, con los valores en UTC — o sea,
-exactamente como estaban. Después revertí el merge de `main`.
-
-## Qué cambia en el código
-
-- Los 10 campos de fecha de los modelos usan `columna_fecha()`, que declara
-  `DateTime(timezone=True)`.
+- Los 10 campos de fecha de los 7 modelos con tabla usan `columna_fecha()`, que
+  declara `DateTime(timezone=True)`.
 - `normalizar_fecha_argentina()` ya no asume nada cuando la fecha viene con
-  zona. Mantiene el caso sin zona sólo para SQLite (que se usa en los tests) y
-  para filas anteriores a la migración.
+  zona. El caso sin zona queda como fallback para SQLite (tests) y para filas
+  anteriores a la migración.
 - `test_zona_horaria.py` cubre el contrato, incluido el caso exacto que rompió
-  producción (21:27) y las 24 horas del día. Uno de los tests falla si alguien
+  producción (21:27) y las 24 horas del día. Uno de sus tests falla si alguien
   agrega una columna de fecha sin zona horaria.
+- `test_migracion_fechas.py` cubre la lógica de detección, incluido que nunca
+  dé "migrar" para datos en hora argentina.
