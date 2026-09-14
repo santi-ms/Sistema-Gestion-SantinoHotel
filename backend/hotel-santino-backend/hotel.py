@@ -289,7 +289,11 @@ class ChatSession(SQLModel, table=True):
 class MovimientoStock(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     stock_id: int  # ID del producto
-    tipo: str  # "entrada", "salida", "ajuste", "venta"
+    # Pedido que originó el movimiento, si vino de uno. Es lo que permite
+    # revertir exactamente lo que se descontó cuando el pedido se cancela,
+    # se borra o se edita — en vez de volver a adivinar por nombre.
+    pedido_id: Optional[int] = Field(default=None, index=True)
+    tipo: str  # "entrada", "salida", "ajuste", "venta", "devolucion"
     cantidad_anterior: int
     cantidad_nueva: int
     diferencia: int  # Positivo para entradas, negativo para salidas
@@ -962,6 +966,7 @@ def arreglar_base_datos(db: Session = Depends(obtener_db), token: dict = Depends
                 if DATABASE_URL.startswith("postgres"):
                     connection.execute(text("ALTER TABLE pedido ADD COLUMN IF NOT EXISTS estado TEXT DEFAULT 'PENDIENTE'"))
                     connection.execute(text("ALTER TABLE pedido ADD COLUMN IF NOT EXISTS pagado_at TIMESTAMPTZ"))
+                    connection.execute(text("ALTER TABLE movimientostock ADD COLUMN IF NOT EXISTS pedido_id INTEGER"))
                     connection.commit()
                     print("✅ Columnas 'estado' y 'pagado_at' agregadas a tabla pedido (PostgreSQL)")
                 else:
@@ -1357,72 +1362,167 @@ def eliminar_cliente(
 
 # ─────────── ENDPOINTS DE PEDIDOS ───────────
 # Función auxiliar para descontar stock cuando se registra un pedido
-def descontar_stock_de_pedido(items: List[ItemPedido], db: Session, pedido_id: Optional[int] = None):
-    """Descuenta el stock cuando se registra un pedido con bebidas.
-    Solo descuenta si hay una coincidencia clara y exacta con productos en stock.
-    Si el producto no está en stock (ej: comidas), no se descuenta nada.
+def _buscar_producto_en_stock(descripcion: str, productos: List["Stock"]):
+    """Busca el producto de stock que corresponde a la descripción de un ítem.
+
+    Dos pasadas, no una: antes se evaluaban los dos criterios dentro del mismo
+    bucle, así que una coincidencia parcial con un producto que venía primero
+    le ganaba a la coincidencia EXACTA de otro que venía después.
     """
+    buscado = (descripcion or "").strip().lower()
+    if not buscado:
+        return None
+
+    for producto in productos:
+        if producto.nombre_producto.strip().lower() == buscado:
+            return producto
+
+    # El nombre completo del stock contenido en la descripción
+    # ("Coca Cola 350ml" dentro de "Coca Cola 350ml - Fría"). El mínimo de 5
+    # caracteres evita que "Coca" matchee cualquier cosa.
+    for producto in productos:
+        nombre = producto.nombre_producto.strip().lower()
+        if len(nombre) >= 5 and nombre in buscado:
+            return producto
+
+    return None
+
+
+def _neto_de_pedido(pedido_id: int, db: Session) -> dict:
+    """Cuánto se movió el stock por este pedido, por producto.
+
+    Se lee del historial de movimientos en vez de recalcular por nombre: si el
+    producto se renombró después, el nombre ya no sirve para encontrarlo, pero
+    el stock_id sí. Devuelve {stock_id: diferencia_neta}, negativo si se
+    descontó.
+    """
+    movimientos = db.exec(
+        select(MovimientoStock).where(MovimientoStock.pedido_id == pedido_id)
+    ).all()
+    neto = defaultdict(int)
+    for m in movimientos:
+        neto[m.stock_id] += m.diferencia
+    return {k: v for k, v in neto.items() if v != 0}
+
+
+def reponer_stock_de_pedido(pedido_id: int, db: Session, motivo: str) -> int:
+    """Devuelve al stock lo que este pedido había descontado.
+
+    Antes no existía: cancelar o borrar un pedido dejaba el stock descontado
+    para siempre, así que el conteo del sistema se despegaba del real sin que
+    hubiera forma de saber desde cuándo.
+
+    Es idempotente. Repone exactamente el neto que el pedido movió, así que
+    después de reponer el neto queda en cero y una segunda llamada no hace
+    nada. Devuelve cuántos productos tocó.
+    """
+    if not pedido_id:
+        return 0
+
+    repuestos = 0
+    for stock_id, diferencia in _neto_de_pedido(pedido_id, db).items():
+        if diferencia >= 0:
+            continue  # no se había descontado nada de este producto
+        producto = db.get(Stock, stock_id)
+        if not producto:
+            continue
+
+        anterior = producto.cantidad
+        producto.cantidad = anterior - diferencia  # diferencia es negativa
+        producto.fecha_actualizacion = obtener_fecha_argentina()
+        db.add(producto)
+        registrar_movimiento_stock(
+            stock_id=stock_id,
+            pedido_id=pedido_id,
+            tipo="devolucion",
+            cantidad_anterior=anterior,
+            cantidad_nueva=producto.cantidad,
+            motivo=motivo,
+            db=db,
+            commit=False,
+        )
+        repuestos += 1
+
+    if repuestos:
+        db.commit()
+    return repuestos
+
+
+def sincronizar_stock_de_pedido(items: List[ItemPedido], db: Session, pedido_id: int) -> dict:
+    """Deja el stock reflejando exactamente los ítems actuales del pedido.
+
+    Primero revierte lo que el pedido había movido y después aplica los ítems
+    que tiene ahora. Así sirve igual para crear un pedido (no hay nada que
+    revertir) que para editarlo — antes, editar los ítems no tocaba el stock,
+    y pasar de 2 a 10 cervezas no descontaba las 8 de diferencia.
+
+    Devuelve un informe: qué se descontó, qué no se encontró en el stock y de
+    qué faltaban unidades. Los ítems sin coincidencia no son un error (una
+    comida puede no estar en el stock), pero antes se descartaban en silencio
+    y ahora quedan a la vista de quien carga el pedido.
+    """
+    informe = {"descontados": [], "sin_seguimiento": [], "sin_stock_suficiente": []}
+
+    reponer_stock_de_pedido(
+        pedido_id, db, motivo=f"Recalculo de stock del pedido #{pedido_id}"
+    )
+
+    # Una sola consulta, no una por ítem. Y sobre TODAS las categorías: antes
+    # se miraba sólo "bebidas", así que un producto de comida que sí estaba en
+    # el stock nunca se descontaba.
+    productos = db.exec(select(Stock)).all()
+
     for item in items:
-        # Obtener todos los productos de bebidas
-        todos_stock = db.exec(
-            select(Stock).where(Stock.categoria == "bebidas")
-        ).all()
-        
-        # Buscar coincidencia (solo exacta o muy específica para evitar falsos positivos)
-        stock = None
-        descripcion_limpia = item.descripcion.strip().lower()
-        
-        # Estrategia de búsqueda más estricta:
-        # 1. Coincidencia exacta (case-insensitive) - PRIORITARIA
-        # 2. Coincidencia donde el nombre del stock está completamente contenido en la descripción
-        #    (ej: descripción "Coca Cola 350ml" contiene "Coca Cola 350ml" del stock)
-        # 3. NO hacer matching parcial flexible para evitar descontar comidas u otros productos
-        
-        for s in todos_stock:
-            nombre_lower = s.nombre_producto.strip().lower()
-            
-            # Coincidencia exacta (case-insensitive) - MÁS SEGURA
-            if nombre_lower == descripcion_limpia:
-                stock = s
-                break
-            
-            # Coincidencia donde el nombre del stock está completamente contenido en la descripción
-            # Esto permite casos como "Coca Cola 350ml" en descripción "Coca Cola 350ml - Fría"
-            # Pero requiere que el nombre completo del stock esté presente
-            if nombre_lower in descripcion_limpia:
-                # Verificar que no sea una coincidencia accidental muy corta
-                # (ej: evitar que "Coca" coincida con "Coca Cola")
-                if len(nombre_lower) >= 5:  # Solo nombres de al menos 5 caracteres
-                    stock = s
-                    break
-        
-        # Solo descontar si encontramos una coincidencia clara
-        if stock:
-            # Descontar la cantidad vendida
-            cantidad_anterior = stock.cantidad
-            nueva_cantidad = stock.cantidad - item.cantidad
-            if nueva_cantidad < 0:
-                nueva_cantidad = 0  # No permitir stock negativo
-            
-            stock.cantidad = nueva_cantidad
-            stock.fecha_actualizacion = obtener_fecha_argentina()
-            db.add(stock)
-            db.commit()
-            
-            # Registrar movimiento de venta
-            motivo_venta = f"Venta desde pedido #{pedido_id}: {item.descripcion} x{item.cantidad}" if pedido_id else f"Venta: {item.descripcion} x{item.cantidad}"
-            registrar_movimiento_stock(
-                stock_id=stock.id,
-                tipo="venta",
-                cantidad_anterior=cantidad_anterior,
-                cantidad_nueva=nueva_cantidad,
-                motivo=motivo_venta,
-                usuario_id=None,  # Se puede obtener del token si es necesario
-                db=db
+        if item.cantidad <= 0:
+            continue
+
+        producto = _buscar_producto_en_stock(item.descripcion, productos)
+        if not producto:
+            informe["sin_seguimiento"].append(item.descripcion)
+            continue
+
+        anterior = producto.cantidad
+        nueva = anterior - item.cantidad
+        if nueva < 0:
+            # Se clava en cero para no mostrar stock negativo, pero el faltante
+            # queda registrado: que el conteo no alcance es justamente lo que
+            # hay que poder ver.
+            informe["sin_stock_suficiente"].append(
+                {"producto": producto.nombre_producto, "faltaban": -nueva}
             )
-        # Si no hay coincidencia, no se descuenta nada (comidas u otros productos no en stock)
-    
+            nueva = 0
+
+        producto.cantidad = nueva
+        producto.fecha_actualizacion = obtener_fecha_argentina()
+        db.add(producto)
+
+        descontado = anterior - nueva
+        motivo = f"Venta del pedido #{pedido_id}: {item.descripcion} x{item.cantidad}"
+        if descontado != item.cantidad:
+            motivo += f" (sólo había {descontado})"
+
+        registrar_movimiento_stock(
+            stock_id=producto.id,
+            pedido_id=pedido_id,
+            tipo="venta",
+            cantidad_anterior=anterior,
+            cantidad_nueva=nueva,
+            motivo=motivo,
+            db=db,
+            commit=False,
+        )
+        informe["descontados"].append(
+            {"producto": producto.nombre_producto, "cantidad": descontado}
+        )
+
     db.commit()
+    return informe
+
+
+def descontar_stock_de_pedido(items: List[ItemPedido], db: Session, pedido_id: Optional[int] = None):
+    """Compatibilidad: alias de sincronizar_stock_de_pedido."""
+    return sincronizar_stock_de_pedido(items, db, pedido_id)
+
 
 @app.post("/pedidos")
 def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
@@ -1470,12 +1570,15 @@ def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obt
     print(f"✅ [POST /pedidos] Pedido guardado - ID: {nuevo_pedido.id}, Estado en BD: {nuevo_pedido.estado}")
     db.refresh(nuevo_pedido)
     
-    # Descontar stock automáticamente para bebidas
+    # El stock no debe hacer fallar el pedido: registrar la venta importa más.
+    # Pero el resultado se informa en la respuesta en vez de quedar en un print
+    # que nadie mira — así quien carga el pedido ve si algo no se descontó.
+    informe_stock = None
     try:
-        descontar_stock_de_pedido(pedido.items, db, pedido_id=nuevo_pedido.id)
+        informe_stock = sincronizar_stock_de_pedido(pedido.items, db, nuevo_pedido.id)
     except Exception as e:
-        print(f"Error al descontar stock: {e}")
-        # No fallar el pedido si hay error en el stock
+        print(f"⚠️ [Stock] No se pudo actualizar por el pedido #{nuevo_pedido.id}: {e}")
+        informe_stock = {"error": str(e)}
     
     # Normalizar fecha a zona horaria de Argentina antes de serializar
     fecha_normalizada = normalizar_fecha_argentina(nuevo_pedido.fecha)
@@ -1485,7 +1588,8 @@ def registrar_pedido_con_items(pedido: PedidoConItems, db: Session = Depends(obt
         "id": nuevo_pedido.id,
         "estado": nuevo_pedido.estado,
         "forma_pago": nuevo_pedido.forma_pago,
-        "fecha": fecha_normalizada.isoformat() if fecha_normalizada else nuevo_pedido.fecha.isoformat()
+        "fecha": fecha_normalizada.isoformat() if fecha_normalizada else nuevo_pedido.fecha.isoformat(),
+        "stock": informe_stock
     }
 
 @app.get("/pedidos", response_model=List[PedidoRespuesta])
@@ -1692,10 +1796,26 @@ def actualizar_pedido_con_items(
     db.add(pedido)
     db.commit()
     db.refresh(pedido)
-    
+
+    # El stock tiene que seguir a los ítems. Antes editar un pedido no lo
+    # tocaba: pasar de 2 a 10 cervezas no descontaba las 8 de diferencia.
+    # Y un pedido cancelado no consume stock, así que se repone entero.
+    informe_stock = None
+    try:
+        if estado_final == "CANCELADO":
+            repuestos = reponer_stock_de_pedido(
+                pedido_id, db, motivo=f"Pedido #{pedido_id} cancelado"
+            )
+            informe_stock = {"productos_repuestos": repuestos}
+        else:
+            informe_stock = sincronizar_stock_de_pedido(datos.items, db, pedido_id)
+    except Exception as e:
+        print(f"⚠️ [Stock] No se pudo actualizar por el pedido #{pedido_id}: {e}")
+        informe_stock = {"error": str(e)}
+
     print(f"✅ [PUT /pedidos/{pedido_id}] Pedido actualizado - Estado final en BD: {pedido.estado}, Forma pago: {pedido.forma_pago}")
-    
-    return {"mensaje": "Pedido actualizado correctamente"}
+
+    return {"mensaje": "Pedido actualizado correctamente", "stock": informe_stock}
 
 
 @app.patch("/pedidos/{pedido_id}/pagar")
@@ -1737,10 +1857,19 @@ def eliminar_pedido_actualizado(
     pedido = db.get(Pedido, pedido_id)
     if not pedido:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
-    
+
+    # Lo que el pedido había descontado vuelve al stock: si no, borrar un
+    # pedido dejaba el conteo del sistema por debajo del real para siempre.
+    repuestos = reponer_stock_de_pedido(
+        pedido_id, db, motivo=f"Pedido #{pedido_id} eliminado"
+    )
+
     db.delete(pedido)
     db.commit()
-    return {"mensaje": "Pedido eliminado correctamente"}
+    return {
+        "mensaje": "Pedido eliminado correctamente",
+        "productos_repuestos": repuestos,
+    }
 
 # ─────────── ENDPOINTS DE GASTOS ───────────
 @app.post("/gastos")
@@ -2037,16 +2166,19 @@ def eliminar_actividad(
 # ─────────── ENDPOINTS DE STOCK ───────────
 def registrar_movimiento_stock(
     stock_id: int,
-    tipo: str,  # "entrada", "salida", "ajuste", "venta"
+    tipo: str,  # "entrada", "salida", "ajuste", "venta", "devolucion"
     cantidad_anterior: int,
     cantidad_nueva: int,
     motivo: Optional[str] = None,
     usuario_id: Optional[int] = None,
-    db: Session = None
+    db: Session = None,
+    pedido_id: Optional[int] = None,
+    commit: bool = True,
 ):
     """Registra un movimiento en el historial de stock"""
     movimiento = MovimientoStock(
         stock_id=stock_id,
+        pedido_id=pedido_id,
         tipo=tipo,
         cantidad_anterior=cantidad_anterior,
         cantidad_nueva=cantidad_nueva,
@@ -2055,7 +2187,8 @@ def registrar_movimiento_stock(
         usuario_id=usuario_id
     )
     db.add(movimiento)
-    db.commit()
+    if commit:
+        db.commit()
 
 class StockEntrada(BaseModel):
     nombre_producto: str
