@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 from sqlmodel import SQLModel, Field, Session, select, create_engine, text
-from sqlalchemy import func
+from sqlalchemy import func, Column, DateTime
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta, timezone
@@ -149,26 +149,24 @@ def convertir_a_argentina(fecha_utc):
 def normalizar_fecha_argentina(fecha):
     """Devuelve la fecha en hora de Argentina.
 
-    Una fecha naive que viene de la base está en UTC. Las columnas datetime no
-    declaran timezone, y al guardar un datetime con offset -03:00 el driver lo
-    manda como timestamptz: Postgres lo convierte a la zona de la sesión (UTC
-    en Render) antes de guardarlo en la columna sin timezone. Lo que queda
-    guardado, entonces, es UTC.
+    Con las columnas en timestamptz, Postgres devuelve siempre un datetime CON
+    zona horaria: convertirlo es exacto y no hay nada que asumir.
 
-    OJO: SQLite NO hace esa conversión — guarda la hora de pared tal cual. Los
-    dos motores difieren, así que un test sobre SQLite no sirve para decidir
-    esto; los fixtures tienen que guardar el valor en UTC a mano para
-    representar lo que hay en producción (ver `momento_argentino` en los
-    tests).
+    El caso naive es un fallback para SQLite (que ignora el flag de zona y
+    devuelve datetimes pelados) y para filas anteriores a la migración
+    003_timestamptz. En los dos casos el valor está medido en UTC. En
+    producción, después de la migración, esta rama no se usa.
+
+    Esta asunción silenciosa es justamente la que hacía que un pedido de las
+    21:30 apareciera al día siguiente: el motivo de que las columnas ahora
+    lleven la zona encima.
     """
     if fecha is None:
         return None
     if fecha.tzinfo is None:
-        fecha_utc = fecha.replace(tzinfo=timezone.utc)
-        return fecha_utc.astimezone(ARGENTINA_TZ)
-    if fecha.tzinfo != ARGENTINA_TZ:
-        return fecha.astimezone(ARGENTINA_TZ)
-    return fecha
+        return fecha.replace(tzinfo=timezone.utc).astimezone(ARGENTINA_TZ)
+    return fecha.astimezone(ARGENTINA_TZ)
+
 
 def dia_argentina(fecha):
     """Día calendario argentino (date) de un timestamp de la BD.
@@ -180,6 +178,23 @@ def dia_argentina(fecha):
     """
     normalizada = normalizar_fecha_argentina(fecha)
     return normalizada.date() if normalizada else None
+
+
+def columna_fecha(*, nullable: bool = False) -> Column:
+    """Columna de fecha CON zona horaria (timestamptz en Postgres).
+
+    Sin zona, el valor guardado no dice en qué zona está medido y el código
+    tiene que asumirlo: asumir mal corre las fechas un día entero. Con
+    timestamptz, Postgres guarda el instante y devuelve un datetime con
+    tzinfo, así que no queda nada que adivinar — ni acá, ni en una consulta
+    suelta, ni en cualquier herramienta que lea la base más adelante.
+
+    SQLite (que se usa en los tests) ignora el flag y devuelve datetimes sin
+    zona; por eso `normalizar_fecha_argentina` mantiene un fallback, que en
+    producción no se usa nunca.
+    """
+    return Column(DateTime(timezone=True), nullable=nullable)
+
 
 # ─────────── MODELOS ACTUALIZADOS ───────────
 class Rol(str, Enum):
@@ -213,8 +228,8 @@ class Reserva(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     cliente_id: int
     habitacion_id: int
-    fecha_checkin: datetime
-    fecha_checkout: datetime
+    fecha_checkin: datetime = Field(sa_column=columna_fecha())
+    fecha_checkout: datetime = Field(sa_column=columna_fecha())
     seña: float
     total_estadia: float
     forma_pago: str
@@ -230,15 +245,15 @@ class Pedido(SQLModel, table=True):
     externo: bool = False
     forma_pago: Optional[str] = None  # Se define al cobrar (si está pendiente puede ser None)
     estado: str = "PENDIENTE"  # PENDIENTE | PAGADO | CANCELADO
-    pagado_at: Optional[datetime] = None
-    fecha: datetime = Field(default_factory=lambda: obtener_fecha_argentina())
+    pagado_at: Optional[datetime] = Field(default=None, sa_column=columna_fecha(nullable=True))
+    fecha: datetime = Field(default_factory=obtener_fecha_argentina, sa_column=columna_fecha())
 
 class GastoAdicional(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     habitacion_id: Optional[int] = None  # Opcional: solo si el gasto es específico de una habitación
     descripcion: str
     monto: float
-    fecha: datetime
+    fecha: datetime = Field(sa_column=columna_fecha())
 
 class Actividad(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -246,8 +261,8 @@ class Actividad(SQLModel, table=True):
     descripcion: Optional[str] = None
     estado: str = "pendiente"  # pendiente, en_progreso, completada
     prioridad: str = "media"  # baja, media, alta
-    fecha_creacion: datetime = Field(default_factory=lambda: obtener_fecha_argentina())
-    fecha_vencimiento: Optional[datetime] = None
+    fecha_creacion: datetime = Field(default_factory=obtener_fecha_argentina, sa_column=columna_fecha())
+    fecha_vencimiento: Optional[datetime] = Field(default=None, sa_column=columna_fecha(nullable=True))
     creado_por: int  # ID del usuario que creó la actividad
     asignado_a: Optional[int] = None  # ID del usuario asignado (opcional)
 
@@ -257,7 +272,7 @@ class Stock(SQLModel, table=True):
     categoria: str  # "bebidas" o "comidas"
     cantidad: int = 0  # Cantidad en stock
     cantidad_minima: int = 0  # Cantidad mínima antes de alertar
-    fecha_actualizacion: datetime = Field(default_factory=lambda: obtener_fecha_argentina())
+    fecha_actualizacion: datetime = Field(default_factory=obtener_fecha_argentina, sa_column=columna_fecha())
 
 class ChatSession(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -269,7 +284,7 @@ class ChatSession(SQLModel, table=True):
     mascota: Optional[bool] = None
     reserva_id: Optional[int] = None  # ID de reserva si se crea
     bot_pausado: bool = Field(default=False)
-    updated_at: datetime = Field(default_factory=lambda: obtener_fecha_argentina())
+    updated_at: datetime = Field(default_factory=obtener_fecha_argentina, sa_column=columna_fecha())
 
 class MovimientoStock(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -280,7 +295,7 @@ class MovimientoStock(SQLModel, table=True):
     diferencia: int  # Positivo para entradas, negativo para salidas
     motivo: Optional[str] = None  # Motivo del movimiento
     usuario_id: Optional[int] = None  # ID del usuario que hizo el movimiento
-    fecha: datetime = Field(default_factory=lambda: obtener_fecha_argentina())
+    fecha: datetime = Field(default_factory=obtener_fecha_argentina, sa_column=columna_fecha())
 
 # ─────────── MODELOS PARA ITEMS MÚLTIPLES ───────────
 class ItemPedido(BaseModel):
@@ -811,7 +826,7 @@ def arreglar_base_datos(db: Session = Depends(obtener_db), token: dict = Depends
             try:
                 if DATABASE_URL.startswith("postgres"):
                     connection.execute(text("ALTER TABLE pedido ADD COLUMN IF NOT EXISTS estado TEXT DEFAULT 'PENDIENTE'"))
-                    connection.execute(text("ALTER TABLE pedido ADD COLUMN IF NOT EXISTS pagado_at TIMESTAMP"))
+                    connection.execute(text("ALTER TABLE pedido ADD COLUMN IF NOT EXISTS pagado_at TIMESTAMPTZ"))
                     connection.commit()
                     print("✅ Columnas 'estado' y 'pagado_at' agregadas a tabla pedido (PostgreSQL)")
                 else:
