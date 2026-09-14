@@ -147,21 +147,25 @@ def convertir_a_argentina(fecha_utc):
     return fecha_utc.astimezone(ARGENTINA_TZ)
 
 def normalizar_fecha_argentina(fecha):
-    """Devuelve la fecha con timezone de Argentina, sin correrle la hora.
+    """Devuelve la fecha en hora de Argentina.
 
-    Las columnas datetime de los modelos no declaran timezone, así que la base
-    guarda la hora de pared de Argentina con la que se escribieron (todas las
-    escrituras usan `obtener_fecha_argentina()`). Una fecha naive que viene de
-    la base YA ES hora argentina: sólo hay que etiquetarla.
+    Una fecha naive que viene de la base está en UTC. Las columnas datetime no
+    declaran timezone, y al guardar un datetime con offset -03:00 el driver lo
+    manda como timestamptz: Postgres lo convierte a la zona de la sesión (UTC
+    en Render) antes de guardarlo en la columna sin timezone. Lo que queda
+    guardado, entonces, es UTC.
 
-    Antes esta función la interpretaba como UTC y le restaba 3 horas. Como se
-    usa para mostrar horarios y para agrupar por día, un pedido de la 01:30 se
-    mostraba a las 22:30 y se contabilizaba en el día anterior.
+    OJO: SQLite NO hace esa conversión — guarda la hora de pared tal cual. Los
+    dos motores difieren, así que un test sobre SQLite no sirve para decidir
+    esto; los fixtures tienen que guardar el valor en UTC a mano para
+    representar lo que hay en producción (ver `momento_argentino` en los
+    tests).
     """
     if fecha is None:
         return None
     if fecha.tzinfo is None:
-        return fecha.replace(tzinfo=ARGENTINA_TZ)
+        fecha_utc = fecha.replace(tzinfo=timezone.utc)
+        return fecha_utc.astimezone(ARGENTINA_TZ)
     if fecha.tzinfo != ARGENTINA_TZ:
         return fecha.astimezone(ARGENTINA_TZ)
     return fecha
@@ -169,16 +173,13 @@ def normalizar_fecha_argentina(fecha):
 def dia_argentina(fecha):
     """Día calendario argentino (date) de un timestamp de la BD.
 
-    Las columnas datetime del modelo no llevan timezone, así que Postgres
-    guarda la hora de pared de Argentina con la que se escribieron. Un valor
-    naive ya está en hora argentina y hay que leerlo literal — reinterpretarlo
-    como UTC correría el día para los horarios cercanos a medianoche.
+    Delega en `normalizar_fecha_argentina` a propósito: agrupar por día y
+    mostrar la hora tienen que usar la MISMA interpretación. Cuando cada una
+    tenía la suya, un pedido se mostraba con una hora y se contabilizaba en
+    otro día.
     """
-    if fecha is None:
-        return None
-    if fecha.tzinfo is not None:
-        fecha = fecha.astimezone(ARGENTINA_TZ)
-    return fecha.date()
+    normalizada = normalizar_fecha_argentina(fecha)
+    return normalizada.date() if normalizada else None
 
 # ─────────── MODELOS ACTUALIZADOS ───────────
 class Rol(str, Enum):

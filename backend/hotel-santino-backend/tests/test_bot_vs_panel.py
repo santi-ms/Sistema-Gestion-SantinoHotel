@@ -15,6 +15,8 @@ y los caminos habían divergido:
 from datetime import datetime
 
 import pytest
+
+from tests.fechas_de_prueba import momento_argentino
 from sqlmodel import Session
 
 from app.repositories.availability_repo import list_available_rooms
@@ -27,8 +29,8 @@ from hotel import (
     cotizar_estadia,
 )
 
-CHECKIN = datetime(2026, 4, 10, tzinfo=ARGENTINA_TZ)
-CHECKOUT = datetime(2026, 4, 13, tzinfo=ARGENTINA_TZ)
+CHECKIN = momento_argentino(2026, 4, 10)
+CHECKOUT = momento_argentino(2026, 4, 13)
 
 
 @pytest.fixture
@@ -88,8 +90,8 @@ def test_solo_la_cancelada_libera_la_habitacion(hotel_con_precios):
 def test_una_reserva_de_otras_fechas_no_bloquea(hotel_con_precios):
     _reservar(
         hotel_con_precios, 1, "activa",
-        checkin=datetime(2026, 4, 20, tzinfo=ARGENTINA_TZ),
-        checkout=datetime(2026, 4, 22, tzinfo=ARGENTINA_TZ),
+        checkin=momento_argentino(2026, 4, 20),
+        checkout=momento_argentino(2026, 4, 22),
     )
     assert 1 in _disponibles(hotel_con_precios)
 
@@ -98,7 +100,7 @@ def test_la_salida_el_dia_de_la_entrada_de_otro_no_bloquea(hotel_con_precios):
     """Sale el 10, entra otro el 10: la habitación está libre."""
     _reservar(
         hotel_con_precios, 1, "activa",
-        checkin=datetime(2026, 4, 7, tzinfo=ARGENTINA_TZ),
+        checkin=momento_argentino(2026, 4, 7),
         checkout=CHECKIN,
     )
     assert 1 in _disponibles(hotel_con_precios)

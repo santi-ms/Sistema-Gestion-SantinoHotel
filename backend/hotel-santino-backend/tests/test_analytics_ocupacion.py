@@ -8,6 +8,8 @@ que dura, no sólo el día de check-in; y la facturación debe seguir imputándo
 from datetime import datetime
 
 import pytest
+
+from tests.fechas_de_prueba import momento_argentino
 from sqlmodel import Session
 
 from hotel import ARGENTINA_TZ, Cliente, Reserva, detalle_diario_analytics
@@ -24,8 +26,8 @@ def _crear_reserva(db: Session, habitacion_id, checkin, checkout, total=100000):
     reserva = Reserva(
         cliente_id=cliente.id,
         habitacion_id=habitacion_id,
-        fecha_checkin=datetime(*checkin, tzinfo=ARGENTINA_TZ),
-        fecha_checkout=datetime(*checkout, tzinfo=ARGENTINA_TZ),
+        fecha_checkin=momento_argentino(*checkin),
+        fecha_checkout=momento_argentino(*checkout),
         seña=0,
         total_estadia=total,
         forma_pago="efectivo",

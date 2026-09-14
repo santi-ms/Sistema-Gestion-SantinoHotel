@@ -13,6 +13,7 @@ ROOT_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from hotel import Habitacion, Reserva, Cliente, ARGENTINA_TZ
+from tests.fechas_de_prueba import momento_argentino
 
 
 @pytest.fixture
@@ -63,8 +64,8 @@ def sample_reservas(test_db: Session, sample_habitaciones):
     test_db.refresh(cliente)
     
     # Reserva del 10 al 12 de febrero
-    fecha_checkin = datetime(2025, 2, 10, 0, 0, 0, tzinfo=ARGENTINA_TZ)
-    fecha_checkout = datetime(2025, 2, 12, 0, 0, 0, tzinfo=ARGENTINA_TZ)
+    fecha_checkin = momento_argentino(2025, 2, 10)
+    fecha_checkout = momento_argentino(2025, 2, 12)
     
     reserva = Reserva(
         cliente_id=cliente.id,

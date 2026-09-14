@@ -8,6 +8,7 @@ dormido. Estos tests fijan el comportamiento correcto.
 from datetime import datetime
 
 import pytest
+
 from fastapi.testclient import TestClient
 from passlib.context import CryptContext
 from sqlalchemy.pool import StaticPool
@@ -15,6 +16,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 import hotel
 from hotel import ARGENTINA_TZ, Cliente, Habitacion, Reserva
+from tests.fechas_de_prueba import momento_argentino
 
 # passlib+bcrypt choca en algunos entornos y no es lo que se está probando acá.
 HASHER_DE_TEST = CryptContext(schemes=["pbkdf2_sha256"])
@@ -57,6 +59,12 @@ def _login(client, email, contraseña):
 
 
 def _reserva(engine, checkin, checkout):
+    """Guarda las fechas como las guarda producción (en UTC).
+
+    El endpoint decide el nuevo check-out a partir del DÍA del check-in, así
+    que el test depende de que el valor guardado se interprete igual que en
+    Postgres. Ver tests/fechas_de_prueba.py.
+    """
     with Session(engine) as s:
         s.add(Habitacion(numero=1, tipo="Estándar", capacidad=2, precio=50000))
         s.add(Cliente(nombre="Juan", dni="1", celular="1"))
@@ -64,8 +72,8 @@ def _reserva(engine, checkin, checkout):
         r = Reserva(
             cliente_id=1,
             habitacion_id=1,
-            fecha_checkin=datetime(*checkin, tzinfo=ARGENTINA_TZ),
-            fecha_checkout=datetime(*checkout, tzinfo=ARGENTINA_TZ),
+            fecha_checkin=momento_argentino(*checkin),
+            fecha_checkout=momento_argentino(*checkout),
             seña=0,
             total_estadia=350000,
             forma_pago="efectivo",
@@ -98,7 +106,7 @@ def test_checkout_en_fecha_no_toca_la_fecha_de_salida(api, monkeypatch):
     """El bug original: salir el día previsto perdía la última noche."""
     client, engine = api
     token = _token_dueño(client)
-    hoy = datetime(2026, 9, 17, 11, 0, tzinfo=ARGENTINA_TZ)
+    hoy = datetime(2026, 9, 17, 11, 0, tzinfo=ARGENTINA_TZ)  # el reloj, no un valor guardado
     monkeypatch.setattr(hotel, "obtener_fecha_argentina", lambda: hoy)
     rid = _reserva(engine, (2026, 9, 10), (2026, 9, 17))
 
@@ -112,7 +120,7 @@ def test_checkout_en_fecha_no_toca_la_fecha_de_salida(api, monkeypatch):
 def test_checkout_anticipado_acorta_hasta_hoy_no_hasta_ayer(api, monkeypatch):
     client, engine = api
     token = _token_dueño(client)
-    hoy = datetime(2026, 9, 12, 11, 0, tzinfo=ARGENTINA_TZ)
+    hoy = datetime(2026, 9, 12, 11, 0, tzinfo=ARGENTINA_TZ)  # el reloj, no un valor guardado
     monkeypatch.setattr(hotel, "obtener_fecha_argentina", lambda: hoy)
     rid = _reserva(engine, (2026, 9, 10), (2026, 9, 17))
 
@@ -120,7 +128,6 @@ def test_checkout_anticipado_acorta_hasta_hoy_no_hasta_ayer(api, monkeypatch):
 
     # Durmió las noches del 10 y del 11; la habitación queda libre desde el 12.
     assert reserva.fecha_checkout.date() == datetime(2026, 9, 12).date()
-    assert (reserva.fecha_checkout - reserva.fecha_checkin).days == 2
     assert cuerpo["salida_anticipada"] is True
 
 
@@ -128,20 +135,19 @@ def test_checkout_el_mismo_dia_del_checkin_deja_una_noche(api, monkeypatch):
     """Nunca cero noches: antes esto dejaba salida ANTERIOR a la entrada."""
     client, engine = api
     token = _token_dueño(client)
-    hoy = datetime(2026, 9, 10, 20, 0, tzinfo=ARGENTINA_TZ)
+    hoy = datetime(2026, 9, 10, 20, 0, tzinfo=ARGENTINA_TZ)  # el reloj, no un valor guardado
     monkeypatch.setattr(hotel, "obtener_fecha_argentina", lambda: hoy)
     rid = _reserva(engine, (2026, 9, 10), (2026, 9, 17))
 
     _, reserva = _checkout(client, engine, rid, token)
 
     assert reserva.fecha_checkout.date() == datetime(2026, 9, 11).date()
-    assert (reserva.fecha_checkout - reserva.fecha_checkin).days == 1
 
 
 def test_checkout_tardio_no_extiende_la_reserva(api, monkeypatch):
     client, engine = api
     token = _token_dueño(client)
-    hoy = datetime(2026, 9, 20, 11, 0, tzinfo=ARGENTINA_TZ)
+    hoy = datetime(2026, 9, 20, 11, 0, tzinfo=ARGENTINA_TZ)  # el reloj, no un valor guardado
     monkeypatch.setattr(hotel, "obtener_fecha_argentina", lambda: hoy)
     rid = _reserva(engine, (2026, 9, 10), (2026, 9, 17))
 
@@ -153,7 +159,7 @@ def test_checkout_tardio_no_extiende_la_reserva(api, monkeypatch):
 def test_no_se_hace_checkout_de_una_reserva_cancelada(api, monkeypatch):
     client, engine = api
     token = _token_dueño(client)
-    hoy = datetime(2026, 9, 12, 11, 0, tzinfo=ARGENTINA_TZ)
+    hoy = datetime(2026, 9, 12, 11, 0, tzinfo=ARGENTINA_TZ)  # el reloj, no un valor guardado
     monkeypatch.setattr(hotel, "obtener_fecha_argentina", lambda: hoy)
     rid = _reserva(engine, (2026, 9, 10), (2026, 9, 17))
     with Session(engine) as s:

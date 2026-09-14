@@ -17,6 +17,8 @@ Estos tests fijan que los cuatro den el mismo número.
 from datetime import datetime
 
 import pytest
+
+from tests.fechas_de_prueba import momento_argentino
 from sqlmodel import Session
 
 import hotel
@@ -33,6 +35,7 @@ from hotel import (
 )
 
 TOKEN = {"rol": "dueño"}
+# El reloj devuelve hora argentina con timezone; lo que se guarda va en UTC.
 HOY = datetime(2026, 3, 15, 18, 0, tzinfo=ARGENTINA_TZ)
 
 
@@ -50,8 +53,8 @@ def datos(test_db: Session, monkeypatch):
         Reserva(
             cliente_id=1,
             habitacion_id=1,
-            fecha_checkin=datetime(2026, 3, 5, 14, 0, tzinfo=ARGENTINA_TZ),
-            fecha_checkout=datetime(2026, 3, 8, 10, 0, tzinfo=ARGENTINA_TZ),
+            fecha_checkin=momento_argentino(2026, 3, 5, 14, 0),
+            fecha_checkout=momento_argentino(2026, 3, 8, 10, 0),
             seña=0,
             total_estadia=200000,
             forma_pago="efectivo",
@@ -64,8 +67,8 @@ def datos(test_db: Session, monkeypatch):
         Reserva(
             cliente_id=1,
             habitacion_id=1,
-            fecha_checkin=datetime(2026, 3, 6, 14, 0, tzinfo=ARGENTINA_TZ),
-            fecha_checkout=datetime(2026, 3, 7, 10, 0, tzinfo=ARGENTINA_TZ),
+            fecha_checkin=momento_argentino(2026, 3, 6, 14, 0),
+            fecha_checkout=momento_argentino(2026, 3, 7, 10, 0),
             seña=0,
             total_estadia=999999,
             forma_pago="efectivo",
@@ -76,22 +79,22 @@ def datos(test_db: Session, monkeypatch):
     # Pedido normal de la tarde
     test_db.add(
         Pedido(detalle="[]", monto=30000, estado="PAGADO", forma_pago="efectivo",
-               fecha=datetime(2026, 3, 10, 21, 0, tzinfo=ARGENTINA_TZ))
+               fecha=momento_argentino(2026, 3, 10, 21, 0))
     )
     # Pedido de la madrugada: el que caía en el día anterior
     test_db.add(
         Pedido(detalle="[]", monto=15000, estado="PAGADO", forma_pago="efectivo",
-               fecha=datetime(2026, 3, 10, 1, 30, tzinfo=ARGENTINA_TZ))
+               fecha=momento_argentino(2026, 3, 10, 1, 30))
     )
     # Pedido cancelado: no es ingreso
     test_db.add(
         Pedido(detalle="[]", monto=888888, estado="CANCELADO", forma_pago="efectivo",
-               fecha=datetime(2026, 3, 11, 12, 0, tzinfo=ARGENTINA_TZ))
+               fecha=momento_argentino(2026, 3, 11, 12, 0))
     )
     # Cancelado en minúsculas: el estado se escribió desde varios lugares
     test_db.add(
         Pedido(detalle="[]", monto=777777, estado="cancelado", forma_pago="efectivo",
-               fecha=datetime(2026, 3, 12, 12, 0, tzinfo=ARGENTINA_TZ))
+               fecha=momento_argentino(2026, 3, 12, 12, 0))
     )
     test_db.commit()
     return test_db
