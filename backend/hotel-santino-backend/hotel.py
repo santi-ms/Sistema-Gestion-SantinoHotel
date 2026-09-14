@@ -248,11 +248,28 @@ class Pedido(SQLModel, table=True):
     pagado_at: Optional[datetime] = Field(default=None, sa_column=columna_fecha(nullable=True))
     fecha: datetime = Field(default_factory=obtener_fecha_argentina, sa_column=columna_fecha())
 
+# Categorías de gasto. Sin esto, un gasto era sólo descripción y monto: se
+# podía cargar, pero no saber en qué se va la plata.
+CATEGORIAS_GASTO = [
+    "proveedores",
+    "sueldos",
+    "servicios",
+    "mantenimiento",
+    "insumos",
+    "impuestos",
+    "otros",
+]
+CATEGORIA_GASTO_POR_DEFECTO = "otros"
+
+
 class GastoAdicional(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     habitacion_id: Optional[int] = None  # Opcional: solo si el gasto es específico de una habitación
     descripcion: str
     monto: float
+    # Los gastos anteriores a esta columna quedan en NULL y se leen como "otros".
+    categoria: Optional[str] = Field(default=CATEGORIA_GASTO_POR_DEFECTO, index=True)
+    forma_pago: Optional[str] = None
     fecha: datetime = Field(sa_column=columna_fecha())
 
 class Actividad(SQLModel, table=True):
@@ -333,6 +350,8 @@ class GastoAdicionalEntrada(BaseModel):
     habitacion_id: Optional[int] = None  # Opcional: puede ser None, 0, o un número válido
     descripcion: str
     monto: float
+    categoria: Optional[str] = None
+    forma_pago: Optional[str] = None
     
     @validator('habitacion_id', pre=True)
     def parse_habitacion_id(cls, v):
@@ -967,6 +986,8 @@ def arreglar_base_datos(db: Session = Depends(obtener_db), token: dict = Depends
                     connection.execute(text("ALTER TABLE pedido ADD COLUMN IF NOT EXISTS estado TEXT DEFAULT 'PENDIENTE'"))
                     connection.execute(text("ALTER TABLE pedido ADD COLUMN IF NOT EXISTS pagado_at TIMESTAMPTZ"))
                     connection.execute(text("ALTER TABLE movimientostock ADD COLUMN IF NOT EXISTS pedido_id INTEGER"))
+                    connection.execute(text("ALTER TABLE gastoadicional ADD COLUMN IF NOT EXISTS categoria TEXT"))
+                    connection.execute(text("ALTER TABLE gastoadicional ADD COLUMN IF NOT EXISTS forma_pago TEXT"))
                     connection.commit()
                     print("✅ Columnas 'estado' y 'pagado_at' agregadas a tabla pedido (PostgreSQL)")
                 else:
@@ -1872,6 +1893,33 @@ def eliminar_pedido_actualizado(
     }
 
 # ─────────── ENDPOINTS DE GASTOS ───────────
+def normalizar_categoria_gasto(categoria: Optional[str]) -> str:
+    """Categoría válida, o "otros". Los gastos cargados antes de que existiera
+    la columna quedan en NULL y se leen como "otros"."""
+    limpia = (categoria or "").strip().lower()
+    return limpia if limpia in CATEGORIAS_GASTO else CATEGORIA_GASTO_POR_DEFECTO
+
+
+def serializar_gasto(gasto: GastoAdicional) -> dict:
+    """Un gasto tal como lo consume el frontend."""
+    fecha = normalizar_fecha_argentina(gasto.fecha)
+    return {
+        "id": gasto.id,
+        "habitacion_id": gasto.habitacion_id,
+        "descripcion": gasto.descripcion,
+        "monto": gasto.monto,
+        "categoria": normalizar_categoria_gasto(getattr(gasto, "categoria", None)),
+        "forma_pago": getattr(gasto, "forma_pago", None) or None,
+        "fecha": fecha.isoformat() if fecha else None,
+    }
+
+
+@app.get("/gastos/categorias")
+def listar_categorias_gasto(token: dict = Depends(verificar_token)):
+    """Las categorías disponibles, para que el frontend no las tenga duplicadas."""
+    return {"categorias": CATEGORIAS_GASTO}
+
+
 @app.post("/gastos")
 def registrar_gasto(gasto: GastoAdicionalEntrada, db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
     try:
@@ -1899,39 +1947,83 @@ def registrar_gasto(gasto: GastoAdicionalEntrada, db: Session = Depends(obtener_
             habitacion_id=habitacion_id_parsed,
             descripcion=descripcion_limpia,
             monto=gasto.monto,
+            categoria=normalizar_categoria_gasto(gasto.categoria),
+            forma_pago=(gasto.forma_pago or "").strip() or None,
             fecha=obtener_fecha_argentina()
         )
         db.add(nuevo_gasto)
         db.commit()
         db.refresh(nuevo_gasto)
-        gasto_dict = {
-            "id": nuevo_gasto.id,
-            "habitacion_id": nuevo_gasto.habitacion_id,
-            "descripcion": nuevo_gasto.descripcion,
-            "monto": nuevo_gasto.monto,
-            "fecha": normalizar_fecha_argentina(nuevo_gasto.fecha).isoformat()
-        }
-        return {"mensaje": "Gasto registrado correctamente", "gasto": gasto_dict}
+        return {"mensaje": "Gasto registrado correctamente", "gasto": serializar_gasto(nuevo_gasto)}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al registrar gasto: {str(e)}")
 
 @app.get("/gastos")
-def obtener_todos_los_gastos(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
-    gastos = db.exec(select(GastoAdicional)).all()
-    # Serializar fechas correctamente con timezone de Argentina
-    resultado = []
-    for gasto in gastos:
-        gasto_dict = {
-            "id": gasto.id,
-            "habitacion_id": gasto.habitacion_id,
-            "descripcion": gasto.descripcion,
-            "monto": gasto.monto,
-            "fecha": normalizar_fecha_argentina(gasto.fecha).isoformat()
-        }
-        resultado.append(gasto_dict)
-    return resultado
+def obtener_todos_los_gastos(
+    desde: Optional[str] = Query(None, description="Fecha desde YYYY-MM-DD (inclusive)"),
+    hasta: Optional[str] = Query(None, description="Fecha hasta YYYY-MM-DD (inclusive)"),
+    categoria: Optional[str] = Query(None, description="Filtrar por categoría"),
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token),
+):
+    """Gastos del período, con totales por categoría.
+
+    Antes devolvía todo sin filtros y la pantalla sólo mostraba el día actual,
+    así que no había forma de consultar el mes pasado ni de saber en qué se
+    fue la plata.
+
+    Sin `desde`/`hasta` devuelve todo, para no romper a quien ya lo llamaba así.
+    """
+    consulta = select(GastoAdicional)
+
+    try:
+        if desde:
+            consulta = consulta.where(
+                GastoAdicional.fecha
+                >= datetime.strptime(desde, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+            )
+        if hasta:
+            # Inclusive: el corte va al inicio del día siguiente.
+            consulta = consulta.where(
+                GastoAdicional.fecha
+                < datetime.strptime(hasta, "%Y-%m-%d").replace(tzinfo=ARGENTINA_TZ)
+                + timedelta(days=1)
+            )
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de fecha inválido. Usá YYYY-MM-DD")
+
+    gastos = db.exec(consulta.order_by(GastoAdicional.fecha.desc())).all()
+
+    # El filtro por categoría se aplica sobre el valor normalizado, para que
+    # "otros" también alcance a los gastos viejos que tienen la columna en NULL.
+    if categoria:
+        buscada = normalizar_categoria_gasto(categoria)
+        gastos = [
+            g for g in gastos
+            if normalizar_categoria_gasto(getattr(g, "categoria", None)) == buscada
+        ]
+
+    serializados = [serializar_gasto(g) for g in gastos]
+
+    por_categoria = defaultdict(float)
+    for g in serializados:
+        por_categoria[g["categoria"]] += g["monto"]
+
+    return {
+        "gastos": serializados,
+        "resumen": {
+            "cantidad": len(serializados),
+            "total": sum(g["monto"] for g in serializados),
+            "por_categoria": [
+                {"categoria": c, "monto": m}
+                for c, m in sorted(por_categoria.items(), key=lambda x: x[1], reverse=True)
+            ],
+        },
+        "desde": desde,
+        "hasta": hasta,
+    }
 
 @app.get("/gastos-dia")
 def obtener_gastos_por_dia(
@@ -1947,18 +2039,7 @@ def obtener_gastos_por_dia(
     gastos = db.exec(
         select(GastoAdicional).where(GastoAdicional.fecha >= fecha_obj, GastoAdicional.fecha < fecha_obj + timedelta(days=1))
     ).all()
-    # Serializar fechas correctamente con timezone de Argentina
-    resultado = []
-    for gasto in gastos:
-        gasto_dict = {
-            "id": gasto.id,
-            "habitacion_id": gasto.habitacion_id,
-            "descripcion": gasto.descripcion,
-            "monto": gasto.monto,
-            "fecha": normalizar_fecha_argentina(gasto.fecha).isoformat()
-        }
-        resultado.append(gasto_dict)
-    return resultado
+    return [serializar_gasto(g) for g in gastos]
 
 @app.put("/gastos/{gasto_id}")
 def actualizar_gasto(
@@ -1994,18 +2075,13 @@ def actualizar_gasto(
         gasto.habitacion_id = habitacion_id_parsed
         gasto.descripcion = descripcion_limpia
         gasto.monto = datos.monto
+        gasto.categoria = normalizar_categoria_gasto(datos.categoria)
+        gasto.forma_pago = (datos.forma_pago or "").strip() or None
 
         db.add(gasto)
         db.commit()
         db.refresh(gasto)
-        gasto_dict = {
-            "id": gasto.id,
-            "habitacion_id": gasto.habitacion_id,
-            "descripcion": gasto.descripcion,
-            "monto": gasto.monto,
-            "fecha": normalizar_fecha_argentina(gasto.fecha).isoformat()
-        }
-        return {"mensaje": "Gasto actualizado correctamente", "gasto": gasto_dict}
+        return {"mensaje": "Gasto actualizado correctamente", "gasto": serializar_gasto(gasto)}
     except HTTPException:
         raise
     except Exception as e:
@@ -4714,6 +4790,15 @@ def detalle_diario_analytics(
                 Pedido.fecha <= fecha_fin_dt
             )
         ).all()
+
+        # Y los gastos: sin ellos la tabla mostraba lo que entró sin restar lo
+        # que salió, así que el "total del día" no era el resultado del día.
+        gastos = db.exec(
+            select(GastoAdicional).where(
+                GastoAdicional.fecha >= fecha_inicio_dt,
+                GastoAdicional.fecha <= fecha_fin_dt
+            )
+        ).all()
         
         # Estructura para almacenar datos por día
         datos_por_dia = defaultdict(lambda: {
@@ -4728,6 +4813,11 @@ def detalle_diario_analytics(
                 "monto_total": 0,
                 "cantidad": 0,
                 "formas_pago": defaultdict(float)  # forma_pago -> monto
+            },
+            "gastos": {
+                "monto_total": 0,
+                "cantidad": 0,
+                "por_categoria": defaultdict(float)  # categoria -> monto
             }
         })
         
@@ -4786,6 +4876,17 @@ def detalle_diario_analytics(
             forma_pago = _normalizar_forma_pago(pedido.forma_pago)
             datos_por_dia[fecha_str]["pedidos"]["formas_pago"][forma_pago] += pedido.monto
         
+        for gasto in gastos:
+            dia_gasto = dia_argentina(gasto.fecha)
+            if dia_gasto is None:
+                continue
+            fecha_str = dia_gasto.strftime("%Y-%m-%d")
+            datos_por_dia[fecha_str]["fecha"] = fecha_str
+            datos_por_dia[fecha_str]["gastos"]["monto_total"] += gasto.monto
+            datos_por_dia[fecha_str]["gastos"]["cantidad"] += 1
+            categoria = normalizar_categoria_gasto(getattr(gasto, "categoria", None))
+            datos_por_dia[fecha_str]["gastos"]["por_categoria"][categoria] += gasto.monto
+
         # Convertir a lista y formatear
         resultado = []
         fecha_actual = fecha_inicio_dt
@@ -4820,7 +4921,26 @@ def detalle_diario_analytics(
                     "cantidad": datos["pedidos"]["cantidad"],
                     "formas_pago": sorted(formas_pago_pedidos, key=lambda x: x["monto"], reverse=True)
                 },
-                "total_dia": datos["reservas"]["monto_total"] + datos["pedidos"]["monto_total"]
+                "gastos": {
+                    "monto_total": datos["gastos"]["monto_total"],
+                    "cantidad": datos["gastos"]["cantidad"],
+                    "por_categoria": sorted(
+                        [
+                            {"categoria": c, "monto": m}
+                            for c, m in datos["gastos"]["por_categoria"].items()
+                        ],
+                        key=lambda x: x["monto"],
+                        reverse=True,
+                    ),
+                },
+                # `total_dia` se mantiene como el ingreso bruto: es lo que ya
+                # consumía el frontend. El neto va aparte.
+                "total_dia": datos["reservas"]["monto_total"] + datos["pedidos"]["monto_total"],
+                "resultado_neto": (
+                    datos["reservas"]["monto_total"]
+                    + datos["pedidos"]["monto_total"]
+                    - datos["gastos"]["monto_total"]
+                ),
             })
             
             fecha_actual += timedelta(days=1)
@@ -4834,7 +4954,10 @@ def detalle_diario_analytics(
                 "total_pedidos": sum(d["pedidos"]["cantidad"] for d in resultado),
                 "total_ingresos_reservas": sum(d["reservas"]["monto_total"] for d in resultado),
                 "total_ingresos_pedidos": sum(d["pedidos"]["monto_total"] for d in resultado),
-                "total_ingresos": sum(d["total_dia"] for d in resultado)
+                "total_ingresos": sum(d["total_dia"] for d in resultado),
+                "total_gastos": sum(d["gastos"]["monto_total"] for d in resultado),
+                "cantidad_gastos": sum(d["gastos"]["cantidad"] for d in resultado),
+                "resultado_neto": sum(d["resultado_neto"] for d in resultado),
             }
         }
     except ValueError as e:

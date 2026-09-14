@@ -717,7 +717,9 @@ export default function DashboardAnalytics() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Pago Reservas</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Pedidos</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Pago Pedidos</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Gastos</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Total Día</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Resultado</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
@@ -788,8 +790,44 @@ export default function DashboardAnalytics() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <div className="text-sm font-bold text-indigo-600">
+                        <div className="text-sm">
+                          {dia.gastos?.monto_total > 0 ? (
+                            <>
+                              <div className="font-medium text-red-600">
+                                −{formatearMoneda(dia.gastos.monto_total)}
+                              </div>
+                              <div className="text-slate-500 text-xs">
+                                {dia.gastos.cantidad} gasto{dia.gastos.cantidad !== 1 ? 's' : ''}
+                              </div>
+                              {dia.gastos.por_categoria?.length > 0 && (
+                                <div className="text-slate-400 text-xs mt-0.5">
+                                  {dia.gastos.por_categoria
+                                    .slice(0, 2)
+                                    .map((c) => c.categoria)
+                                    .join(', ')}
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-slate-400 text-xs">-</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm font-medium text-slate-700">
                           {formatearMoneda(dia.total_dia)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        {/* Lo que realmente quedó: ingresos menos gastos. */}
+                        <div
+                          className={`text-sm font-bold ${
+                            (dia.resultado_neto ?? dia.total_dia) >= 0
+                              ? 'text-emerald-600'
+                              : 'text-red-600'
+                          }`}
+                        >
+                          {formatearMoneda(dia.resultado_neto ?? dia.total_dia)}
                         </div>
                       </td>
                     </tr>

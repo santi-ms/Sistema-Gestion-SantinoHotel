@@ -1,13 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import axios from "axios";
-import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
 import { getUserRole } from "./hooks/useAuth";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
-import { SkeletonTable } from "./components/Skeleton";
 import { EmptyState } from "./components/EmptyState";
-import { formatearSoloHora, formatearSoloFecha, obtenerHoyArgentinaISO } from "./utils/fechas";
+import { formatARS } from "./utils/moneda";
+import {
+  formatearSoloHora,
+  formatearSoloFecha,
+  obtenerHoyArgentinaISO,
+} from "./utils/fechas";
 import {
   Receipt,
   DollarSign,
@@ -15,325 +18,493 @@ import {
   Save,
   Edit3,
   Trash2,
-  CheckCircle,
   XCircle,
-  Clock,
-  AlertCircle,
   TrendingDown,
-  FileText
+  FileText,
+  Filter,
+  Tag,
+  CreditCard,
+  PieChart,
 } from "lucide-react";
 import AppLayout from "./components/Layout/AppLayout";
 
+// Mismas claves que CATEGORIAS_GASTO en el backend; acá sólo se les pone
+// nombre para mostrar.
+const CATEGORIAS = [
+  { valor: "proveedores", nombre: "Proveedores" },
+  { valor: "sueldos", nombre: "Sueldos" },
+  { valor: "servicios", nombre: "Servicios" },
+  { valor: "mantenimiento", nombre: "Mantenimiento" },
+  { valor: "insumos", nombre: "Insumos" },
+  { valor: "impuestos", nombre: "Impuestos" },
+  { valor: "otros", nombre: "Otros" },
+];
+
+const FORMAS_PAGO = ["Efectivo", "Transferencia", "Débito", "Crédito", "Cheque"];
+
+const COLOR_CATEGORIA = {
+  proveedores: "bg-blue-50 text-blue-700 border-blue-200",
+  sueldos: "bg-purple-50 text-purple-700 border-purple-200",
+  servicios: "bg-amber-50 text-amber-700 border-amber-200",
+  mantenimiento: "bg-orange-50 text-orange-700 border-orange-200",
+  insumos: "bg-teal-50 text-teal-700 border-teal-200",
+  impuestos: "bg-rose-50 text-rose-700 border-rose-200",
+  otros: "bg-slate-50 text-slate-600 border-slate-200",
+};
+
+const nombreCategoria = (valor) =>
+  CATEGORIAS.find((c) => c.valor === valor)?.nombre || "Otros";
+
+/** Primer día del mes de una fecha YYYY-MM-DD. */
+const primerDiaDelMes = (iso) => `${iso.slice(0, 7)}-01`;
+
+/** Último día del mes de una fecha YYYY-MM-DD. */
+const ultimoDiaDelMes = (iso) => {
+  const [anio, mes] = iso.split("-").map(Number);
+  const dia = new Date(anio, mes, 0).getDate();
+  return `${iso.slice(0, 7)}-${String(dia).padStart(2, "0")}`;
+};
+
+const FORM_VACIO = {
+  habitacion_id: "",
+  descripcion: "",
+  monto: "",
+  categoria: "proveedores",
+  forma_pago: "Efectivo",
+};
+
 export default function RegistrarGasto() {
-  const [form, setForm] = useState({
-    habitacion_id: "",  // Opcional: solo para gastos específicos de habitación
-    descripcion: "",
-    monto: ""
-  });
-  const [mensaje, setMensaje] = useState("");
-  const [gastosHoy, setGastosHoy] = useState([]);
+  const hoy = obtenerHoyArgentinaISO();
+
+  const [form, setForm] = useState(FORM_VACIO);
+  const [gastos, setGastos] = useState([]);
+  const [resumen, setResumen] = useState({ cantidad: 0, total: 0, por_categoria: [] });
   const [editandoId, setEditandoId] = useState(null);
   const [cargando, setCargando] = useState(false);
+  const [guardando, setGuardando] = useState(false);
   const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
   const [gastoAEliminar, setGastoAEliminar] = useState(null);
-  const { success, error: errorToast } = useToast();
   const [userRole, setUserRole] = useState("");
-  const navigate = useNavigate();
 
+  // Arranca mostrando el mes en curso: antes la pantalla sólo mostraba el día
+  // actual y no había forma de consultar un período anterior.
+  const [desde, setDesde] = useState(primerDiaDelMes(hoy));
+  const [hasta, setHasta] = useState(ultimoDiaDelMes(hoy));
+  const [filtroCategoria, setFiltroCategoria] = useState("");
+
+  const { success, error: errorToast } = useToast();
   const token = localStorage.getItem(TOKEN_KEY);
+  const esDueño = userRole === "dueño";
 
-  // Obtener rol del usuario desde el token
   useEffect(() => {
     const rol = getUserRole();
     if (rol) setUserRole(rol);
   }, []);
 
-  const obtenerGastosHoy = async () => {
+  const obtenerGastos = async () => {
     setCargando(true);
-    const hoy = obtenerHoyArgentinaISO();
     try {
-      const res = await axios.get(`${API_BASE_URL}/gastos-dia?fecha=${hoy}`, {
-        headers: { Authorization: `Bearer ${token}` }
+      const res = await axios.get(`${API_BASE_URL}/gastos`, {
+        params: { desde, hasta, categoria: filtroCategoria || undefined },
+        headers: { Authorization: `Bearer ${token}` },
       });
-      setGastosHoy(res.data);
+      setGastos(res.data.gastos || []);
+      setResumen(res.data.resumen || { cantidad: 0, total: 0, por_categoria: [] });
     } catch (err) {
-      console.error("Error al obtener gastos del día", err);
-      errorToast("Error al cargar gastos del día");
+      console.error("Error al obtener gastos", err);
+      errorToast("No se pudieron cargar los gastos");
     } finally {
       setCargando(false);
     }
   };
 
   useEffect(() => {
-    obtenerGastosHoy();
-  }, []);
+    obtenerGastos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [desde, hasta, filtroCategoria]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setForm({
-      ...form,
-      [name]: value
-    });
+    setForm((actual) => ({ ...actual, [name]: value }));
   };
 
   const handleSubmit = async () => {
-    if (!form.descripcion || !form.monto) {
+    if (!form.descripcion.trim() || !form.monto) {
       errorToast("La descripción y el monto son obligatorios");
       return;
     }
-
-    // Validar monto
     const montoNum = parseFloat(form.monto);
     if (isNaN(montoNum) || montoNum <= 0) {
       errorToast("El monto debe ser un número positivo");
       return;
     }
 
-    setCargando(true);
+    setGuardando(true);
     const payload = {
       descripcion: form.descripcion.trim(),
       monto: montoNum,
-      habitacion_id: form.habitacion_id && form.habitacion_id.trim() !== "" 
-        ? parseInt(form.habitacion_id) 
-        : null
+      categoria: form.categoria,
+      forma_pago: form.forma_pago || null,
+      habitacion_id: form.habitacion_id.trim() !== "" ? parseInt(form.habitacion_id) : null,
     };
-    
+
     try {
       if (editandoId) {
         await axios.put(`${API_BASE_URL}/gastos/${editandoId}`, payload, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         });
-        success("Gasto actualizado correctamente");
+        success("Gasto actualizado");
       } else {
         await axios.post(`${API_BASE_URL}/gastos`, payload, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         });
-        success("Gasto registrado correctamente");
+        success("Gasto registrado");
       }
-
-      setForm({ habitacion_id: "", descripcion: "", monto: "" });
+      setForm(FORM_VACIO);
       setEditandoId(null);
-      obtenerGastosHoy();
+      obtenerGastos();
     } catch (err) {
-      console.error('Error completo:', err);
-      console.error('Error response:', err.response);
-      const errorMessage = err.response?.data?.detail || err.response?.data?.message || err.message || "Error al registrar/actualizar gasto";
-      errorToast(errorMessage);
+      errorToast(err.response?.data?.detail || "No se pudo guardar el gasto");
     } finally {
-      setCargando(false);
+      setGuardando(false);
     }
   };
 
   const cargarParaEditar = (gasto) => {
     setForm({
-      habitacion_id: gasto.habitacion_id || "",
+      habitacion_id: gasto.habitacion_id ? String(gasto.habitacion_id) : "",
       descripcion: gasto.descripcion,
-      monto: gasto.monto
+      monto: String(gasto.monto),
+      categoria: gasto.categoria || "otros",
+      forma_pago: gasto.forma_pago || "",
     });
     setEditandoId(gasto.id);
-    window.scrollTo(0, 0);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const cancelarEdicion = () => {
-    setForm({ habitacion_id: "", descripcion: "", monto: "" });
+    setForm(FORM_VACIO);
     setEditandoId(null);
-    setMensaje("");
-  };
-
-  const abrirConfirmEliminar = (id) => {
-    setGastoAEliminar(id);
-    setMostrarConfirmEliminar(true);
   };
 
   const borrarGasto = async () => {
-    setCargando(true);
     try {
       await axios.delete(`${API_BASE_URL}/gastos/${gastoAEliminar}`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
-      success("Gasto eliminado correctamente");
+      success("Gasto eliminado");
       setMostrarConfirmEliminar(false);
-      obtenerGastosHoy();
+      obtenerGastos();
     } catch {
-      errorToast("Error al eliminar gasto");
-    } finally {
-      setCargando(false);
+      errorToast("No se pudo eliminar el gasto");
     }
   };
 
-  // Calcular estadísticas solo para dueños
-  const totalGastos = gastosHoy.reduce((sum, gasto) => sum + gasto.monto, 0);
-  const gastoPromedio = gastosHoy.length > 0 ? totalGastos / gastosHoy.length : 0;
+  const aplicarAtajo = (tipo) => {
+    if (tipo === "hoy") {
+      setDesde(hoy);
+      setHasta(hoy);
+    } else if (tipo === "mes") {
+      setDesde(primerDiaDelMes(hoy));
+      setHasta(ultimoDiaDelMes(hoy));
+    } else if (tipo === "mesPasado") {
+      const [anio, mes] = hoy.split("-").map(Number);
+      const previo = new Date(anio, mes - 2, 1);
+      const iso = `${previo.getFullYear()}-${String(previo.getMonth() + 1).padStart(2, "0")}-01`;
+      setDesde(iso);
+      setHasta(ultimoDiaDelMes(iso));
+    }
+  };
 
-  // Determinar si es dueño
-  const esDueño = userRole === "dueño";
+  const promedio = useMemo(
+    () => (resumen.cantidad > 0 ? resumen.total / resumen.cantidad : 0),
+    [resumen]
+  );
+
+  const mayorCategoria = resumen.por_categoria?.[0];
+
+  const inputBase =
+    "w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent";
 
   return (
-    <AppLayout role="empleado" pageTitle={editandoId ? "Editar Gasto" : "Registrar Gasto"}>
+    <AppLayout role="empleado" pageTitle={editandoId ? "Editar gasto" : "Gastos"}>
       <div className="space-y-6 max-w-7xl mx-auto">
 
-        {/* Formulario */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
+        {/* ── Formulario ── */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
           {editandoId && (
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
-              <div className="flex items-center gap-2 text-blue-700">
-                <Edit3 className="w-5 h-5" />
-                <span className="font-medium">Editando gasto #{editandoId}</span>
-              </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6 flex items-center gap-2 text-blue-700">
+              <Edit3 className="w-5 h-5" />
+              <span className="font-medium">Editando gasto #{editandoId}</span>
             </div>
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Habitación (Opcional) */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
-                Habitación <span className="text-slate-400 text-xs">(Opcional)</span>
+                Descripción
               </label>
               <div className="relative">
-                <Home className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <input
-                  type="number"
-                  name="habitacion_id"
-                  placeholder="Solo si es gasto específico de habitación"
-                  value={form.habitacion_id}
-                  onChange={handleChange}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-12 pr-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent placeholder-slate-400"
-                />
-              </div>
-              <p className="text-xs text-slate-500 mt-1">
-                Dejar vacío para gastos generales (compras, insumos, etc.)
-              </p>
-            </div>
-
-            {/* Monto */}
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Monto *
-              </label>
-              <div className="relative">
-                <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
-                <input
-                  type="number"
-                  name="monto"
-                  placeholder="0.00"
-                  value={form.monto}
-                  onChange={handleChange}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-12 pr-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent placeholder-slate-400"
-                />
-              </div>
-            </div>
-
-            {/* Descripción */}
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Descripción del gasto / compra *
-              </label>
-              <div className="relative">
-                <FileText className="absolute left-3 top-3 w-5 h-5 text-slate-400" />
-                <textarea
+                  id="gasto-descripcion"
+                  type="text"
                   name="descripcion"
-                  placeholder="Ej: Compra de bebidas, pedido de insumos para restaurante, compra de amenities, reparación de equipos, limpieza profunda..."
+                  placeholder="Ej: Compra de bebidas al proveedor"
                   value={form.descripcion}
                   onChange={handleChange}
-                  rows="3"
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-12 pr-4 py-3 text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent placeholder-slate-400 resize-none"
+                  className={`${inputBase} pl-12`}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Monto</label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <input
+                  id="gasto-monto"
+                  type="number"
+                  name="monto"
+                  placeholder="0"
+                  value={form.monto}
+                  onChange={handleChange}
+                  className={`${inputBase} pl-12`}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Categoría</label>
+              <div className="relative">
+                <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <select
+                  id="gasto-categoria"
+                  name="categoria"
+                  value={form.categoria}
+                  onChange={handleChange}
+                  className={`${inputBase} pl-12`}
+                >
+                  {CATEGORIAS.map((c) => (
+                    <option key={c.valor} value={c.valor}>{c.nombre}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Forma de pago
+              </label>
+              <div className="relative">
+                <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <select
+                  id="gasto-forma-pago"
+                  name="forma_pago"
+                  value={form.forma_pago}
+                  onChange={handleChange}
+                  className={`${inputBase} pl-12`}
+                >
+                  <option value="">Sin especificar</option>
+                  {FORMAS_PAGO.map((f) => (
+                    <option key={f} value={f}>{f}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Habitación <span className="text-slate-400 text-xs">(opcional)</span>
+              </label>
+              <div className="relative">
+                <Home className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <input
+                  id="gasto-habitacion"
+                  type="number"
+                  name="habitacion_id"
+                  placeholder="Solo si el gasto es de una habitación en particular"
+                  value={form.habitacion_id}
+                  onChange={handleChange}
+                  className={`${inputBase} pl-12`}
                 />
               </div>
             </div>
           </div>
 
-          {/* Botones */}
-          <div className="flex flex-col sm:flex-row gap-3 mt-6">
+          <div className="flex flex-wrap gap-3 mt-6">
             <button
               onClick={handleSubmit}
-              disabled={cargando || !form.descripcion || !form.monto}
-              className="flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-xl font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl"
+              disabled={guardando}
+              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white font-medium px-6 py-3 rounded-xl transition-colors"
             >
-              {cargando ? (
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-              ) : (
-                <Save className="w-5 h-5" />
-              )}
-              {editandoId ? "Actualizar Gasto" : "Registrar Gasto"}
+              <Save className="w-5 h-5" />
+              {editandoId ? "Guardar cambios" : "Registrar gasto"}
             </button>
-            
             {editandoId && (
               <button
                 onClick={cancelarEdicion}
-                className="flex items-center justify-center gap-2 bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-3 rounded-xl font-medium transition-all duration-200"
+                className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-6 py-3 rounded-xl transition-colors"
               >
                 <XCircle className="w-5 h-5" />
-                Cancelar Edición
+                Cancelar
               </button>
             )}
           </div>
-
-          {/* Mensaje */}
-          {mensaje && (
-            <div className={`mt-4 p-4 rounded-xl flex items-center gap-2 ${
-              mensaje.includes('✅') || mensaje.includes('🗑️')
-                ? 'bg-green-50 text-green-700 border border-green-200'
-                : 'bg-red-50 text-red-700 border border-red-200'
-            }`}>
-              {mensaje.includes('✅') || mensaje.includes('🗑️') ? (
-                <CheckCircle className="w-5 h-5" />
-              ) : (
-                <AlertCircle className="w-5 h-5" />
-              )}
-              {mensaje}
-            </div>
-          )}
         </div>
 
-        {/* Resumen del día - SOLO PARA DUEÑOS */}
+        {/* ── Filtros ── */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
+          <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2 mb-4">
+            <Filter className="w-5 h-5 text-red-600" />
+            Filtros
+          </h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Desde</label>
+              <input
+                id="gasto-desde"
+                type="date"
+                value={desde}
+                max={hasta || undefined}
+                onChange={(e) => setDesde(e.target.value)}
+                className={inputBase}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Hasta</label>
+              <input
+                id="gasto-hasta"
+                type="date"
+                value={hasta}
+                min={desde || undefined}
+                onChange={(e) => setHasta(e.target.value)}
+                className={inputBase}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Categoría</label>
+              <select
+                id="gasto-filtro-categoria"
+                value={filtroCategoria}
+                onChange={(e) => setFiltroCategoria(e.target.value)}
+                className={inputBase}
+              >
+                <option value="">Todas</option>
+                {CATEGORIAS.map((c) => (
+                  <option key={c.valor} value={c.valor}>{c.nombre}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 mt-4">
+            {[
+              { id: "hoy", texto: "Hoy" },
+              { id: "mes", texto: "Este mes" },
+              { id: "mesPasado", texto: "Mes pasado" },
+            ].map((a) => (
+              <button
+                key={a.id}
+                onClick={() => aplicarAtajo(a.id)}
+                className="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 rounded-lg border border-red-200 transition-colors"
+              >
+                {a.texto}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Resumen del período (sólo el dueño, como era antes) ── */}
         {esDueño && (
-          <div className="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-slate-200">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-gradient-to-r from-red-50 to-red-100 p-4 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <Receipt className="w-8 h-8 text-red-600" />
-                  <div>
-                    <p className="text-sm text-red-600 font-medium">Total Gastos</p>
-                    <p className="text-2xl font-bold text-red-700">{gastosHoy.length}</p>
-                  </div>
-                </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-white rounded-2xl shadow-lg p-5 border border-slate-200">
+            <div className="flex items-center gap-3">
+              <TrendingDown className="w-8 h-8 text-red-600" />
+              <div>
+                <p className="text-sm text-slate-600 font-medium">Total del período</p>
+                <p className="text-2xl font-bold text-red-700">{formatARS(resumen.total)}</p>
               </div>
-              
-              <div className="bg-gradient-to-r from-orange-50 to-orange-100 p-4 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <TrendingDown className="w-8 h-8 text-orange-600" />
-                  <div>
-                    <p className="text-sm text-orange-600 font-medium">Total Egresos</p>
-                    <p className="text-2xl font-bold text-orange-700">${totalGastos.toLocaleString()}</p>
-                  </div>
-                </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl shadow-lg p-5 border border-slate-200">
+            <div className="flex items-center gap-3">
+              <Receipt className="w-8 h-8 text-slate-500" />
+              <div>
+                <p className="text-sm text-slate-600 font-medium">Gastos registrados</p>
+                <p className="text-2xl font-bold text-slate-800">{resumen.cantidad}</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Promedio {formatARS(promedio)}
+                </p>
               </div>
-              
-              <div className="bg-gradient-to-r from-amber-50 to-amber-100 p-4 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <DollarSign className="w-8 h-8 text-amber-600" />
-                  <div>
-                    <p className="text-sm text-amber-600 font-medium">Gasto Promedio</p>
-                    <p className="text-2xl font-bold text-amber-700">${gastoPromedio.toLocaleString()}</p>
-                  </div>
-                </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl shadow-lg p-5 border border-slate-200">
+            <div className="flex items-center gap-3">
+              <PieChart className="w-8 h-8 text-amber-600" />
+              <div>
+                <p className="text-sm text-slate-600 font-medium">Mayor categoría</p>
+                {mayorCategoria ? (
+                  <>
+                    <p className="text-2xl font-bold text-slate-800">
+                      {nombreCategoria(mayorCategoria.categoria)}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {formatARS(mayorCategoria.monto)}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-2xl font-bold text-slate-400">—</p>
+                )}
               </div>
+            </div>
+          </div>
+        </div>
+        )}
+
+        {/* ── En qué se fue la plata ── */}
+        {esDueño && resumen.por_categoria?.length > 0 && (
+          <div className="bg-white rounded-2xl shadow-lg p-6 border border-slate-200">
+            <h3 className="text-lg font-semibold text-slate-800 mb-4">Por categoría</h3>
+            <div className="space-y-3">
+              {resumen.por_categoria.map((c) => {
+                const porcentaje = resumen.total > 0 ? (c.monto / resumen.total) * 100 : 0;
+                return (
+                  <div key={c.categoria}>
+                    <div className="flex items-baseline justify-between mb-1 gap-3">
+                      <span className="text-sm font-medium text-slate-700">
+                        {nombreCategoria(c.categoria)}
+                      </span>
+                      <span className="text-sm text-slate-600 tabular-nums whitespace-nowrap">
+                        {formatARS(c.monto)}
+                        <span className="text-slate-400 ml-2">{porcentaje.toFixed(0)}%</span>
+                      </span>
+                    </div>
+                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-red-500 rounded-full"
+                        style={{ width: `${porcentaje}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
 
-        {/* Lista de gastos */}
+        {/* ── Listado ── */}
         <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
           <div className="p-6 border-b border-slate-200">
             <h3 className="text-xl font-semibold text-slate-800 flex items-center gap-2">
               <Receipt className="w-6 h-6 text-red-600" />
-              {esDueño ? "Gastos del Día" : "Gastos Registrados Hoy"} ({gastosHoy.length})
+              Gastos ({resumen.cantidad})
             </h3>
-            {!esDueño && (
-              <p className="text-sm text-slate-600 mt-1">
-                Gastos registrados el {new Date().toLocaleDateString('es-ES')}
-              </p>
-            )}
+            <p className="text-sm text-slate-600 mt-1">
+              Del {formatearSoloFecha(`${desde}T12:00:00`)} al{" "}
+              {formatearSoloFecha(`${hasta}T12:00:00`)}
+            </p>
           </div>
 
           {cargando ? (
@@ -341,79 +512,81 @@ export default function RegistrarGasto() {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 mx-auto mb-4"></div>
               <p className="text-slate-600">Cargando gastos...</p>
             </div>
-          ) : gastosHoy.length === 0 ? (
+          ) : gastos.length === 0 ? (
             <EmptyState
               icon={Receipt}
-              title="No hay gastos registrados"
-              description="Aún no se han registrado gastos para el día de hoy"
+              title="No hay gastos en este período"
+              description="Probá ampliar el rango de fechas o quitar el filtro de categoría"
             />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-slate-50">
                   <tr>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Habitación</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Descripción / Compra</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Monto</th>
-                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">
-                      {esDueño ? "Fecha" : "Hora"}
-                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Fecha</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Categoría</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Descripción</th>
+                    <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Pago</th>
+                    <th className="px-6 py-4 text-right text-sm font-medium text-slate-700">Monto</th>
                     <th className="px-6 py-4 text-left text-sm font-medium text-slate-700">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {gastosHoy.map((gasto) => (
-                    <tr key={gasto.id} className="hover:bg-slate-50 transition-colors duration-200">
+                  {gastos.map((gasto) => (
+                    <tr key={gasto.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-slate-700">
+                          {formatearSoloFecha(gasto.fecha)}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          {formatearSoloHora(gasto.fecha)}
+                        </div>
+                      </td>
                       <td className="px-6 py-4">
-                        {gasto.habitacion_id ? (
-                          <div className="flex items-center gap-2">
-                            <Home className="w-4 h-4 text-slate-500" />
-                            <span className="text-sm font-medium text-slate-900">
-                              Habitación {gasto.habitacion_id}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-sm text-slate-400 italic">Gasto general</span>
-                        )}
+                        <span
+                          className={`inline-block px-2.5 py-1 rounded-lg text-xs font-medium border ${
+                            COLOR_CATEGORIA[gasto.categoria] || COLOR_CATEGORIA.otros
+                          }`}
+                        >
+                          {nombreCategoria(gasto.categoria)}
+                        </span>
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-sm text-slate-900 max-w-xs">
                           {gasto.descripcion}
                         </div>
+                        {gasto.habitacion_id && (
+                          <div className="text-xs text-slate-500 flex items-center gap-1 mt-1">
+                            <Home className="w-3 h-3" />
+                            Habitación {gasto.habitacion_id}
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4">
-                        <span className="text-sm font-semibold text-red-600">
-                          -${gasto.monto.toLocaleString()}
+                        <span className="text-sm text-slate-600">
+                          {gasto.forma_pago || <span className="text-slate-400">—</span>}
                         </span>
                       </td>
-                      <td className="px-6 py-4">
-                        {esDueño ? (
-                          <div>
-                            <span className="text-sm text-slate-700">
-                              {formatearSoloFecha(gasto.fecha)}
-                            </span>
-                            <div className="text-xs text-slate-500 mt-1">
-                              {formatearSoloHora(gasto.fecha)}
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="text-sm text-slate-600">
-                            {formatearSoloHora(gasto.fecha)}
-                          </span>
-                        )}
+                      <td className="px-6 py-4 text-right">
+                        <span className="text-sm font-semibold text-red-600 tabular-nums whitespace-nowrap">
+                          −{formatARS(gasto.monto)}
+                        </span>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => cargarParaEditar(gasto)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors duration-200"
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                             title="Editar gasto"
                           >
                             <Edit3 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => abrirConfirmEliminar(gasto.id)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors duration-200"
+                            onClick={() => {
+                              setGastoAEliminar(gasto.id);
+                              setMostrarConfirmEliminar(true);
+                            }}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                             title="Eliminar gasto"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -429,13 +602,12 @@ export default function RegistrarGasto() {
         </div>
       </div>
 
-      {/* Modal de confirmación para eliminar */}
       <ConfirmModal
         isOpen={mostrarConfirmEliminar}
         onClose={() => setMostrarConfirmEliminar(false)}
         onConfirm={borrarGasto}
-        title="Eliminar Gasto"
-        message="¿Estás seguro de que deseas eliminar este gasto? Esta acción no se puede deshacer."
+        title="Eliminar gasto"
+        message="¿Seguro que querés eliminar este gasto? No se puede deshacer."
         confirmText="Eliminar"
         cancelText="Cancelar"
         type="danger"
