@@ -4528,6 +4528,8 @@ _ESTADOS_NO_METODO = {
     "Seña Recibida", "Seña Pendiente", "Pagado Completo", "Cancelado",
     "Seña Pendiente Verificación",
     "PENDIENTE_SEÑA", "PAGADO_SEÑA",
+    # Lo escribía el cierre de estadías anterior, pisando el medio de pago real.
+    "Checkout Automático", "checkout_manual",
 }
 
 
@@ -5167,249 +5169,221 @@ def debug_habitaciones(db: Session = Depends(obtener_db)):
 
 # ===============================================
 # SISTEMA DE CHECK-OUT AUTOMÁTICO SIMPLIFICADO
-# Compatible con Railway - Sin scheduler automático
-# ===============================================
+# ─────────── CIERRE DE ESTADÍAS (CHECK-OUT) ───────────
+# Hora a la que el huésped deja la habitación. Una reserva que termina HOY se
+# cierra recién pasada esta hora; las de días anteriores se cierran siempre.
+HORA_CHECKOUT = 10
 
-# 1. AGREGAR ESTOS ENDPOINTS AL FINAL DE TU ARCHIVO hotel.py
-# (después de la línea 1750)
+# Cada cuánto despierta la tarea que lo ejecuta sola. No hace falta que sea
+# preciso: la función es idempotente y sabe si ya corrió hoy.
+INTERVALO_CHECKOUT_SEGUNDOS = 15 * 60
+
+# Último día que se procesó, para no repetir trabajo en cada despertar.
+_ultimo_dia_de_checkout = None
+
+
+def cerrar_estadias_terminadas(db: Session, ahora: Optional[datetime] = None) -> dict:
+    """Marca como completadas las reservas cuya estadía ya terminó.
+
+    Toca UNA sola cosa: `estado`. La versión anterior de esta función hacía
+    justo lo contrario de lo que debía:
+
+      - Escribía en `forma_pago` en vez de `estado`, así que la reserva quedaba
+        "activa" y el cierre no cerraba nada.
+      - Reescribía `fecha_checkout` con la fecha de hoy. Para una reserva vieja
+        eso EXTENDÍA la estadía: una de enero pasaba a durar ocho meses.
+      - La consulta no tenía límite inferior, así que alcanzaba a todo el
+        historial: una sola ejecución reescribía la salida de cada reserva que
+        hubiera terminado alguna vez.
+      - Y destruía la forma de pago real ("efectivo", "transferencia") al
+        sobrescribirla con "Checkout Automático".
+
+    Acá no se toca ninguna fecha ni la forma de pago. Sólo se cierran las
+    reservas que siguen `activa` y cuya salida ya pasó, así que correrla dos
+    veces no hace nada la segunda vez.
+
+    Las reservas de días anteriores también se cierran: si el sistema estuvo
+    caído o nadie ejecutó el cierre, se ponen al día. Como no se tocan fechas,
+    cerrar una vieja es inofensivo — el huésped efectivamente se fue.
+    """
+    ahora = ahora or obtener_fecha_argentina()
+    dia_limite = ahora.date()
+
+    # Antes de la hora de check-out, la reserva que termina hoy sigue en curso.
+    if ahora.hour < HORA_CHECKOUT:
+        dia_limite = dia_limite - timedelta(days=1)
+
+    fin_del_dia_limite = datetime.combine(
+        dia_limite, datetime.max.time()
+    ).replace(tzinfo=ARGENTINA_TZ)
+
+    candidatas = db.exec(
+        select(Reserva).where(
+            Reserva.estado == "activa",
+            Reserva.fecha_checkout <= fin_del_dia_limite,
+        )
+    ).all()
+
+    cerradas = []
+    for reserva in candidatas:
+        dia_salida = dia_argentina(reserva.fecha_checkout)
+        if dia_salida is None or dia_salida > dia_limite:
+            continue
+
+        reserva.estado = "completada"
+        db.add(reserva)
+
+        habitacion = db.get(Habitacion, reserva.habitacion_id)
+        cerradas.append({
+            "reserva_id": reserva.id,
+            "habitacion_numero": habitacion.numero if habitacion else reserva.habitacion_id,
+            "huesped": reserva.nombre_huesped,
+            "fecha_checkout": dia_salida.isoformat(),
+            "total_estadia": reserva.total_estadia,
+        })
+
+    if cerradas:
+        db.commit()
+        print(f"🏨 [Check-out] {len(cerradas)} estadía(s) cerradas hasta el {dia_limite}")
+
+    return {
+        "success": True,
+        "ejecutado": ahora.isoformat(),
+        "dia_limite": dia_limite.isoformat(),
+        "total_cerradas": len(cerradas),
+        "reservas_cerradas": cerradas,
+    }
+
+
+async def _bucle_de_checkout():
+    """Ejecuta el cierre una vez por día, sin depender de un cron externo.
+
+    Despierta cada tanto en vez de dormir hasta la hora exacta: así se pone al
+    día solo si el contenedor estuvo dormido o se reinició, que en Railway pasa
+    seguido. Que la función sea idempotente es lo que hace esto seguro.
+    """
+    global _ultimo_dia_de_checkout
+    import asyncio
+
+    while True:
+        try:
+            ahora = obtener_fecha_argentina()
+            if ahora.hour >= HORA_CHECKOUT and _ultimo_dia_de_checkout != ahora.date():
+                with Session(engine) as db:
+                    cerrar_estadias_terminadas(db, ahora)
+                _ultimo_dia_de_checkout = ahora.date()
+        except Exception as e:
+            # Nunca dejar morir el bucle: mañana se vuelve a intentar.
+            print(f"⚠️ [Check-out] Falló el cierre automático: {e}")
+
+        await asyncio.sleep(INTERVALO_CHECKOUT_SEGUNDOS)
+
+
+@app.on_event("startup")
+async def programar_checkout_diario():
+    """Arranca la tarea de cierre diario junto con el servidor."""
+    import asyncio
+
+    asyncio.create_task(_bucle_de_checkout())
+    print(f"✅ [Check-out] Cierre automático activo (diario, {HORA_CHECKOUT}:00 hora Argentina)")
+
 
 @app.post("/checkout-automatico")
 def ejecutar_checkout_manual(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
-    """
-    Ejecuta manualmente el check-out automático para liberar habitaciones
-    """
-    try:
-        fecha_hoy = obtener_fecha_argentina().date()
-        hora_checkout = 10  # 10:00 AM
-        
-        print(f"🏨 Ejecutando check-out automático para el {fecha_hoy}")
-        
-        # Buscar reservas que vencen hoy y aún están activas (excluir canceladas)
-        reservas_a_finalizar = db.exec(
-            select(Reserva).where(
-                Reserva.fecha_checkout <= datetime.combine(fecha_hoy, datetime.min.time()).replace(tzinfo=ARGENTINA_TZ) + timedelta(hours=hora_checkout),
-                Reserva.forma_pago.notin_(["Checkout Automático", "checkout_manual", "Cancelado"]),
-                Reserva.estado != "cancelada"  # Excluir reservas canceladas
-            )
-        ).all()
-        
-        habitaciones_liberadas = []
-        reservas_procesadas = []
-        
-        for reserva in reservas_a_finalizar:
-            try:
-                # Obtener datos de la habitación y cliente
-                habitacion = db.get(Habitacion, reserva.habitacion_id)
-                cliente = db.get(Cliente, reserva.cliente_id)
-                
-                # Marcar como check-out automático
-                reserva.forma_pago = "Checkout Automático"
-                reserva.fecha_checkout = datetime.combine(fecha_hoy, datetime.min.time()).replace(tzinfo=ARGENTINA_TZ) + timedelta(hours=hora_checkout)
-                
-                db.add(reserva)
-                
-                habitacion_info = {
-                    "reserva_id": reserva.id,
-                    "habitacion_numero": habitacion.numero if habitacion else "N/A",
-                    "habitacion_tipo": habitacion.tipo if habitacion else "N/A",
-                    "cliente_nombre": cliente.nombre if cliente else reserva.nombre_huesped,
-                    "fecha_checkout_original": reserva.fecha_checkout.strftime("%Y-%m-%d"),
-                    "precio_total": reserva.total_estadia
-                }
-                
-                habitaciones_liberadas.append(habitacion_info)
-                reservas_procesadas.append(reserva.id)
-                
-                print(f"✅ Check-out automático: Habitación {habitacion.numero if habitacion else reserva.habitacion_id}")
-                
-            except Exception as e:
-                print(f"❌ Error procesando reserva {reserva.id}: {str(e)}")
-                continue
-        
-        # Guardar cambios
-        db.commit()
-        
-        return {
-            "success": True,
-            "mensaje": "Check-out automático ejecutado correctamente",
-            "fecha_ejecucion": fecha_hoy.strftime("%Y-%m-%d"),
-            "hora_ejecucion": obtener_fecha_argentina().strftime("%H:%M:%S"),
-            "total_habitaciones_liberadas": len(habitaciones_liberadas),
-            "habitaciones_liberadas": habitaciones_liberadas,
-            "reservas_procesadas": reservas_procesadas,
-            "estado": "completado" if habitaciones_liberadas else "sin_checkouts_pendientes"
-        }
-        
-    except Exception as e:
-        print(f"💥 Error en check-out automático: {str(e)}")
-        return {
-            "success": False,
-            "error": f"Error al ejecutar check-out automático: {str(e)}"
-        }
+    """Ejecuta el cierre a pedido. Corre todos los días solo; esto es por si
+    se quiere adelantar. Es la misma función, así que es igual de segura."""
+    return cerrar_estadias_terminadas(db)
+
 
 @app.get("/checkout-automatico/proximos")
-def obtener_proximos_checkouts(
-    dias: int = Query(3, description="Días hacia adelante"),
-    db: Session = Depends(obtener_db),
-    token: dict = Depends(verificar_token)
-):
-    """
-    Obtiene las reservas que vencen en los próximos días
-    """
-    try:
-        fecha_hoy = obtener_fecha_argentina().date()
-        fecha_limite = fecha_hoy + timedelta(days=dias)
-        
-        proximas_reservas = db.exec(
-            select(Reserva).where(
-                Reserva.fecha_checkout >= datetime.combine(fecha_hoy, datetime.min.time()).replace(tzinfo=ARGENTINA_TZ),
-                Reserva.fecha_checkout <= datetime.combine(fecha_limite, datetime.max.time()).replace(tzinfo=ARGENTINA_TZ),
-                Reserva.forma_pago.notin_(["Checkout Automático", "checkout_manual", "Cancelado"]),
-                Reserva.estado != "cancelada"  # Excluir reservas canceladas
-            )
-        ).all()
-        
-        proximos_checkouts = []
-        for reserva in proximas_reservas:
-            habitacion = db.get(Habitacion, reserva.habitacion_id)
-            cliente = db.get(Cliente, reserva.cliente_id)
-            
-            dias_restantes = (reserva.fecha_checkout.date() - fecha_hoy).days
-            
-            proximos_checkouts.append({
-                "reserva_id": reserva.id,
-                "fecha_checkout": reserva.fecha_checkout.strftime("%Y-%m-%d"),
-                "dias_restantes": dias_restantes,
-                "habitacion_numero": habitacion.numero if habitacion else "N/A",
-                "habitacion_tipo": habitacion.tipo if habitacion else "N/A",
-                "cliente_nombre": cliente.nombre if cliente else reserva.nombre_huesped,
-                "precio_total": reserva.total_estadia,
-                "seña": reserva.seña,
-                "forma_pago": reserva.forma_pago,
-                "es_hoy": dias_restantes == 0,
-                "es_urgente": dias_restantes <= 1
-            })
-        
-        # Ordenar por fecha de checkout
-        proximos_checkouts.sort(key=lambda x: x["fecha_checkout"])
-        
-        return {
-            "success": True,
-            "total_proximos_checkouts": len(proximos_checkouts),
-            "checkouts_hoy": len([c for c in proximos_checkouts if c["es_hoy"]]),
-            "checkouts_mañana": len([c for c in proximos_checkouts if c["dias_restantes"] == 1]),
-            "periodo": f"Próximos {dias} días",
-            "proximos_checkouts": proximos_checkouts
-        }
-        
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"Error al obtener próximos checkouts: {str(e)}"
-        }
+def obtener_proximos_checkouts(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+    """Estadías que terminan en los próximos 7 días y siguen abiertas."""
+    ahora = obtener_fecha_argentina()
+    hasta = datetime.combine(
+        ahora.date() + timedelta(days=7), datetime.max.time()
+    ).replace(tzinfo=ARGENTINA_TZ)
+
+    reservas = db.exec(
+        select(Reserva).where(
+            Reserva.estado == "activa",
+            Reserva.fecha_checkout <= hasta,
+        ).order_by(Reserva.fecha_checkout)
+    ).all()
+
+    proximos = []
+    for reserva in reservas:
+        dia_salida = dia_argentina(reserva.fecha_checkout)
+        habitacion = db.get(Habitacion, reserva.habitacion_id)
+        proximos.append({
+            "reserva_id": reserva.id,
+            "habitacion_numero": habitacion.numero if habitacion else reserva.habitacion_id,
+            "huesped": reserva.nombre_huesped,
+            "fecha_checkout": dia_salida.isoformat() if dia_salida else None,
+            "dias_restantes": (dia_salida - ahora.date()).days if dia_salida else None,
+            "forma_pago": reserva.forma_pago,
+            "total_estadia": reserva.total_estadia,
+        })
+
+    return {"total": len(proximos), "proximos_checkouts": proximos}
+
 
 @app.get("/checkout-automatico/historial")
-def obtener_historial_checkout_automatico(
-    dias: int = Query(7, description="Días hacia atrás"),
+def obtener_historial_checkout(
+    dias: int = Query(30, description="Días hacia atrás"),
     db: Session = Depends(obtener_db),
-    token: dict = Depends(verificar_token)
+    token: dict = Depends(verificar_token),
 ):
-    """
-    Obtiene el historial de check-outs automáticos
-    """
-    try:
-        fecha_inicio = obtener_fecha_argentina() - timedelta(days=dias)
-        
-        checkouts_automaticos = db.exec(
-            select(Reserva).where(
-                Reserva.forma_pago == "Checkout Automático",
-                Reserva.fecha_checkout >= fecha_inicio
-            )
-        ).all()
-        
-        historial = []
-        for reserva in checkouts_automaticos:
-            habitacion = db.get(Habitacion, reserva.habitacion_id)
-            cliente = db.get(Cliente, reserva.cliente_id)
-            
-            historial.append({
-                "reserva_id": reserva.id,
-                "fecha_checkout": reserva.fecha_checkout.strftime("%Y-%m-%d %H:%M"),
-                "habitacion_numero": habitacion.numero if habitacion else "N/A",
-                "habitacion_tipo": habitacion.tipo if habitacion else "N/A",
-                "cliente_nombre": cliente.nombre if cliente else reserva.nombre_huesped,
-                "precio_total": reserva.total_estadia,
-                "seña": reserva.seña
-            })
-        
-        return {
-            "success": True,
-            "total_checkouts_automaticos": len(historial),
-            "periodo": f"Últimos {dias} días",
-            "historial": historial
-        }
-        
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"Error al obtener historial: {str(e)}"
-        }
+    """Estadías ya cerradas. Se identifican por `estado`, no por `forma_pago`:
+    antes el historial buscaba forma_pago == "Checkout Automático", que era el
+    valor que el cierre escribía encima del medio de pago real."""
+    ahora = obtener_fecha_argentina()
+    desde = datetime.combine(
+        ahora.date() - timedelta(days=dias), datetime.min.time()
+    ).replace(tzinfo=ARGENTINA_TZ)
+
+    reservas = db.exec(
+        select(Reserva).where(
+            Reserva.estado == "completada",
+            Reserva.fecha_checkout >= desde,
+        ).order_by(Reserva.fecha_checkout.desc())
+    ).all()
+
+    historial = []
+    for reserva in reservas:
+        dia_salida = dia_argentina(reserva.fecha_checkout)
+        habitacion = db.get(Habitacion, reserva.habitacion_id)
+        historial.append({
+            "reserva_id": reserva.id,
+            "habitacion_numero": habitacion.numero if habitacion else reserva.habitacion_id,
+            "huesped": reserva.nombre_huesped,
+            "fecha_checkout": dia_salida.isoformat() if dia_salida else None,
+            "forma_pago": reserva.forma_pago,
+            "total_estadia": reserva.total_estadia,
+        })
+
+    return {"dias_consultados": dias, "total": len(historial), "historial": historial}
+
 
 @app.get("/status-checkout")
-def obtener_estado_checkout_automatico(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
-    """
-    Obtiene el estado del sistema de check-out automático
-    """
-    try:
-        # Contar reservas por estado
-        total_reservas_activas = len(db.exec(
-            select(Reserva).where(
-                Reserva.forma_pago.notin_(["Checkout Automático", "Cancelado"])
-            )
-        ).all())
-        
-        checkouts_hoy = len(db.exec(
-            select(Reserva).where(
-                Reserva.fecha_checkout <= datetime.combine(obtener_fecha_argentina().date(), datetime.max.time()).replace(tzinfo=ARGENTINA_TZ),
-                Reserva.forma_pago.notin_(["Checkout Automático", "Cancelado"])
-            )
-        ).all())
-        
-        checkouts_automaticos_total = len(db.exec(
-            select(Reserva).where(Reserva.forma_pago == "Checkout Automático")
-        ).all())
-        
-        return {
-            "success": True,
-            "sistema_checkout": {
-                "estado": "✅ Manual (sin scheduler automático)",
-                "modo": "Ejecución manual solamente",
-                "timezone": "Argentina (UTC-3)"
-            },
-            "estadisticas": {
-                "reservas_activas": total_reservas_activas,
-                "checkouts_pendientes_hoy": checkouts_hoy,
-                "total_checkouts_automaticos": checkouts_automaticos_total
-            },
-            "instrucciones": {
-                "ejecutar_manualmente": "POST /checkout-automatico",
-                "ver_proximos": "GET /checkout-automatico/proximos",
-                "ver_historial": "GET /checkout-automatico/historial"
-            }
-        }
-        
-    except Exception as e:
-        return {
-            "success": False,
-            "error": f"Error al obtener estado: {str(e)}"
-        }
+def obtener_estado_checkout(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
+    """Si el cierre automático está corriendo y qué tiene pendiente."""
+    ahora = obtener_fecha_argentina()
 
-print("✅ Sistema de Check-out Manual configurado correctamente")
-print("📋 Endpoints disponibles:")
-print("   - POST /checkout-automatico (ejecutar manualmente)")
-print("   - GET /checkout-automatico/historial (ver historial)")
-print("   - GET /checkout-automatico/proximos (próximos checkouts)")
-print("   - GET /status-checkout (estado del sistema)")
+    pendientes = [
+        r for r in db.exec(select(Reserva).where(Reserva.estado == "activa")).all()
+        if (d := dia_argentina(r.fecha_checkout)) is not None and d < ahora.date()
+    ]
+
+    return {
+        "estado": "✅ Automático (diario)",
+        "hora_de_cierre": f"{HORA_CHECKOUT}:00 hora Argentina",
+        "ultimo_dia_procesado": (
+            _ultimo_dia_de_checkout.isoformat() if _ultimo_dia_de_checkout else "todavía no corrió"
+        ),
+        "fecha_servidor": ahora.isoformat(),
+        "estadias_vencidas_sin_cerrar": len(pendientes),
+        "ejecutar_ahora": "POST /checkout-automatico",
+    }
 
 
 # ─── ENDPOINT TEMPORAL: ver datos creados durante el outage de Railway ───
