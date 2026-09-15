@@ -40,6 +40,7 @@ export default function DashboardAnalytics() {
   const [ocupacionData, setOcupacionData] = useState([]);
   const [formasPagoData, setFormasPagoData] = useState([]);
   const [detalleDiario, setDetalleDiario] = useState(null);
+  const [pendienteCobro, setPendienteCobro] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
   const [error, setError] = useState(null);
@@ -103,6 +104,20 @@ export default function DashboardAnalytics() {
       });
       console.log('Datos del dashboard:', dashboardRes.data);
       setDashboardData(dashboardRes.data);
+
+      // Quién debe plata: la contracara de "pendiente de cobro". Va aparte
+      // porque el frontend y el backend no se despliegan a la vez: si este
+      // endpoint todavía no está arriba, el resto de Analytics tiene que
+      // seguir cargando igual.
+      try {
+        const pendienteRes = await axios.get(`${API_BASE_URL}/analytics/pendiente-de-cobro`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setPendienteCobro(pendienteRes.data);
+      } catch (errorPendiente) {
+        console.warn('No se pudo cargar el pendiente de cobro:', errorPendiente);
+        setPendienteCobro(null);
+      }
 
       // Formas de pago
       const formasPagoRes = await axios.get(`${API_BASE_URL}/analytics/formas-pago`, {
@@ -232,6 +247,14 @@ export default function DashboardAnalytics() {
     });
   };
 
+  // El backend ya manda el día calendario argentino ("2026-09-10"). Pasarlo por
+  // new Date() lo lee como medianoche UTC y en Argentina retrocede un día, así
+  // que se formatea la cadena tal cual viene.
+  const formatearDiaISO = (dia) => {
+    const [año, mes, d] = String(dia).split('-');
+    return d && mes ? `${d}/${mes}/${año.slice(2)}` : String(dia);
+  };
+
   const exportarReporte = async () => {
     try {
       const hoy = new Date();
@@ -342,8 +365,8 @@ export default function DashboardAnalytics() {
           <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
             <div className="flex items-center justify-between">
               <div className="flex-1">
-                <p className="text-sm text-slate-600 font-medium">Ingresos Totales</p>
-                <p className="text-3xl font-bold text-green-600">
+                <p className="text-sm text-slate-600 font-medium">Facturado</p>
+                <p className="text-3xl font-bold text-slate-700">
                   {dashboardData ? formatearMoneda(dashboardData.total_ingresos || 0) : '$0'}
                 </p>
                 {dashboardData && (
@@ -351,6 +374,29 @@ export default function DashboardAnalytics() {
                     Reservas: {formatearMoneda(dashboardData.ingresos_reservas || 0)} + 
                     Pedidos: {formatearMoneda(dashboardData.ingresos_pedidos || 0)}
                   </p>
+                )}
+              </div>
+              <div className="bg-slate-100 p-3 rounded-xl">
+                <TrendingUp className="w-8 h-8 text-slate-600" />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className="text-sm text-slate-600 font-medium">Cobrado</p>
+                <p className="text-3xl font-bold text-green-600">
+                  {dashboardData ? formatearMoneda(dashboardData.total_cobrado || 0) : '$0'}
+                </p>
+                {dashboardData && (
+                  dashboardData.pendiente_de_cobro > 0 ? (
+                    <p className="text-xs text-amber-600 font-medium mt-1">
+                      Falta cobrar: {formatearMoneda(dashboardData.pendiente_de_cobro)}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-500 mt-1">Todo cobrado</p>
+                  )
                 )}
               </div>
               <div className="bg-green-100 p-3 rounded-xl">
@@ -362,19 +408,24 @@ export default function DashboardAnalytics() {
           <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
             <div className="flex items-center justify-between">
               <div className="flex-1">
-                <p className="text-sm text-slate-600 font-medium">Beneficio Neto</p>
-                <p className={`text-3xl font-bold ${dashboardData && dashboardData.beneficio_neto >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {dashboardData ? formatearMoneda(dashboardData.beneficio_neto || 0) : '$0'}
+                <p className="text-sm text-slate-600 font-medium">Resultado de Caja</p>
+                <p className={`text-3xl font-bold ${dashboardData && dashboardData.resultado_caja >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {dashboardData ? formatearMoneda(dashboardData.resultado_caja || 0) : '$0'}
                 </p>
                 {dashboardData && (
-                  <p className="text-xs text-slate-500 mt-1">
-                    Ingresos: {formatearMoneda(dashboardData.total_ingresos || 0)} - 
-                    Gastos: {formatearMoneda(dashboardData.total_gastos_monto || 0)}
-                  </p>
+                  <>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Cobrado: {formatearMoneda(dashboardData.total_cobrado || 0)} − 
+                      Gastos: {formatearMoneda(dashboardData.total_gastos_monto || 0)}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      Si entrara todo: {formatearMoneda(dashboardData.beneficio_neto || 0)}
+                    </p>
+                  </>
                 )}
               </div>
-              <div className={`p-3 rounded-xl ${dashboardData && dashboardData.beneficio_neto >= 0 ? 'bg-green-100' : 'bg-red-100'}`}>
-                {dashboardData && dashboardData.beneficio_neto >= 0 ? 
+              <div className={`p-3 rounded-xl ${dashboardData && dashboardData.resultado_caja >= 0 ? 'bg-green-100' : 'bg-red-100'}`}>
+                {dashboardData && dashboardData.resultado_caja >= 0 ? 
                   <TrendingUp className="w-8 h-8 text-green-600" /> : 
                   <TrendingDown className="w-8 h-8 text-red-600" />
                 }
@@ -391,7 +442,7 @@ export default function DashboardAnalytics() {
                 </p>
                 {dashboardData && (
                   <p className="text-xs text-slate-500 mt-1">
-                    {dashboardData.periodo || 'Este mes'}
+                    {dashboardData.total_reservas || 0} reserva{dashboardData.total_reservas === 1 ? '' : 's'} · {dashboardData.periodo || 'Este mes'}
                   </p>
                 )}
               </div>
@@ -400,26 +451,86 @@ export default function DashboardAnalytics() {
               </div>
             </div>
           </div>
+        </div>
 
-          <div className="bg-white rounded-xl shadow-lg p-6 border border-slate-200">
-            <div className="flex items-center justify-between">
-              <div className="flex-1">
-                <p className="text-sm text-slate-600 font-medium">Total Reservas</p>
-                <p className="text-3xl font-bold text-purple-600">
-                  {dashboardData ? dashboardData.total_reservas || 0 : 0}
-                </p>
-                {dashboardData && (
-                  <p className="text-xs text-slate-500 mt-1">
-                    {dashboardData.periodo || 'Este mes'}
+        {/* Quién debe plata. Sin esto el "pendiente de cobro" es un número
+            y no una lista de gente a la que reclamarle. */}
+        {pendienteCobro && pendienteCobro.cantidad > 0 && (
+          <div className="bg-white rounded-xl shadow-lg border border-amber-200 mb-8 overflow-hidden">
+            <div className="bg-amber-50 border-b border-amber-200 px-6 py-4 flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-3">
+                <div className="bg-amber-100 p-2 rounded-lg">
+                  <Users className="w-5 h-5 text-amber-700" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-800">Pendiente de cobro</h3>
+                  <p className="text-xs text-slate-600">
+                    {pendienteCobro.cantidad} sin cobrar · Reservas: {formatearMoneda(pendienteCobro.por_tipo?.reservas || 0)} ·
+                    Pedidos: {formatearMoneda(pendienteCobro.por_tipo?.pedidos || 0)}
                   </p>
-                )}
+                </div>
               </div>
-              <div className="bg-purple-100 p-3 rounded-xl">
-                <Users className="w-8 h-8 text-purple-600" />
-              </div>
+              <p className="text-2xl font-bold text-amber-700">
+                {formatearMoneda(pendienteCobro.total_pendiente || 0)}
+              </p>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-slate-600">
+                  <tr>
+                    <th className="text-left px-6 py-3 font-medium">Quién</th>
+                    <th className="text-left px-4 py-3 font-medium">Hab.</th>
+                    <th className="text-left px-4 py-3 font-medium">Desde</th>
+                    <th className="text-left px-4 py-3 font-medium">Estado</th>
+                    <th className="text-right px-4 py-3 font-medium">Facturado</th>
+                    <th className="text-right px-4 py-3 font-medium">Cobrado</th>
+                    <th className="text-right px-6 py-3 font-medium">Falta</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {pendienteCobro.pendientes.map((deuda) => (
+                    <tr key={`${deuda.tipo}-${deuda.id}`} className="hover:bg-slate-50">
+                      <td className="px-6 py-3">
+                        <p className="font-medium text-slate-800">
+                          {deuda.huesped || (deuda.tipo === 'pedido' ? 'Pedido' : 'Sin nombre')}
+                        </p>
+                        {deuda.celular && (
+                          <a
+                            href={`https://wa.me/${String(deuda.celular).replace(/\D/g, '')}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-green-600 hover:underline"
+                          >
+                            {deuda.celular}
+                          </a>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{deuda.habitacion ?? '—'}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {deuda.fecha_checkin ? formatearDiaISO(deuda.fecha_checkin) : '—'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-1 rounded-full text-xs bg-amber-100 text-amber-800">
+                          {deuda.estado_cobro}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-600">
+                        {formatearMoneda(deuda.facturado)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-green-600">
+                        {formatearMoneda(deuda.cobrado)}
+                      </td>
+                      <td className="px-6 py-3 text-right font-semibold text-amber-700">
+                        {formatearMoneda(deuda.pendiente)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Gráficos */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
@@ -675,7 +786,7 @@ export default function DashboardAnalytics() {
           {/* Resumen del período */}
           {detalleDiario?.resumen && (
             <div className="p-4 bg-indigo-50 border-b border-slate-200">
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 text-sm">
                 <div>
                   <p className="text-slate-600">Total Reservas</p>
                   <p className="text-lg font-bold text-slate-800">{detalleDiario.resumen.total_reservas}</p>
@@ -685,16 +796,31 @@ export default function DashboardAnalytics() {
                   <p className="text-lg font-bold text-slate-800">{detalleDiario.resumen.total_pedidos}</p>
                 </div>
                 <div>
-                  <p className="text-slate-600">Ingresos Reservas</p>
-                  <p className="text-lg font-bold text-green-600">{formatearMoneda(detalleDiario.resumen.total_ingresos_reservas)}</p>
+                  <p className="text-slate-600">Facturado Reservas</p>
+                  <p className="text-lg font-bold text-slate-700">{formatearMoneda(detalleDiario.resumen.total_ingresos_reservas)}</p>
                 </div>
                 <div>
-                  <p className="text-slate-600">Ingresos Pedidos</p>
-                  <p className="text-lg font-bold text-green-600">{formatearMoneda(detalleDiario.resumen.total_ingresos_pedidos)}</p>
+                  <p className="text-slate-600">Facturado Pedidos</p>
+                  <p className="text-lg font-bold text-slate-700">{formatearMoneda(detalleDiario.resumen.total_ingresos_pedidos)}</p>
                 </div>
                 <div>
-                  <p className="text-slate-600">Total Ingresos</p>
+                  <p className="text-slate-600">Total Facturado</p>
                   <p className="text-lg font-bold text-indigo-600">{formatearMoneda(detalleDiario.resumen.total_ingresos)}</p>
+                </div>
+                <div>
+                  <p className="text-slate-600">Cobrado</p>
+                  <p className="text-lg font-bold text-green-600">{formatearMoneda(detalleDiario.resumen.total_cobrado || 0)}</p>
+                  {detalleDiario.resumen.pendiente_de_cobro > 0 && (
+                    <p className="text-xs text-amber-600">
+                      Falta {formatearMoneda(detalleDiario.resumen.pendiente_de_cobro)}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-slate-600">Resultado de Caja</p>
+                  <p className={`text-lg font-bold ${detalleDiario.resumen.resultado_caja >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {formatearMoneda(detalleDiario.resumen.resultado_caja || 0)}
+                  </p>
                 </div>
               </div>
             </div>
@@ -718,8 +844,9 @@ export default function DashboardAnalytics() {
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Pedidos</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Pago Pedidos</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Gastos</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Total Día</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Resultado</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Facturado Día</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Cobrado Día</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-700 uppercase tracking-wider">Resultado Caja</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
@@ -739,6 +866,11 @@ export default function DashboardAnalytics() {
                         <div className="text-sm">
                           <div className="font-medium text-slate-900">{formatearMoneda(dia.reservas.monto_total)}</div>
                           <div className="text-slate-500">{dia.reservas.cantidad} reserva{dia.reservas.cantidad !== 1 ? 's' : ''}</div>
+                          {dia.reservas.cobrado < dia.reservas.monto_total && (
+                            <div className="text-xs text-amber-600">
+                              Cobrado: {formatearMoneda(dia.reservas.cobrado || 0)}
+                            </div>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -771,6 +903,11 @@ export default function DashboardAnalytics() {
                         <div className="text-sm">
                           <div className="font-medium text-slate-900">{formatearMoneda(dia.pedidos.monto_total)}</div>
                           <div className="text-slate-500">{dia.pedidos.cantidad} pedido{dia.pedidos.cantidad !== 1 ? 's' : ''}</div>
+                          {dia.pedidos.cobrado < dia.pedidos.monto_total && (
+                            <div className="text-xs text-amber-600">
+                              Cobrado: {formatearMoneda(dia.pedidos.cobrado || 0)}
+                            </div>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -819,15 +956,26 @@ export default function DashboardAnalytics() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        {/* Lo que realmente quedó: ingresos menos gastos. */}
+                        {/* De lo facturado ese día, lo que efectivamente entró. */}
+                        <div className="text-sm font-medium text-green-600">
+                          {formatearMoneda(dia.cobrado_dia ?? dia.total_dia)}
+                        </div>
+                        {(dia.cobrado_dia ?? dia.total_dia) < dia.total_dia && (
+                          <div className="text-xs text-amber-600">
+                            Falta {formatearMoneda(dia.total_dia - (dia.cobrado_dia ?? 0))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {/* Lo que realmente quedó en caja: cobrado menos gastos. */}
                         <div
                           className={`text-sm font-bold ${
-                            (dia.resultado_neto ?? dia.total_dia) >= 0
+                            (dia.resultado_caja ?? dia.resultado_neto ?? dia.total_dia) >= 0
                               ? 'text-emerald-600'
                               : 'text-red-600'
                           }`}
                         >
-                          {formatearMoneda(dia.resultado_neto ?? dia.total_dia)}
+                          {formatearMoneda(dia.resultado_caja ?? dia.resultado_neto ?? dia.total_dia)}
                         </div>
                       </td>
                     </tr>

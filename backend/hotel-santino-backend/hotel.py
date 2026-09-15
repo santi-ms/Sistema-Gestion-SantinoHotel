@@ -120,6 +120,67 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 # Zona horaria de Argentina (UTC-3)
 ARGENTINA_TZ = timezone(timedelta(hours=-3))
 
+# ─────────── COBRADO vs FACTURADO ───────────
+# El panel informaba como ingreso el total de cada reserva no cancelada, sin
+# importar si esa plata había entrado. Una reserva del bot que nadie pagó
+# sumaba igual. Estos dos conjuntos separan una cosa de la otra.
+
+# El huésped todavía no puso nada.
+ESTADOS_SIN_COBRO = {
+    "PENDIENTE_SEÑA", "Seña Pendiente", "Seña Pendiente Verificación",
+    "Cancelado",
+}
+
+# Entró la seña, falta el saldo.
+ESTADOS_SOLO_SEÑA = {"Seña Recibida", "PAGADO_SEÑA"}
+
+# Entró todo.
+ESTADOS_COBRO_COMPLETO = {"Pagado Completo"}
+
+
+def monto_cobrado_de_reserva(reserva) -> float:
+    """Cuánta plata de esta reserva entró efectivamente.
+
+    Se deduce de `forma_pago`, que guarda dos cosas distintas: a veces el medio
+    de pago real ("efectivo") y a veces el estado del cobro ("Seña Recibida").
+    Esa mezcla es deuda conocida; mientras exista, este es el criterio:
+
+      - Estado que dice que no entró nada  -> 0
+      - Estado que dice que entró la seña  -> la seña
+      - "Pagado Completo" o un medio de pago real -> el total
+      - Vacío o desconocido -> la seña (lo único que consta que entró)
+
+    Cuando la forma de pago es un medio real se asume cobro completo: así es
+    como el panel carga una reserva ya saldada.
+    """
+    total = reserva.total_estadia or 0
+    seña = reserva.seña or 0
+
+    if (reserva.estado or "").strip().lower() == "cancelada":
+        return 0.0
+
+    estado_pago = (reserva.forma_pago or "").strip()
+
+    if estado_pago in ESTADOS_SIN_COBRO:
+        return 0.0
+    if estado_pago in ESTADOS_SOLO_SEÑA:
+        return float(min(seña, total))
+    if estado_pago in ESTADOS_COBRO_COMPLETO or estado_pago:
+        return float(total)
+
+    # Sin dato: lo único que consta es la seña.
+    return float(min(seña, total))
+
+
+def monto_cobrado_de_pedido(pedido) -> float:
+    """Un pedido cobrado es el que está PAGADO.
+
+    El pendiente ya está consumido y facturado, pero la plata no entró. El
+    dato estaba en `estado` desde siempre y los reportes lo ignoraban.
+    """
+    return float(pedido.monto or 0) if (pedido.estado or "").strip().upper() == "PAGADO" else 0.0
+
+
 def pedido_cuenta_como_ingreso(pedido) -> bool:
     """Un pedido suma a los ingresos salvo que esté cancelado.
 
@@ -4586,6 +4647,15 @@ def dashboard_analytics(db: Session = Depends(obtener_db), token: dict = Depends
     total_gastos = sum(g.monto for g in gastos_mes)
     total_ingresos = ingresos_reservas + ingresos_pedidos
     beneficio_neto = total_ingresos - total_gastos
+
+    # Lo facturado no es lo cobrado: una reserva que nadie pagó sumaba igual.
+    cobrado_reservas = sum(monto_cobrado_de_reserva(r) for r in reservas_mes)
+    cobrado_pedidos = sum(monto_cobrado_de_pedido(p) for p in pedidos_mes)
+    total_cobrado = cobrado_reservas + cobrado_pedidos
+    # El resultado de caja resta gastos EFECTIVAMENTE pagados de plata
+    # EFECTIVAMENTE cobrada. `beneficio_neto` mezcla las dos cosas y siempre da
+    # mejor de lo real; se conserva para no romper a quien ya lo consumía.
+    resultado_caja = total_cobrado - total_gastos
     
     dias_mes = (hoy - inicio_mes).days + 1
     ocupacion_total_posible = len(total_habitaciones) * dias_mes
@@ -4627,6 +4697,11 @@ def dashboard_analytics(db: Session = Depends(obtener_db), token: dict = Depends
         "total_ingresos": total_ingresos,
         "total_gastos_monto": total_gastos,
         "beneficio_neto": beneficio_neto,
+        "cobrado_reservas": cobrado_reservas,
+        "cobrado_pedidos": cobrado_pedidos,
+        "total_cobrado": total_cobrado,
+        "pendiente_de_cobro": total_ingresos - total_cobrado,
+        "resultado_caja": resultado_caja,
         "tasa_ocupacion": round(tasa_ocupacion, 2),
         "habitaciones_disponibles": len(total_habitaciones)
     }
@@ -4691,6 +4766,81 @@ def ingresos_por_dia(
         fecha_actual += timedelta(days=1)
     
     return resultado
+
+@app.get("/analytics/pendiente-de-cobro")
+def listar_pendiente_de_cobro(
+    db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)
+):
+    """Quién debe plata: reservas y pedidos facturados que no se cobraron.
+
+    Es la contracara del número de "pendiente de cobro" del panel. Sirve para
+    saber a quién reclamarle antes de que se vaya, y para detectar reservas del
+    bot que quedaron abiertas porque nadie transfirió la seña.
+
+    No se filtra por fecha a propósito: una deuda vieja sigue siendo una deuda.
+    """
+    reservas = db.exec(
+        select(Reserva).where(Reserva.estado != "cancelada")
+    ).all()
+
+    deudas = []
+    for reserva in reservas:
+        facturado = reserva.total_estadia or 0
+        cobrado = monto_cobrado_de_reserva(reserva)
+        pendiente = facturado - cobrado
+        if pendiente <= 0:
+            continue
+
+        dia_entrada = dia_argentina(reserva.fecha_checkin)
+        habitacion = db.get(Habitacion, reserva.habitacion_id)
+        cliente = db.get(Cliente, reserva.cliente_id)
+        deudas.append({
+            "tipo": "reserva",
+            "id": reserva.id,
+            "huesped": reserva.nombre_huesped or (cliente.nombre if cliente else None),
+            "celular": cliente.celular if cliente else None,
+            "habitacion": habitacion.numero if habitacion else reserva.habitacion_id,
+            "fecha_checkin": dia_entrada.isoformat() if dia_entrada else None,
+            "estado_cobro": reserva.forma_pago or "Sin registrar",
+            "origen": reserva.origen,
+            "facturado": facturado,
+            "cobrado": cobrado,
+            "pendiente": pendiente,
+        })
+
+    pedidos = db.exec(select(Pedido)).all()
+    for pedido in pedidos:
+        if not pedido_cuenta_como_ingreso(pedido):
+            continue
+        pendiente = (pedido.monto or 0) - monto_cobrado_de_pedido(pedido)
+        if pendiente <= 0:
+            continue
+
+        dia = dia_argentina(pedido.fecha)
+        deudas.append({
+            "tipo": "pedido",
+            "id": pedido.id,
+            "huesped": None,
+            "habitacion": pedido.habitacion_id,
+            "fecha_checkin": dia.isoformat() if dia else None,
+            "estado_cobro": pedido.estado or "PENDIENTE",
+            "facturado": pedido.monto or 0,
+            "cobrado": 0,
+            "pendiente": pendiente,
+        })
+
+    deudas.sort(key=lambda d: d["pendiente"], reverse=True)
+
+    return {
+        "total_pendiente": sum(d["pendiente"] for d in deudas),
+        "cantidad": len(deudas),
+        "por_tipo": {
+            "reservas": sum(d["pendiente"] for d in deudas if d["tipo"] == "reserva"),
+            "pedidos": sum(d["pendiente"] for d in deudas if d["tipo"] == "pedido"),
+        },
+        "pendientes": deudas,
+    }
+
 
 @app.get("/analytics/formas-pago")
 def analisis_formas_pago(db: Session = Depends(obtener_db), token: dict = Depends(verificar_token)):
@@ -4784,12 +4934,14 @@ def detalle_diario_analytics(
             "fecha": "",
             "reservas": {
                 "monto_total": 0,
+                "cobrado": 0,
                 "cantidad": 0,
                 "habitaciones_ocupadas": set(),  # Usar set para evitar duplicados
                 "formas_pago": defaultdict(float)  # forma_pago -> monto
             },
             "pedidos": {
                 "monto_total": 0,
+                "cobrado": 0,
                 "cantidad": 0,
                 "formas_pago": defaultdict(float)  # forma_pago -> monto
             },
@@ -4817,6 +4969,7 @@ def detalle_diario_analytics(
                 datos_por_dia[fecha_str]["fecha"] = fecha_str
 
                 datos_por_dia[fecha_str]["reservas"]["monto_total"] += reserva.total_estadia
+                datos_por_dia[fecha_str]["reservas"]["cobrado"] += monto_cobrado_de_reserva(reserva)
                 datos_por_dia[fecha_str]["reservas"]["cantidad"] += 1
 
                 # Formas de pago (normalizadas — los estados internos van a "No especificado")
@@ -4850,6 +5003,7 @@ def detalle_diario_analytics(
             datos_por_dia[fecha_str]["fecha"] = fecha_str
 
             datos_por_dia[fecha_str]["pedidos"]["monto_total"] += pedido.monto
+            datos_por_dia[fecha_str]["pedidos"]["cobrado"] += monto_cobrado_de_pedido(pedido)
             datos_por_dia[fecha_str]["pedidos"]["cantidad"] += 1
 
             forma_pago = _normalizar_forma_pago(pedido.forma_pago)
@@ -4890,6 +5044,7 @@ def detalle_diario_analytics(
                 "fecha": fecha_str,
                 "reservas": {
                     "monto_total": datos["reservas"]["monto_total"],
+                    "cobrado": datos["reservas"]["cobrado"],
                     "cantidad": datos["reservas"]["cantidad"],
                     "habitaciones_ocupadas": len(habitaciones_ocupadas_list),
                     "habitaciones_ids": habitaciones_ocupadas_list,
@@ -4897,6 +5052,7 @@ def detalle_diario_analytics(
                 },
                 "pedidos": {
                     "monto_total": datos["pedidos"]["monto_total"],
+                    "cobrado": datos["pedidos"]["cobrado"],
                     "cantidad": datos["pedidos"]["cantidad"],
                     "formas_pago": sorted(formas_pago_pedidos, key=lambda x: x["monto"], reverse=True)
                 },
@@ -4915,6 +5071,12 @@ def detalle_diario_analytics(
                 # `total_dia` se mantiene como el ingreso bruto: es lo que ya
                 # consumía el frontend. El neto va aparte.
                 "total_dia": datos["reservas"]["monto_total"] + datos["pedidos"]["monto_total"],
+                "cobrado_dia": datos["reservas"]["cobrado"] + datos["pedidos"]["cobrado"],
+                "resultado_caja": (
+                    datos["reservas"]["cobrado"]
+                    + datos["pedidos"]["cobrado"]
+                    - datos["gastos"]["monto_total"]
+                ),
                 "resultado_neto": (
                     datos["reservas"]["monto_total"]
                     + datos["pedidos"]["monto_total"]
@@ -4937,6 +5099,9 @@ def detalle_diario_analytics(
                 "total_gastos": sum(d["gastos"]["monto_total"] for d in resultado),
                 "cantidad_gastos": sum(d["gastos"]["cantidad"] for d in resultado),
                 "resultado_neto": sum(d["resultado_neto"] for d in resultado),
+                "total_cobrado": sum(d["cobrado_dia"] for d in resultado),
+                "pendiente_de_cobro": sum(d["total_dia"] - d["cobrado_dia"] for d in resultado),
+                "resultado_caja": sum(d["resultado_caja"] for d in resultado),
             }
         }
     except ValueError as e:
