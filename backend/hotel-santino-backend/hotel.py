@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException, Depends, status, Query, Header
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi import Request
 from fastapi.encoders import jsonable_encoder
 from sqlmodel import SQLModel, Field, Session, select, create_engine, text
 from sqlalchemy import func, Column, DateTime
@@ -52,6 +54,45 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+
+def _cabeceras_cors(request: "Request") -> dict:
+    """Cabeceras CORS para una respuesta que no pasa por el middleware."""
+    origen = request.headers.get("origin")
+    if origen and origen in ALLOWED_ORIGINS:
+        return {
+            "Access-Control-Allow-Origin": origen,
+            "Access-Control-Allow-Credentials": "true",
+        }
+    return {}
+
+
+@app.exception_handler(Exception)
+async def manejar_error_no_atrapado(request: "Request", exc: Exception):
+    """Devuelve los errores inesperados CON cabeceras CORS.
+
+    Sin esto, un error no atrapado sale por el manejador de Starlette, que está
+    por FUERA del middleware de CORS. El navegador recibe un 500 sin esas
+    cabeceras, no puede leerlo, y lo reporta como "Network Error" — que fue
+    exactamente lo que ocultó una columna faltante en la tabla de gastos
+    durante todo un diagnóstico.
+
+    El error se sigue registrando entero en los logs; al frontend va el tipo y
+    el mensaje, que es lo que hace falta para saber qué mirar.
+    """
+    import traceback
+    print(f"💥 [Error] {request.method} {request.url.path}: {type(exc).__name__}: {exc}")
+    traceback.print_exc()
+
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": f"{type(exc).__name__}: {exc}",
+            "ruta": request.url.path,
+        },
+        headers=_cabeceras_cors(request),
+    )
+
 
 # 1) Toma la URL de Postgres que pusiste en las variables de Railway.
 # 2) Si la variable no existe (por ejemplo, corriendo local), sigue usando SQLite.
@@ -4964,6 +5005,87 @@ def test_registrar_pedido_simple(db: Session = Depends(obtener_db)):
         return {"status": "error", "error": str(e)}
 
 # ─────────── ENDPOINT DE ESTADO Y ESTADÍSTICAS ───────────
+@app.get("/diagnostico")
+def diagnostico_del_sistema(db: Session = Depends(obtener_db)):
+    """Estado real del backend, sin autenticación, para diagnosticar desde el navegador.
+
+    Existe porque un "Network Error" en el frontend no dice nada: puede ser el
+    servidor caído, una columna faltante o un error de CORS. Abriendo esta URL
+    se ve cuál de los tres es, sin depender de los logs del hosting.
+    """
+    informe = {
+        "estado": "ok",
+        "fecha_servidor": obtener_fecha_argentina().isoformat(),
+        # Railway expone el commit desplegado: sirve para saber si el último
+        # deploy realmente salió.
+        "commit": os.getenv("RAILWAY_GIT_COMMIT_SHA", "desconocido")[:8],
+        "problemas": [],
+    }
+
+    # ¿El esquema tiene lo que los modelos declaran?
+    try:
+        from sqlalchemy import inspect as inspeccionar
+
+        inspector = inspeccionar(engine)
+        tablas = set(inspector.get_table_names())
+        faltantes = []
+        for nombre, tabla in SQLModel.metadata.tables.items():
+            if nombre not in tablas:
+                faltantes.append(f"{nombre} (tabla entera)")
+                continue
+            reales = {c["name"] for c in inspector.get_columns(nombre)}
+            for columna in tabla.columns:
+                if columna.name not in reales:
+                    faltantes.append(f"{nombre}.{columna.name}")
+        informe["columnas_faltantes"] = faltantes
+        if faltantes:
+            informe["problemas"].append(
+                "Faltan columnas en la base: las consultas que las pidan van a fallar"
+            )
+    except Exception as e:
+        informe["problemas"].append(f"No se pudo inspeccionar el esquema: {e}")
+
+    # ¿Las fechas ya tienen zona horaria?
+    try:
+        from sqlalchemy import inspect as inspeccionar
+
+        sin_zona = []
+        for tabla, columna in COLUMNAS_A_MIGRAR:
+            for c in inspeccionar(engine).get_columns(tabla):
+                if c["name"] == columna and not getattr(c["type"], "timezone", True):
+                    sin_zona.append(f"{tabla}.{columna}")
+        informe["fechas_sin_zona_horaria"] = sin_zona
+    except Exception:
+        pass
+
+    # ¿Responden las consultas que usa la pantalla de Analytics?
+    consultas = {
+        "reservas": Reserva,
+        "pedidos": Pedido,
+        "gastos": GastoAdicional,
+        "habitaciones": Habitacion,
+        "stock": Stock,
+        "movimientos_stock": MovimientoStock,
+    }
+    conteos = {}
+    for nombre, modelo in consultas.items():
+        try:
+            conteos[nombre] = len(db.exec(select(modelo)).all())
+        except Exception as e:
+            conteos[nombre] = f"💥 {type(e).__name__}: {str(e).splitlines()[0]}"
+            informe["problemas"].append(f"La consulta de {nombre} falla")
+            # En Postgres un statement fallido aborta la transacción y todo lo
+            # que siga falla también. Sin este rollback, una sola consulta rota
+            # haría parecer que están rotas todas — justo el tipo de pista
+            # falsa que este endpoint existe para evitar.
+            db.rollback()
+    informe["consultas"] = conteos
+
+    if informe["problemas"]:
+        informe["estado"] = "con problemas"
+    return informe
+
+
 @app.get("/status")
 def obtener_estado_sistema(db: Session = Depends(obtener_db)):
     try:
