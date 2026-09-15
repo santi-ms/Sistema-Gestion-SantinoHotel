@@ -602,161 +602,97 @@ def migrar_fechas_a_timestamptz():
 
 
 @app.on_event("startup")
+def sincronizar_columnas_faltantes():
+    """Agrega a la base las columnas que los modelos declaran y no existen.
+
+    Reemplaza la lista de ALTER TABLE escritos a mano que había acá. Esa lista
+    tenía dos problemas, y los dos rompieron producción:
+
+    1. Todos los ALTER compartían UNA transacción. El primero
+       (`ADD COLUMN origen`, sin IF NOT EXISTS) falla siempre porque la columna
+       ya existe, y en Postgres un statement fallido aborta la transacción: todo
+       lo que venía después se ignoraba en silencio. Cualquier columna agregada
+       a esa lista nunca llegaba a producción.
+
+    2. Había que acordarse de sumar cada columna nueva a la lista. Agregar un
+       campo al modelo y olvidarse del ALTER dejaba a la app pidiendo una
+       columna inexistente: la consulta explota con UndefinedColumn, el endpoint
+       devuelve 500 sin cabeceras CORS y el navegador lo muestra como
+       "Network Error".
+
+    Ahora las columnas salen de los propios modelos y cada ALTER va en su propia
+    transacción, así una falla no arrastra a las demás.
+
+    Las columnas se agregan siempre como NULLABLE, aunque el modelo las declare
+    obligatorias: agregar una columna NOT NULL sin default a una tabla con
+    datos falla, y perder el NOT NULL es mucho más barato que no aplicar la
+    migración.
+    """
+    from sqlalchemy import inspect as inspeccionar
+
+    try:
+        inspector = inspeccionar(engine)
+        tablas_existentes = set(inspector.get_table_names())
+    except Exception as e:
+        print(f"⚠️ [Esquema] No se pudo inspeccionar la base: {e}")
+        return
+
+    agregadas = 0
+    for nombre_tabla, tabla in SQLModel.metadata.tables.items():
+        if nombre_tabla not in tablas_existentes:
+            continue  # create_all() la va a crear completa
+
+        columnas_actuales = {c["name"] for c in inspector.get_columns(nombre_tabla)}
+
+        for columna in tabla.columns:
+            if columna.name in columnas_actuales:
+                continue
+            try:
+                tipo = columna.type.compile(engine.dialect)
+                with engine.begin() as con:
+                    con.execute(text(
+                        f'ALTER TABLE {nombre_tabla} ADD COLUMN {columna.name} {tipo}'
+                    ))
+                print(f"✅ [Esquema] {nombre_tabla}.{columna.name} ({tipo}) agregada")
+                agregadas += 1
+            except Exception as e:
+                # Aislado: que falte una columna no impide agregar las otras.
+                print(f"⚠️ [Esquema] No se pudo agregar {nombre_tabla}.{columna.name}: {e}")
+
+        # Los índices de una columna agregada después no los crea create_all(),
+        # que sólo actúa sobre tablas nuevas. checkfirst evita duplicarlos.
+        for indice in tabla.indexes:
+            try:
+                indice.create(bind=engine, checkfirst=True)
+            except Exception as e:
+                print(f"⚠️ [Esquema] No se pudo crear el índice {indice.name}: {e}")
+
+    if agregadas == 0:
+        print("✅ [Esquema] Todas las columnas de los modelos existen en la base")
+
+
+@app.on_event("startup")
 def crear_tablas():
+    """Deja la base al día con los modelos, sin tocar los datos.
+
+    Orden: primero las tablas nuevas, después las columnas que falten, y por
+    último la migración de fechas. Antes los ALTER corrían ANTES de create_all,
+    o sea contra tablas que quizás todavía no existían.
     """
-    Crea las tablas si no existen.
-    IMPORTANTE: create_all() solo crea tablas nuevas, NO las elimina ni recrea.
-    Si una tabla ya existe, NO se modifica.
-    """
-    # Verificar estado de la base de datos antes de crear tablas
     try:
         with engine.connect() as connection:
-            # Intentar contar reservas existentes
             try:
-                result = connection.execute(text("SELECT COUNT(*) FROM reserva"))
-                count = result.scalar()
-                print(f"📊 [Startup] Reservas existentes en BD: {count}")
-            except Exception as e:
-                print(f"ℹ️ [Startup] Tabla reserva no existe aún o error: {e}")
-            
-            # Verificar y agregar columna 'origen' si falta (crítica para funcionamiento)
-            try:
-                if DATABASE_URL.startswith("postgres"):
-                    # PostgreSQL: verificar si existe la columna
-                    check_query = text("""
-                        SELECT column_name 
-                        FROM information_schema.columns 
-                        WHERE table_name = 'reserva' AND column_name = 'origen'
-                    """)
-                    result = connection.execute(check_query)
-                    exists = result.fetchone() is not None
-                    
-                    if not exists:
-                        print("⚠️ [Startup] Columna 'origen' no existe, agregándola...")
-                        connection.execute(text("ALTER TABLE reserva ADD COLUMN origen TEXT"))
-                        connection.commit()
-                        print("✅ [Startup] Columna 'origen' agregada correctamente")
-                    else:
-                        print("✅ [Startup] Columna 'origen' ya existe")
-                else:
-                    # SQLite: intentar agregar (fallará si ya existe)
-                    try:
-                        connection.execute(text("ALTER TABLE reserva ADD COLUMN origen TEXT"))
-                        connection.commit()
-                        print("✅ [Startup] Columna 'origen' agregada correctamente (SQLite)")
-                    except Exception as e:
-                        if "duplicate column" not in str(e).lower():
-                            raise
-                        print("✅ [Startup] Columna 'origen' ya existe")
-            except Exception as e:
-                print(f"⚠️ [Startup] Error verificando/agregando columna 'origen': {e}")
-            
-            # Verificar y agregar columna 'estado' si falta
-            try:
-                if DATABASE_URL.startswith("postgres"):
-                    # PostgreSQL: verificar si existe la columna
-                    check_query = text("""
-                        SELECT column_name 
-                        FROM information_schema.columns 
-                        WHERE table_name = 'reserva' AND column_name = 'estado'
-                    """)
-                    result = connection.execute(check_query)
-                    exists = result.fetchone() is not None
-                    
-                    if not exists:
-                        print("⚠️ [Startup] Columna 'estado' no existe, agregándola...")
-                        connection.execute(text("ALTER TABLE reserva ADD COLUMN estado TEXT DEFAULT 'activa'"))
-                        # Actualizar reservas existentes sin estado
-                        connection.execute(text("UPDATE reserva SET estado = 'activa' WHERE estado IS NULL"))
-                        connection.commit()
-                        print("✅ [Startup] Columna 'estado' agregada correctamente")
-                    else:
-                        print("✅ [Startup] Columna 'estado' ya existe")
-                else:
-                    # SQLite: intentar agregar (fallará si ya existe)
-                    try:
-                        connection.execute(text("ALTER TABLE reserva ADD COLUMN estado TEXT DEFAULT 'activa'"))
-                        # Actualizar reservas existentes sin estado
-                        connection.execute(text("UPDATE reserva SET estado = 'activa' WHERE estado IS NULL"))
-                        connection.commit()
-                        print("✅ [Startup] Columna 'estado' agregada correctamente (SQLite)")
-                    except Exception as e:
-                        if "duplicate column" not in str(e).lower():
-                            raise
-                        print("✅ [Startup] Columna 'estado' ya existe")
-            except Exception as e:
-                print(f"⚠️ [Startup] Error verificando/agregando columna 'estado': {e}")
-            
-            # Verificar y modificar columna 'habitacion_id' en 'gastoadicional' para permitir NULL
-            try:
-                if DATABASE_URL.startswith("postgres"):
-                    # PostgreSQL: verificar si la columna permite NULL
-                    check_query = text("""
-                        SELECT is_nullable 
-                        FROM information_schema.columns 
-                        WHERE table_name = 'gastoadicional' AND column_name = 'habitacion_id'
-                    """)
-                    result = connection.execute(check_query)
-                    row = result.fetchone()
-                    if row and row[0] == 'NO':
-                        # La columna no permite NULL, necesitamos modificarla
-                        print("⚠️ [Startup] Columna 'habitacion_id' en 'gastoadicional' no permite NULL, modificándola...")
-                        alter_query = text("ALTER TABLE gastoadicional ALTER COLUMN habitacion_id DROP NOT NULL")
-                        connection.execute(alter_query)
-                        connection.commit()
-                        print("✅ [Startup] Columna 'habitacion_id' en 'gastoadicional' modificada para permitir NULL")
-                    elif row and row[0] == 'YES':
-                        print("✅ [Startup] Columna 'habitacion_id' en 'gastoadicional' ya permite NULL")
-                    else:
-                        print("ℹ️ [Startup] Tabla 'gastoadicional' o columna 'habitacion_id' no existe aún (se creará con NULL permitido)")
-                else:
-                    # SQLite: por defecto permite NULL, solo verificamos que la tabla exista
-                    try:
-                        check_query = text("PRAGMA table_info(gastoadicional)")
-                        result = connection.execute(check_query)
-                        columns = result.fetchall()
-                        if columns:
-                            print("✅ [Startup] Tabla 'gastoadicional' existe (SQLite permite NULL por defecto)")
-                        else:
-                            print("ℹ️ [Startup] Tabla 'gastoadicional' no existe aún (se creará con NULL permitido)")
-                    except:
-                        print("ℹ️ [Startup] Tabla 'gastoadicional' no existe aún (se creará con NULL permitido)")
-            except Exception as e:
-                print(f"⚠️ [Startup] Error al verificar/modificar columna 'habitacion_id' en 'gastoadicional': {e}")
-            
-            # Verificar y agregar columnas precio_minimo y precio_maximo a habitacion
-            try:
-                if DATABASE_URL.startswith("postgres"):
-                    for columna in ["precio_minimo", "precio_maximo"]:
-                        check_query = text(f"""
-                            SELECT column_name 
-                            FROM information_schema.columns 
-                            WHERE table_name = 'habitacion' AND column_name = '{columna}'
-                        """)
-                        result = connection.execute(check_query)
-                        exists = result.fetchone() is not None
-                        if not exists:
-                            connection.execute(text(f"ALTER TABLE habitacion ADD COLUMN {columna} REAL"))
-                            connection.commit()
-                            print(f"✅ [Startup] Columna '{columna}' agregada a habitacion")
-                else:
-                    for columna in ["precio_minimo", "precio_maximo"]:
-                        try:
-                            connection.execute(text(f"ALTER TABLE habitacion ADD COLUMN {columna} REAL"))
-                            connection.commit()
-                            print(f"✅ [Startup] Columna '{columna}' agregada a habitacion (SQLite)")
-                        except Exception as e:
-                            if "duplicate column" not in str(e).lower():
-                                raise
-            except Exception as e:
-                print(f"⚠️ [Startup] Error verificando/agregando columnas de precio: {e}")
+                total = connection.execute(text("SELECT COUNT(*) FROM reserva")).scalar()
+                print(f"📊 [Startup] Reservas existentes en BD: {total}")
+            except Exception:
+                print("ℹ️ [Startup] La tabla reserva todavía no existe")
     except Exception as e:
-        print(f"⚠️ [Startup] Error verificando BD: {e}")
-    
-    # Crear tablas solo si no existen (create_all es seguro, no elimina datos)
+        print(f"⚠️ [Startup] No se pudo conectar para el chequeo inicial: {e}")
+
     SQLModel.metadata.create_all(engine)
     print("✅ [Startup] Tablas verificadas/creadas")
 
+    sincronizar_columnas_faltantes()
     migrar_fechas_a_timestamptz()
 
     # Bootstrap de usuarios vía variables de entorno (útil cuando no hay acceso a shell).
