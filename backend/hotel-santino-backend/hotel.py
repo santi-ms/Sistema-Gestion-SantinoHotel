@@ -2394,6 +2394,94 @@ def obtener_stock(
     stock = db.exec(query.order_by(Stock.nombre_producto)).all()
     return stock
 
+# Va ANTES de /stock/{stock_id}: FastAPI matchea las rutas en orden de
+# declaración, y con el orden inverso "estadisticas" caía en {stock_id},
+# fallaba al parsearse como entero y el dashboard de stock recibía un 422.
+@app.get("/stock/estadisticas")
+def obtener_estadisticas_stock(
+    db: Session = Depends(obtener_db),
+    token: dict = Depends(verificar_token)
+):
+    """Obtiene estadísticas del stock para el dashboard"""
+    todos_stock = db.exec(select(Stock)).all()
+    
+    # Calcular estadísticas
+    total_productos = len(todos_stock)
+    productos_agotados = [s for s in todos_stock if s.cantidad <= 0]
+    productos_bajo_minimo = [s for s in todos_stock if s.cantidad > 0 and s.cantidad <= s.cantidad_minima and s.cantidad_minima > 0]
+    productos_en_stock = [s for s in todos_stock if s.cantidad > 0]
+    
+    # Productos más vendidos (últimos 30 días)
+    fecha_limite = obtener_fecha_argentina() - timedelta(days=30)
+    movimientos_ventas = db.exec(
+        select(MovimientoStock)
+        .where(
+            MovimientoStock.tipo == "venta",
+            MovimientoStock.fecha >= fecha_limite
+        )
+    ).all()
+    
+    # Agrupar por producto
+    ventas_por_producto = defaultdict(int)
+    for mov in movimientos_ventas:
+        ventas_por_producto[mov.stock_id] += abs(mov.diferencia)
+    
+    # Obtener top 5 productos más vendidos
+    top_ventas = sorted(ventas_por_producto.items(), key=lambda x: x[1], reverse=True)[:5]
+    productos_mas_vendidos = []
+    for stock_id, cantidad_vendida in top_ventas:
+        stock = db.get(Stock, stock_id)
+        if stock:
+            productos_mas_vendidos.append({
+                "nombre_producto": stock.nombre_producto,
+                "cantidad_vendida": cantidad_vendida,
+                "stock_actual": stock.cantidad
+            })
+    
+    # Estadísticas por categoría
+    bebidas = [s for s in todos_stock if s.categoria == "bebidas"]
+    comidas = [s for s in todos_stock if s.categoria == "comidas"]
+    
+    return {
+        "resumen": {
+            "total_productos": total_productos,
+            "productos_en_stock": len(productos_en_stock),
+            "productos_agotados": len(productos_agotados),
+            "productos_bajo_minimo": len(productos_bajo_minimo)
+        },
+        "productos_agotados": [
+            {
+                "id": s.id,
+                "nombre_producto": s.nombre_producto,
+                "categoria": s.categoria
+            }
+            for s in productos_agotados
+        ],
+        "productos_bajo_minimo": [
+            {
+                "id": s.id,
+                "nombre_producto": s.nombre_producto,
+                "categoria": s.categoria,
+                "cantidad": s.cantidad,
+                "cantidad_minima": s.cantidad_minima
+            }
+            for s in productos_bajo_minimo
+        ],
+        "productos_mas_vendidos": productos_mas_vendidos,
+        "por_categoria": {
+            "bebidas": {
+                "total": len(bebidas),
+                "en_stock": len([s for s in bebidas if s.cantidad > 0]),
+                "agotados": len([s for s in bebidas if s.cantidad <= 0])
+            },
+            "comidas": {
+                "total": len(comidas),
+                "en_stock": len([s for s in comidas if s.cantidad > 0]),
+                "agotados": len([s for s in comidas if s.cantidad <= 0])
+            }
+        }
+    }
+
 @app.get("/stock/{stock_id}")
 def obtener_stock_por_id(
     stock_id: int,
@@ -2529,91 +2617,6 @@ def obtener_todo_el_historial(
         })
     
     return resultado
-
-@app.get("/stock/estadisticas")
-def obtener_estadisticas_stock(
-    db: Session = Depends(obtener_db),
-    token: dict = Depends(verificar_token)
-):
-    """Obtiene estadísticas del stock para el dashboard"""
-    todos_stock = db.exec(select(Stock)).all()
-    
-    # Calcular estadísticas
-    total_productos = len(todos_stock)
-    productos_agotados = [s for s in todos_stock if s.cantidad <= 0]
-    productos_bajo_minimo = [s for s in todos_stock if s.cantidad > 0 and s.cantidad <= s.cantidad_minima and s.cantidad_minima > 0]
-    productos_en_stock = [s for s in todos_stock if s.cantidad > 0]
-    
-    # Productos más vendidos (últimos 30 días)
-    fecha_limite = obtener_fecha_argentina() - timedelta(days=30)
-    movimientos_ventas = db.exec(
-        select(MovimientoStock)
-        .where(
-            MovimientoStock.tipo == "venta",
-            MovimientoStock.fecha >= fecha_limite
-        )
-    ).all()
-    
-    # Agrupar por producto
-    ventas_por_producto = defaultdict(int)
-    for mov in movimientos_ventas:
-        ventas_por_producto[mov.stock_id] += abs(mov.diferencia)
-    
-    # Obtener top 5 productos más vendidos
-    top_ventas = sorted(ventas_por_producto.items(), key=lambda x: x[1], reverse=True)[:5]
-    productos_mas_vendidos = []
-    for stock_id, cantidad_vendida in top_ventas:
-        stock = db.get(Stock, stock_id)
-        if stock:
-            productos_mas_vendidos.append({
-                "nombre_producto": stock.nombre_producto,
-                "cantidad_vendida": cantidad_vendida,
-                "stock_actual": stock.cantidad
-            })
-    
-    # Estadísticas por categoría
-    bebidas = [s for s in todos_stock if s.categoria == "bebidas"]
-    comidas = [s for s in todos_stock if s.categoria == "comidas"]
-    
-    return {
-        "resumen": {
-            "total_productos": total_productos,
-            "productos_en_stock": len(productos_en_stock),
-            "productos_agotados": len(productos_agotados),
-            "productos_bajo_minimo": len(productos_bajo_minimo)
-        },
-        "productos_agotados": [
-            {
-                "id": s.id,
-                "nombre_producto": s.nombre_producto,
-                "categoria": s.categoria
-            }
-            for s in productos_agotados
-        ],
-        "productos_bajo_minimo": [
-            {
-                "id": s.id,
-                "nombre_producto": s.nombre_producto,
-                "categoria": s.categoria,
-                "cantidad": s.cantidad,
-                "cantidad_minima": s.cantidad_minima
-            }
-            for s in productos_bajo_minimo
-        ],
-        "productos_mas_vendidos": productos_mas_vendidos,
-        "por_categoria": {
-            "bebidas": {
-                "total": len(bebidas),
-                "en_stock": len([s for s in bebidas if s.cantidad > 0]),
-                "agotados": len([s for s in bebidas if s.cantidad <= 0])
-            },
-            "comidas": {
-                "total": len(comidas),
-                "en_stock": len([s for s in comidas if s.cantidad > 0]),
-                "agotados": len([s for s in comidas if s.cantidad <= 0])
-            }
-        }
-    }
 
 # ─────────── ENDPOINTS DE RESERVAS ───────────
 @app.post("/reservas")

@@ -255,39 +255,48 @@ export default function DashboardAnalytics() {
     return d && mes ? `${d}/${mes}/${año.slice(2)}` : String(dia);
   };
 
-  const exportarReporte = async () => {
+  // El CSV se arma con lo que ya trajo /analytics/dashboard. Antes pedía
+  // /analytics/reporte-mensual, que no existe en el backend: el botón daba
+  // 404 y fallaba en silencio.
+  const exportarReporte = () => {
+    if (!dashboardData) {
+      errorToast('Todavía no hay datos cargados para exportar');
+      return;
+    }
+
     try {
       const hoy = new Date();
       const mes = hoy.getMonth() + 1;
       const año = hoy.getFullYear();
-      
-      const res = await axios.get(`${API_BASE_URL}/analytics/reporte-mensual`, {
-        params: { mes, año },
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      // Crear CSV
+      const d = dashboardData;
+
       const csv = [
-        ['Reporte Mensual', res.data.periodo],
+        ['Reporte Mensual', d.periodo],
         [''],
         ['RESUMEN'],
-        ['Total Reservas', res.data.resumen.total_reservas],
-        ['Total Pedidos', res.data.resumen.total_pedidos],
-        ['Ingresos Reservas', formatearMoneda(res.data.resumen.ingresos_reservas)],
-        ['Ingresos Pedidos', formatearMoneda(res.data.resumen.ingresos_pedidos)],
-        ['Total Gastos', formatearMoneda(res.data.resumen.total_gastos_monto)],
-        ['Beneficio Neto', formatearMoneda(res.data.resumen.beneficio_neto)],
-        ['Tasa Ocupación', `${res.data.resumen.tasa_ocupacion}%`],
-      ].map(row => row.join(',')).join('\n');
+        ['Total Reservas', d.total_reservas],
+        ['Total Pedidos', d.total_pedidos],
+        ['Ingresos Reservas', formatearMoneda(d.ingresos_reservas)],
+        ['Ingresos Pedidos', formatearMoneda(d.ingresos_pedidos)],
+        ['Total Facturado', formatearMoneda(d.total_ingresos)],
+        ['Total Cobrado', formatearMoneda(d.total_cobrado)],
+        ['Pendiente de Cobro', formatearMoneda(d.pendiente_de_cobro)],
+        ['Total Gastos', formatearMoneda(d.total_gastos_monto)],
+        ['Resultado de Caja', formatearMoneda(d.resultado_caja)],
+        ['Beneficio Neto', formatearMoneda(d.beneficio_neto)],
+        ['Tasa Ocupación', `${d.tasa_ocupacion}%`],
+      ].map(row => row.map(celda => `"${String(celda ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
 
-      const blob = new Blob([csv], { type: 'text/csv' });
+      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `reporte_${mes}_${año}.csv`;
       a.click();
+      window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error al exportar:', error);
+      errorToast('No se pudo generar el reporte');
     }
   };
 
