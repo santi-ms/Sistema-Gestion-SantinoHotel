@@ -2,7 +2,8 @@ from fastapi import FastAPI, HTTPException, Depends, status, Query, Header
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi import Request
+from fastapi import Request, UploadFile, File
+from app.services.receipt_service import scan_receipt, MAX_IMAGE_BYTES, IMAGE_TYPES
 from fastapi.encoders import jsonable_encoder
 from sqlmodel import SQLModel, Field, Session, select, create_engine, text
 from sqlalchemy import func, Column, DateTime
@@ -1956,6 +1957,24 @@ def serializar_gasto(gasto: GastoAdicional) -> dict:
 def listar_categorias_gasto(token: dict = Depends(verificar_token)):
     """Las categorías disponibles, para que el frontend no las tenga duplicadas."""
     return {"categorias": CATEGORIAS_GASTO}
+
+
+@app.post("/gastos/escanear")
+async def escanear_gasto(
+    archivo: UploadFile = File(...), token: dict = Depends(verificar_token),
+):
+    """Devuelve un borrador para revisar. No guarda la imagen ni crea un gasto."""
+    try:
+        if archivo.content_type not in IMAGE_TYPES:
+            raise HTTPException(400, "Usá una foto JPG, PNG o WebP.")
+        data = await archivo.read(MAX_IMAGE_BYTES + 1)
+        if len(data) > MAX_IMAGE_BYTES:
+            raise HTTPException(413, "La foto debe pesar como máximo 10 MB.")
+        if not data:
+            raise HTTPException(400, "La foto está vacía.")
+        return await scan_receipt(data)
+    finally:
+        await archivo.close()
 
 
 @app.post("/gastos")

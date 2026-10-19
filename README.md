@@ -66,12 +66,33 @@ hotel-santino/
 ```env
 DATABASE_URL=postgresql://user:password@host:port/dbname
 SECRET_KEY=tu-clave-secreta-jwt
+ANTHROPIC_API_KEY=tu-clave-de-api-anthropic
+# Opcional: modelo con visión y salidas estructuradas
+ANTHROPIC_RECEIPT_MODEL=claude-sonnet-4-6
 ```
 
 ### Frontend
 ```env
 VITE_API_URL=https://tu-backend.railway.app
 ```
+
+### Escanear gastos con una foto
+
+En Gastos, elegir una foto JPG, PNG o WebP (hasta 10 MB), pulsar **Escanear con IA**,
+revisar la propuesta y pulsar **Usar estos datos**. Luego corregir lo necesario y
+confirmar con **Registrar gasto**. El escaneo no crea un gasto automáticamente.
+El gasto usa la fecha actual, igual que la carga manual. El monto se completa
+sólo cuando la moneda se identifica como ARS; para otras monedas se carga
+manualmente el equivalente en pesos. La forma de pago queda sin especificar si
+no aparece en el comprobante.
+
+Configurar `ANTHROPIC_API_KEY` únicamente en el backend (nunca en variables `VITE_`)
+e instalar las dependencias de `requirements.txt`. Sin esa clave, la carga manual
+sigue disponible y el escáner informa que falta configuración. Cada escaneo usa
+la API de Anthropic y requiere una cuenta con saldo o facturación habilitada.
+La foto se envía a Anthropic Claude; la aplicación no guarda el archivo
+como adjunto ni conserva una copia. La lectura usa Messages API con imágenes y
+[salidas estructuradas](https://platform.claude.com/docs/en/build-with-claude/structured-outputs).
 
 ---
 
