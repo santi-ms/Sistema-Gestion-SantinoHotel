@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
-import { getUserRole } from "./hooks/useAuth";
 import { useToast } from "./components/ToastContainer";
 import {
   obtenerFechaISOArgentina,
@@ -50,7 +49,6 @@ export default function VerReservas() {
   const [paginaActual, setPaginaActual] = useState(1);
   const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
   const [reservaEliminarId, setReservaEliminarId] = useState(null);
-  const [usuarioRol, setUsuarioRol] = useState(null);
   const [mostrarDetalles, setMostrarDetalles] = useState(false);
   const [reservaDetalle, setReservaDetalle] = useState(null);
   const [mostrarCambiarHabitacion, setMostrarCambiarHabitacion] = useState(false);
@@ -60,12 +58,6 @@ export default function VerReservas() {
   const [cargandoHabitaciones, setCargandoHabitaciones] = useState(false);
   const navigate = useNavigate();
   const { error: errorToast } = useToast();
-
-  // Obtener rol del usuario desde el token
-  useEffect(() => {
-    const rol = getUserRole();
-    if (rol) setUsuarioRol(rol);
-  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -686,7 +678,7 @@ export default function VerReservas() {
                             >
                               <RefreshCw className="w-4 h-4" />
                             </button>
-                            {usuarioRol === "dueño" && estado !== "cancelada" && (
+                            {estado !== "cancelada" && (
                               <button
                                 onClick={() => abrirConfirmEliminar(reserva.id)}
                                 className="p-2 text-red-600 hover:text-red-800 hover:bg-red-100 rounded-lg transition-all duration-200 hover:scale-110 active:scale-95"
@@ -695,7 +687,7 @@ export default function VerReservas() {
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             )}
-                            {estado === "cancelada" && usuarioRol === "dueño" && (
+                            {estado === "cancelada" && (
                               <span className="text-xs text-red-600 font-medium">Cancelada</span>
                             )}
                           </div>

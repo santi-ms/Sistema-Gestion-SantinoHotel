@@ -3022,15 +3022,10 @@ def eliminar_reserva(
     if not reserva:
         raise HTTPException(status_code=404, detail="Reserva no encontrada")
     
-    # Verificar si el usuario tiene permisos (opcional - solo dueños pueden eliminar)
-    usuario_rol = token.get("rol")
-    if usuario_rol != "dueño":
-        raise HTTPException(
-            status_code=403, 
-            detail="Solo el dueño puede eliminar reservas"
-        )
-    
-    # ✅ Marcar como cancelada en lugar de eliminar (para mantener historial)
+    # Cancelar es la forma correcta de deshacer una reserva cargada por error, y
+    # quien la carga es el empleado. Cuando esto era sólo del dueño, el empleado
+    # usaba el botón de check-out para lo mismo, que no libera la habitación.
+    # No se borra la fila: se marca cancelada, así queda el historial.
     reserva.estado = "cancelada"
     db.add(reserva)
     db.commit()
@@ -3061,6 +3056,24 @@ def realizar_checkout(reserva_id: int, db: Session = Depends(obtener_db), token:
     hoy = obtener_fecha_argentina().date()
     dia_checkin = dia_argentina(reserva.fecha_checkin)
     dia_checkout = dia_argentina(reserva.fecha_checkout)
+
+    # Una estadía que no empezó no se puede cerrar. Si se permitía, la reserva
+    # quedaba "completada" pero con sus fechas futuras intactas: el piso de
+    # abajo, max(hoy, checkin + 1 noche), cae DESPUÉS de la salida cuando el
+    # huésped todavía no entró, así que no había nada que acortar. Y como todo
+    # el sistema da por hecho que una reserva completada ya tiene su salida en
+    # el pasado (ver availability_repo.listar_disponibles), la habitación
+    # quedaba bloqueada para siempre en esos días — y la estadía, que nunca
+    # ocurrió, se contaba como ingreso cobrado.
+    if dia_checkin is not None and hoy < dia_checkin:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"La estadía todavía no empezó: el huésped entra el "
+                f"{dia_checkin.strftime('%d/%m/%Y')}. Si la reserva se cargó "
+                f"por error, cancelala en vez de hacerle check-out."
+            ),
+        )
 
     salida_anticipada = False
     if dia_checkin is not None and dia_checkout is not None:

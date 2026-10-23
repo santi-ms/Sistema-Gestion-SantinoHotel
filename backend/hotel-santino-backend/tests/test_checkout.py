@@ -172,3 +172,109 @@ def test_no_se_hace_checkout_de_una_reserva_cancelada(api, monkeypatch):
         f"/reservas/{rid}/checkout", headers={"Authorization": f"Bearer {token}"}
     )
     assert resp.status_code == 400
+
+
+# ─────────── Check-out de una estadía que todavía no empezó ───────────
+# Un empleado cargó una reserva con la fecha equivocada y, para deshacerla, le
+# dio al botón Checkout (el único que tiene: cancelar es sólo del dueño). El
+# check-out marcaba la reserva "completada" pero NO tocaba las fechas, porque
+# el piso `max(hoy, checkin + 1 noche)` queda por delante de la salida cuando
+# la estadía ni siquiera empezó. La reserva seguía ocupando esas fechas y nada
+# volvía a liberarlas: todo el sistema da por hecho que una reserva completada
+# ya tiene su salida en el pasado (ver availability_repo.listar_disponibles).
+# Resultado: la habitación quedaba bloqueada para siempre en esos días.
+
+
+def test_no_se_hace_checkout_de_una_estadia_que_no_empezo(api, monkeypatch):
+    client, engine = api
+    token = _token_dueño(client)
+    # Hoy es 22; la reserva entra mañana 23 y sale el 24.
+    monkeypatch.setattr(
+        hotel, "obtener_fecha_argentina", lambda: datetime(2026, 10, 22, 18, 0, tzinfo=ARGENTINA_TZ)
+    )
+    rid = _reserva(engine, (2026, 10, 23), (2026, 10, 24))
+
+    r = client.patch(
+        f"/reservas/{rid}/checkout", headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert r.status_code == 400
+    with Session(engine) as s:
+        reserva = s.get(Reserva, rid)
+    # La reserva queda intacta: ni se cierra, ni cambia de fechas.
+    assert reserva.estado == "activa"
+    assert reserva.fecha_checkout.date() == datetime(2026, 10, 24).date()
+
+
+def test_el_checkout_nunca_deja_una_reserva_cerrada_con_salida_futura(api, monkeypatch):
+    """El invariante que el resto del sistema da por cierto."""
+    client, engine = api
+    token = _token_dueño(client)
+    hoy = datetime(2026, 10, 22, 18, 0, tzinfo=ARGENTINA_TZ)
+    monkeypatch.setattr(hotel, "obtener_fecha_argentina", lambda: hoy)
+    rid = _reserva(engine, (2026, 10, 20), (2026, 10, 25))  # se va antes de tiempo
+
+    _cuerpo, reserva = _checkout(client, engine, rid, token)
+
+    assert reserva.estado == "completada"
+    assert reserva.fecha_checkout.date() <= hoy.date()
+
+
+# ─────────── Cancelar: el camino correcto para deshacer una carga ───────────
+
+
+def _reserva_gestion(client, token, habitacion_id, ingreso, egreso):
+    return client.post(
+        "/reservas-gestion",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "nombre_completo": "Huésped Nuevo",
+            "dni": "99999999",
+            "celular": "3755000000",
+            "cantidad_personas": 2,
+            "habitacion_id": habitacion_id,
+            "fecha_ingreso": ingreso,
+            "fecha_egreso": egreso,
+            "precio_total": 90000,
+            "seña": 0,
+            "forma_pago": "efectivo",
+        },
+    )
+
+
+def test_el_empleado_puede_cancelar_una_reserva(api, monkeypatch):
+    """Cancelar es lo que hay que hacer con una reserva cargada por error, y
+    quien la carga es el empleado. Antes le daba 403 y usaba el check-out."""
+    client, engine = api
+    _alta(client, "empleado@santino.com", "secreta", "empleado")
+    token = _login(client, "empleado@santino.com", "secreta")
+    monkeypatch.setattr(
+        hotel, "obtener_fecha_argentina", lambda: datetime(2026, 10, 22, 18, 0, tzinfo=ARGENTINA_TZ)
+    )
+    rid = _reserva(engine, (2026, 10, 23), (2026, 10, 24))
+
+    r = client.delete(f"/reservas/{rid}", headers={"Authorization": f"Bearer {token}"})
+
+    assert r.status_code == 200, r.text
+    with Session(engine) as s:
+        assert s.get(Reserva, rid).estado == "cancelada"
+
+
+def test_cancelar_libera_la_habitacion_en_esas_fechas(api, monkeypatch):
+    """El caso entero del empleado: cargó mal una fecha y necesita esa misma
+    habitación, esos mismos días, para otro huésped."""
+    client, engine = api
+    _alta(client, "empleado2@santino.com", "secreta", "empleado")
+    token = _login(client, "empleado2@santino.com", "secreta")
+    monkeypatch.setattr(
+        hotel, "obtener_fecha_argentina", lambda: datetime(2026, 10, 22, 18, 0, tzinfo=ARGENTINA_TZ)
+    )
+    rid = _reserva(engine, (2026, 10, 23), (2026, 10, 24))
+
+    # Con la reserva equivocada viva, la habitación está ocupada.
+    assert _reserva_gestion(client, token, 1, "23/10/2026", "24/10/2026").status_code == 400
+
+    client.delete(f"/reservas/{rid}", headers={"Authorization": f"Bearer {token}"})
+
+    # Cancelada, la habitación vuelve a estar disponible esos mismos días.
+    assert _reserva_gestion(client, token, 1, "23/10/2026", "24/10/2026").status_code == 200

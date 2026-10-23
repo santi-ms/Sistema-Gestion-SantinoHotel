@@ -3,10 +3,10 @@ import { SkeletonTable } from "./components/Skeleton";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { API_BASE_URL, TOKEN_KEY } from "./config";
-import { getUserRole } from "./hooks/useAuth";
 import { useToast } from "./components/ToastContainer";
 import ConfirmModal from "./components/ConfirmModal";
 import Modal from "./components/Modal";
+import { obtenerFechaISOArgentina } from "./utils/fechas";
 import {
   Calendar,
   User,
@@ -64,7 +64,6 @@ export default function ReservasDia() {
   const [reservaPendienteImpresion, setReservaPendienteImpresion] = useState(null);
   const [mostrarConfirmEliminar, setMostrarConfirmEliminar] = useState(false);
   const [reservaEliminarId, setReservaEliminarId] = useState(null);
-  const [usuarioRol, setUsuarioRol] = useState(null);
   const { success, error, warning } = useToast();
   const navigate = useNavigate();
 
@@ -157,12 +156,6 @@ export default function ReservasDia() {
     }
   };
 
-  // Obtener rol del usuario desde el token
-  useEffect(() => {
-    const rol = getUserRole();
-    if (rol) setUsuarioRol(rol);
-  }, []);
-
   useEffect(() => {
     obtenerHabitaciones();
   }, []);
@@ -172,20 +165,22 @@ export default function ReservasDia() {
   }, [fechaSeleccionada]);
 
   const validarDisponibilidad = () => {
-    const fechaInicio = new Date(ingreso);
-    const fechaFin = new Date(egreso);
-
+    // Se compara por DÍA calendario argentino, no por instante. `ingreso` viene
+    // de un <input type="date"> ("2026-10-23"), que new Date() lee como
+    // medianoche UTC (las 21:00 del 22 en Argentina), mientras que el check-out
+    // del backend es medianoche argentina: 3 horas después. Con instantes, una
+    // salida el 23 y un ingreso el 23 se leían como solapados y se rechazaba la
+    // rotación del mismo día, que es la más común de un hotel.
+    // Dos estadías se pisan si cada una empieza antes de que la otra termine;
+    // el día de salida queda libre.
     const conflictos = reservas.filter((r) => {
       // Excluir reservas canceladas
       if (r.estado === "cancelada") return false;
       if (r.habitacion_id !== habitacion) return false;
-      const checkIn = new Date(r.fecha_checkin);
-      const checkOut = new Date(r.fecha_checkout);
-      return (
-        (fechaInicio >= checkIn && fechaInicio < checkOut) ||
-        (fechaFin > checkIn && fechaFin <= checkOut) ||
-        (fechaInicio <= checkIn && fechaFin >= checkOut)
-      );
+      const entrada = obtenerFechaISOArgentina(r.fecha_checkin);
+      const salida = obtenerFechaISOArgentina(r.fecha_checkout);
+      if (!entrada || !salida) return false;
+      return ingreso < salida && egreso > entrada;
     });
 
     return conflictos.length === 0;
@@ -832,7 +827,7 @@ export default function ReservasDia() {
                             ✓ Checkout realizado
                           </div>
                         )}
-                        {usuarioRol === "dueño" && datos.estado !== "cancelada" && (
+                        {datos.estado !== "cancelada" && (
                           <button
                             className="w-full bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 flex items-center justify-center gap-2"
                             onClick={() => abrirConfirmEliminar(datos.id)}
